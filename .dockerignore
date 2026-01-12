@@ -1,0 +1,38 @@
+# Binaries
+gentis
+client
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test and coverage
+*.test
+*.out
+coverage.html
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Documentation
+*.md
+!README.md
+
+# CI/CD
+.github
+
+# Build artifacts
+vendor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local files
+*.local
