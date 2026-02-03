@@ -1,4 +1,4 @@
-.PHONY: all build test clean run client fmt vet
+.PHONY: all build test clean run client fmt vet proto proto-lint
 
 BINARY_NAME=gentis
 CLIENT_NAME=client
@@ -80,6 +80,12 @@ docker-stop:
 
 lint: fmt vet
 
+proto:
+	@buf generate
+
+proto-lint:
+	@buf lint
+
 help:
 	@echo "Available targets:"
 	@echo ""
@@ -104,6 +110,10 @@ help:
 	@echo "  make fmt        - Format code"
 	@echo "  make vet        - Run go vet"
 	@echo "  make lint       - Run fmt and vet"
+	@echo ""
+	@echo "Proto:"
+	@echo "  make proto      - Generate protobuf/gRPC code"
+	@echo "  make proto-lint - Lint proto files"
 	@echo ""
 	@echo "Other:"
 	@echo "  make run        - Build and run server"
