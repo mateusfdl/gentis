@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mateusfdl/gentis/internal/server"
+	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
 )
 
 const (
@@ -19,23 +19,21 @@ const (
 )
 
 func main() {
-	address := flag.String("addr", defaultAddress, "Server listen address (host:port)")
+	address := flag.String("addr", defaultAddress, "gRPC server listen address (host:port)")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Printf("Starting Gentis server on %s", *address)
+	log.Printf("Starting Gentis gRPC server on %s", *address)
 
-	srv := server.New(*address)
+	srv := grpcserver.New(*address)
 
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 
-	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for shutdown signal
 	sig := <-sigChan
 	log.Printf("Received signal %v, initiating graceful shutdown...", sig)
 
