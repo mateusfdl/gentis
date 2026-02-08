@@ -15,7 +15,7 @@ type Deduplicator struct {
 }
 
 type dedupEntry struct {
-	timestamp atomic.Int64 
+	timestamp atomic.Int64
 }
 
 func NewDeduplicator(ttl time.Duration) *Deduplicator {
