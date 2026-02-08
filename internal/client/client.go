@@ -1,4 +1,3 @@
-// Package client manages per-connection client state.
 package client
 
 import (
