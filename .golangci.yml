@@ -1,0 +1,16 @@
+version: "2"
+
+run:
+  allow-parallel-runners: true
+
+formatters:
+  enable:
+    - goimports
+
+linters:
+  exclusions:
+    rules:
+      - path: test
+        text: "ST1001: should not use dot imports"
+        linters:
+          - staticcheck
