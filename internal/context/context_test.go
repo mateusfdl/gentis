@@ -117,15 +117,12 @@ func TestMetadata_Clone(t *testing.T) {
 
 	clone := m.Clone()
 
-	// Verify clone has the value
 	if v := clone.GetString("key"); v != "original" {
 		t.Errorf("expected original in clone, got %s", v)
 	}
 
-	// Modify original
 	m.Set("key", "modified")
 
-	// Clone should not be affected
 	if v := clone.GetString("key"); v != "original" {
 		t.Errorf("clone should not be affected, got %s", v)
 	}
@@ -150,7 +147,6 @@ func TestMetadata_ConcurrentAccess(t *testing.T) {
 	m := NewMetadata()
 	var wg sync.WaitGroup
 
-	// Concurrent writes
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -159,7 +155,6 @@ func TestMetadata_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	// Concurrent reads
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func() {
@@ -170,7 +165,6 @@ func TestMetadata_ConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 
-	// Should not panic and should have a value
 	if _, ok := m.Get("key"); !ok {
 		t.Error("expected key to exist after concurrent access")
 	}
@@ -235,13 +229,11 @@ func TestContext_Value(t *testing.T) {
 	c := New(nil)
 	c.Set("mykey", "myvalue")
 
-	// Should be retrievable via Value method
 	v := c.Value("mykey")
 	if v != "myvalue" {
 		t.Errorf("expected myvalue via Value(), got %v", v)
 	}
 
-	// Non-existent key should return nil
 	v = c.Value("nonexistent")
 	if v != nil {
 		t.Errorf("expected nil for nonexistent, got %v", v)
@@ -254,7 +246,6 @@ func TestContext_ValueFallsBackToParent(t *testing.T) {
 
 	c := New(parent)
 
-	// Should fall back to parent context
 	v := c.Value(parentKey{})
 	if v != "parentvalue" {
 		t.Errorf("expected parentvalue, got %v", v)
@@ -268,17 +259,15 @@ func TestContext_WithCancel(t *testing.T) {
 	child, cancel := c.WithCancel()
 	defer cancel()
 
-	// Metadata should be shared
 	if child.metadata.GetString("preserved") != "value" {
 		t.Error("metadata should be preserved")
 	}
 
-	// Cancel should work
 	cancel()
 
 	select {
 	case <-child.Done():
-		// Expected
+
 	case <-time.After(time.Second):
 		t.Error("context should be canceled")
 	}
@@ -291,15 +280,13 @@ func TestContext_WithTimeout(t *testing.T) {
 	child, cancel := c.WithTimeout(50 * time.Millisecond)
 	defer cancel()
 
-	// Metadata should be shared
 	if child.metadata.GetString("preserved") != "value" {
 		t.Error("metadata should be preserved")
 	}
 
-	// Should timeout
 	select {
 	case <-child.Done():
-		// Expected
+
 	case <-time.After(time.Second):
 		t.Error("context should timeout")
 	}
@@ -313,35 +300,31 @@ func TestContext_WithDeadline(t *testing.T) {
 	child, cancel := c.WithDeadline(deadline)
 	defer cancel()
 
-	// Metadata should be shared
 	if child.metadata.GetString("preserved") != "value" {
 		t.Error("metadata should be preserved")
 	}
 
-	// Should reach deadline
 	select {
 	case <-child.Done():
-		// Expected
+
 	case <-time.After(time.Second):
 		t.Error("context should reach deadline")
 	}
 }
 
 func TestContext_FromContext(t *testing.T) {
-	// From nil
+
 	c := FromContext(nil)
 	if c == nil {
 		t.Fatal("expected non-nil context from nil")
 	}
 
-	// From *Context
 	original := New(nil).WithTraceID("trace-123")
 	extracted := FromContext(original)
 	if extracted.TraceID() != "trace-123" {
 		t.Error("expected to get same context")
 	}
 
-	// From standard context.Context
 	stdCtx := context.Background()
 	c = FromContext(stdCtx)
 	if c == nil {
@@ -352,10 +335,8 @@ func TestContext_FromContext(t *testing.T) {
 func TestContext_WrapAndExtract(t *testing.T) {
 	c := New(nil).WithTraceID("trace-123")
 
-	// Wrap into standard context
 	wrapped := c.Wrap()
 
-	// Extract back
 	extracted := FromContext(wrapped)
 	if extracted.TraceID() != "trace-123" {
 		t.Errorf("expected trace-123 after wrap/extract, got %s", extracted.TraceID())
@@ -368,12 +349,10 @@ func TestContext_WithMetadata(t *testing.T) {
 
 	c := WithMetadata(context.Background(), md)
 
-	// Should have the metadata
 	if c.metadata.GetString("key") != "value" {
 		t.Error("expected metadata to be copied")
 	}
 
-	// Should be a clone
 	md.Set("key", "modified")
 	if c.metadata.GetString("key") != "value" {
 		t.Error("context should have cloned metadata")
@@ -383,7 +362,6 @@ func TestContext_WithMetadata(t *testing.T) {
 func TestContext_TimeHelpers(t *testing.T) {
 	c := New(nil)
 
-	// Without start time
 	if !c.StartTime().IsZero() {
 		t.Error("expected zero start time")
 	}
@@ -391,7 +369,6 @@ func TestContext_TimeHelpers(t *testing.T) {
 		t.Error("expected zero elapsed without start time")
 	}
 
-	// With start time
 	start := time.Now().Add(-100 * time.Millisecond)
 	c.WithStartTime(start)
 
@@ -468,20 +445,18 @@ func TestContext_DoneFromParent(t *testing.T) {
 
 	c := New(parent)
 
-	// Should not be done yet
 	select {
 	case <-c.Done():
 		t.Error("context should not be done yet")
 	default:
-		// Expected
+
 	}
 
 	cancel()
 
-	// Should be done now
 	select {
 	case <-c.Done():
-		// Expected
+
 	case <-time.After(time.Second):
 		t.Error("context should be done after cancel")
 	}

@@ -2,8 +2,29 @@ package context
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
+)
+
+const (
+	KeyTraceID  = "trace_id"
+	KeySpanID   = "span_id"
+	KeyParentID = "parent_id"
+
+	KeyRequestID = "request_id"
+	KeyOperation = "operation"
+	KeyChannel   = "channel"
+	KeyStartTime = "start_time"
+
+	KeySessionID = "session_id"
+	KeyClientID  = "client_id"
+	KeyClientIP  = "client_ip"
+	KeyUserAgent = "user_agent"
+
+	KeyUserID   = "user_id"
+	KeyTenantID = "tenant_id"
+	KeyAuthTime = "auth_time"
 )
 
 type Metadata struct {
@@ -68,9 +89,9 @@ func (m *Metadata) Clone() *Metadata {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	clone := NewMetadata()
-	for k, v := range m.values {
-		clone.values[k] = v
-	}
+
+	maps.Copy(clone.values, m.values)
+
 	return clone
 }
 
@@ -79,26 +100,6 @@ func (m *Metadata) Len() int {
 	defer m.mu.RUnlock()
 	return len(m.values)
 }
-
-const (
-	KeyTraceID  = "trace_id"
-	KeySpanID   = "span_id"
-	KeyParentID = "parent_id"
-
-	KeyRequestID = "request_id"
-	KeyOperation = "operation"
-	KeyChannel   = "channel"
-	KeyStartTime = "start_time"
-
-	KeySessionID = "session_id"
-	KeyClientID  = "client_id"
-	KeyClientIP  = "client_ip"
-	KeyUserAgent = "user_agent"
-
-	KeyUserID   = "user_id"
-	KeyTenantID = "tenant_id"
-	KeyAuthTime = "auth_time"
-)
 
 type contextKey struct{}
 
@@ -178,7 +179,7 @@ func (c *Context) WithDeadline(d time.Time) (*Context, context.CancelFunc) {
 
 func FromContext(ctx context.Context) *Context {
 	if ctx == nil {
-		return New(nil)
+		return New(context.TODO())
 	}
 
 	if c, ok := ctx.(*Context); ok {
