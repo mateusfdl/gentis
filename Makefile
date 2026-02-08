@@ -33,9 +33,6 @@ build-minimal:
 	@upx --best --lzma $(BUILD_DIR)/$(BINARY_NAME)
 	@ls -lh $(BUILD_DIR)/$(BINARY_NAME)
 
-client:
-	@go build -o $(BUILD_DIR)/$(CLIENT_NAME) ./examples/simple_client
-
 test:
 	@go test -v -race ./...
 
@@ -52,31 +49,13 @@ vet:
 run: build
 	@./$(BINARY_NAME)
 
-clean:
-	@rm -f $(BINARY_NAME) $(CLIENT_NAME)
-	@rm -f coverage.out coverage.html
-	@go clean
-
-deps:
-	@go mod download
-	@go mod tidy
-
-all-build: build client
-
 .PHONY: docker-build docker-build-alpine docker-run docker-stop
 
 docker-build:
 	@docker build -t gentis:latest -t gentis:$(VERSION) .
 
-docker-build-alpine:
-	@docker build -f Dockerfile.alpine -t gentis:alpine -t gentis:$(VERSION)-alpine .
-
 docker-run:
 	@docker run -d --name gentis -p 9000:9000 gentis:latest
-
-docker-stop:
-	@docker stop gentis 2>/dev/null || true
-	@docker rm gentis 2>/dev/null || true
 
 lint: fmt vet
 
