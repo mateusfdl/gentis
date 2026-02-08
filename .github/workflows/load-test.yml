@@ -1,0 +1,230 @@
+name: Load Test with Metrics
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    # Run daily at 2 AM
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type'
+        required: true
+        default: 'pubsub'
+        type: choice
+        options:
+          - smoke
+          - pubsub
+          - stress
+          - soak
+      target:
+        description: 'Target'
+        required: true
+        default: 'server'
+        type: choice
+        options:
+          - server
+          - relay
+      vus:
+        description: 'Virtual Users'
+        required: true
+        default: '100'
+      duration:
+        description: 'Duration'
+        required: true
+        default: '60s'
+      server_cpu:
+        description: 'Server CPU Limit'
+        required: true
+        default: '2.0'
+      server_memory:
+        description: 'Server Memory Limit'
+        required: true
+        default: '1g'
+      collect_metrics:
+        description: 'Collect Metrics'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Setup k6
+      uses: grafana/setup-k6-action@v1
+
+    - name: Setup jq
+      run: sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Build Gentis
+      run: |
+        go build -o gentis ./cmd/gentis
+
+    - name: Start infrastructure with monitoring
+      working-directory: ./test
+      run: |
+        export SERVER_CPU_LIMIT=${{ github.event.inputs.server_cpu || '2.0' }}
+        export SERVER_MEMORY_LIMIT=${{ github.event.inputs.server_memory || '1g' }}
+        ./test.sh up-full
+
+    - name: Wait for services
+      run: sleep 15
+
+    - name: Check metrics targets
+      working-directory: ./test
+      run: |
+        ./test.sh metrics-check
+
+    - name: Run smoke test
+      working-directory: ./test
+      run: |
+        ./test.sh test --test-type smoke
+
+    - name: Collect baseline metrics
+      working-directory: ./test
+      run: |
+        ./test.sh metrics > baseline_metrics.txt
+        cat baseline_metrics.txt
+
+    - name: Run load test
+      working-directory: ./test
+      run: |
+        ./test.sh test \
+          --test-type ${{ github.event.inputs.test_type || 'pubsub' }} \
+          --target ${{ github.event.inputs.target || 'server' }} \
+          --vus ${{ github.event.inputs.vus || '100' }} \
+          --duration ${{ github.event.inputs.duration || '60s' }}
+
+    - name: Collect final metrics
+      working-directory: ./test
+      run: |
+        ./test.sh metrics > final_metrics.txt
+        cat final_metrics.txt
+
+    - name: Analyze metrics
+      working-directory: ./test
+      run: |
+        echo "=== Metrics Analysis ==="
+        
+        # Get drop rate
+        DROP_RATE=$(./metrics.sh query "(sum(gentis_messages_dropped_total) / sum(gentis_messages_published_total)) * 100" | jq -r '.data.result[0].value[1] // "0"')
+        echo "Message Drop Rate: ${DROP_RATE}%"
+        
+        # Get delivery rate
+        DELIVERY_RATE=$(./metrics.sh query "(sum(gentis_messages_delivered_total) / sum(gentis_messages_published_total)) * 100" | jq -r '.data.result[0].value[1] // "0"')
+        echo "Message Delivery Rate: ${DELIVERY_RATE}%"
+        
+        # Get connection count
+        CONNECTIONS=$(./metrics.sh query "sum(gentis_connections_active)" | jq -r '.data.result[0].value[1] // "0"')
+        echo "Active Connections: ${CONNECTIONS}"
+        
+        # Check if drop rate is acceptable (< 5%)
+        if (( $(echo "$DROP_RATE > 5" | bc -l) )); then
+          echo "WARNING: Drop rate is above 5%"
+        fi
+
+    - name: Collect container stats
+      if: always()
+      working-directory: ./test
+      run: |
+        echo "=== Container Stats ===" >> $GITHUB_STEP_SUMMARY
+        ./test.sh stats >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload metrics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: metrics-results
+        path: |
+          test/results/
+          test/baseline_metrics.txt
+          test/final_metrics.txt
+
+    - name: Collect logs
+      if: always()
+      working-directory: ./test
+      run: |
+        echo "=== Server Logs ===" > logs.txt
+        docker logs gentis-server >> logs.txt 2>&1 || true
+        echo "" >> logs.txt
+        echo "=== Relay Logs ===" >> logs.txt
+        docker logs gentis-relay >> logs.txt 2>&1 || true
+        echo "" >> logs.txt
+        echo "=== Prometheus Logs ===" >> logs.txt
+        docker logs gentis-prometheus >> logs.txt 2>&1 || true
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gentis-logs
+        path: ./test/logs.txt
+
+    - name: Cleanup
+      if: always()
+      working-directory: ./test
+      run: |
+        ./test.sh down
+
+  benchmark:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Setup k6
+      uses: grafana/setup-k6-action@v1
+
+    - name: Setup jq
+      run: sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Run benchmark suite with monitoring
+      working-directory: ./test
+      run: |
+        export SERVER_CPU_LIMIT=2.0
+        export SERVER_MEMORY_LIMIT=1g
+        ./test.sh up-full
+        sleep 15
+        ./test.sh benchmark
+
+    - name: Collect final metrics
+      working-directory: ./test
+      run: |
+        ./test.sh metrics > benchmark_metrics.txt
+        cat benchmark_metrics.txt
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: |
+          test/results/
+          test/benchmark_metrics.txt
+
+    - name: Cleanup
+      if: always()
+      working-directory: ./test
+      run: |
+        ./test.sh down
