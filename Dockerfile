@@ -20,15 +20,11 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 
 RUN upx --best --lzma gentis
 
-FROM scratch
-
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /build/gentis /gentis
 
 EXPOSE 9000
-
-USER 65534:65534
 
 ENTRYPOINT ["/gentis"]
 CMD ["-addr", "0.0.0.0:9000"]
