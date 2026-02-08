@@ -23,6 +23,16 @@ func (s *subscriptions) Remove(id SubscriberID, channel string) {
 	}
 	channels := channelsI.(*sync.Map)
 	channels.Delete(channel)
+
+	// Clean up the outer entry if the inner map is now empty.
+	empty := true
+	channels.Range(func(_, _ any) bool {
+		empty = false
+		return false
+	})
+	if empty {
+		s.index.CompareAndDelete(id, channelsI)
+	}
 }
 
 func (s *subscriptions) RemoveAll(id SubscriberID) {

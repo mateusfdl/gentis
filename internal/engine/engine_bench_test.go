@@ -176,20 +176,3 @@ func BenchmarkShardDistribution(b *testing.B) {
 	}
 }
 
-func BenchmarkSubscriberSlicePool(b *testing.B) {
-	b.Run("with-pool", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			s := AcquireSubscriberSlice()
-			*s = append(*s, 1, 2, 3, 4, 5)
-			ReleaseSubscriberSlice(s)
-		}
-	})
-
-	b.Run("without-pool", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			s := make([]SubscriberID, 0, 128)
-			s = append(s, 1, 2, 3, 4, 5)
-			_ = s
-		}
-	})
-}

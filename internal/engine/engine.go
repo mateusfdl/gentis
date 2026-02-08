@@ -103,9 +103,10 @@ func (e *engine) getOrCreateChannel(name string) *channel {
 func (e *engine) deleteChannelIfEmpty(name string) {
 	shard := e.getShard(name)
 	if ch, ok := shard.channels.Load(name); ok {
-		if ch.(*channel).SubscriberCount() == 0 {
-			shard.channels.Delete(name)
-			e.channelCount.Add(-1)
+		if ch.(*channel).TryDelete() {
+			if shard.channels.CompareAndDelete(name, ch) {
+				e.channelCount.Add(-1)
+			}
 		}
 	}
 }
