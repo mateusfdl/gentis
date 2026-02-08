@@ -28,4 +28,6 @@ plugins:
             section: Test
           - type: ci
             section: CI
-  - "@semantic-release/github"
+  - - "@semantic-release/github"
+    - assets:
+        - path: "artifacts/gentis-*"

@@ -2,7 +2,7 @@ name: Release
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["Build"]
     branches: [main]
     types: [completed]
 
@@ -26,7 +26,15 @@ jobs:
           node-version: lts/*
 
       - name: Install semantic-release plugins
-        run: npm install -g semantic-release @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/github
+        run: npm install -g semantic-release @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/github conventional-changelog-conventionalcommits
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          merge-multiple: true
 
       - name: Run semantic-release
         env:
