@@ -35,12 +35,14 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 	}
 
 	s.sessions.Store(id, sess)
+	s.connectionCount.Add(1)
 	return sess
 }
 
 func (s *Server) cleanupSession(sess *Session) {
 	sess.cancel()
 	s.sessions.Delete(sess.id)
+	s.connectionCount.Add(-1)
 	s.engine.UnsubscribeAll(engine.SubscriberID(sess.id))
 }
 
