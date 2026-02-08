@@ -33,7 +33,8 @@ type Upstream struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	connected atomic.Bool
+	connected    atomic.Bool
+	reconnecting atomic.Bool
 }
 
 type subscriptionRef struct {
@@ -275,10 +276,14 @@ func (u *Upstream) handleDisconnect() {
 	u.stream = nil
 	u.streamMu.Unlock()
 
-	go u.reconnect()
+	if u.reconnecting.CompareAndSwap(false, true) {
+		go u.reconnect()
+	}
 }
 
 func (u *Upstream) reconnect() {
+	defer u.reconnecting.Store(false)
+
 	delay := u.policy.InitialDelay
 	attempts := 0
 
