@@ -3,6 +3,7 @@ package relay
 import (
 	"hash/fnv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,7 +15,7 @@ type Deduplicator struct {
 }
 
 type dedupEntry struct {
-	timestamp time.Time
+	timestamp atomic.Int64 
 }
 
 func NewDeduplicator(ttl time.Duration) *Deduplicator {
@@ -29,14 +30,18 @@ func NewDeduplicator(ttl time.Duration) *Deduplicator {
 
 func (d *Deduplicator) Check(channel string, data []byte) bool {
 	key := d.createKey(channel, data)
-	now := time.Now()
+	now := time.Now().UnixNano()
 
-	if val, loaded := d.seen.LoadOrStore(key, &dedupEntry{timestamp: now}); loaded {
+	newEntry := &dedupEntry{}
+	newEntry.timestamp.Store(now)
+
+	if val, loaded := d.seen.LoadOrStore(key, newEntry); loaded {
 		entry := val.(*dedupEntry)
-		if now.Sub(entry.timestamp) < d.ttl {
+		ts := entry.timestamp.Load()
+		if now-ts < int64(d.ttl) {
 			return false
 		}
-		entry.timestamp = now
+		entry.timestamp.Store(now)
 	}
 	return true
 }
@@ -71,10 +76,11 @@ func (d *Deduplicator) cleanup() {
 		case <-d.done:
 			return
 		case <-ticker.C:
-			now := time.Now()
+			now := time.Now().UnixNano()
+			cutoff := int64(d.ttl * 2)
 			d.seen.Range(func(key, value any) bool {
 				entry := value.(*dedupEntry)
-				if now.Sub(entry.timestamp) > d.ttl*2 {
+				if now-entry.timestamp.Load() > cutoff {
 					d.seen.Delete(key)
 				}
 				return true
