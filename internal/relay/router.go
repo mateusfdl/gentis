@@ -13,6 +13,8 @@ const (
 	RouteModeBoth
 )
 
+const maxCacheSize = 10000
+
 type ChannelPattern struct {
 	Pattern string
 	Mode    RouteMode
@@ -24,22 +26,34 @@ type RouteResult struct {
 
 type Router struct {
 	patterns []ChannelPattern
-	cache    sync.Map
+	cache    map[string]*RouteResult
+	mu       sync.RWMutex
 }
 
 func NewRouter(patterns []ChannelPattern) *Router {
 	return &Router{
 		patterns: patterns,
+		cache:    make(map[string]*RouteResult),
 	}
 }
 
 func (r *Router) Route(channel string) *RouteResult {
-	if cached, ok := r.cache.Load(channel); ok {
-		return cached.(*RouteResult)
+	r.mu.RLock()
+	if cached, ok := r.cache[channel]; ok {
+		r.mu.RUnlock()
+		return cached
 	}
+	r.mu.RUnlock()
 
 	result := r.resolve(channel)
-	r.cache.Store(channel, result)
+
+	r.mu.Lock()
+	if len(r.cache) >= maxCacheSize {
+		r.cache = make(map[string]*RouteResult)
+	}
+	r.cache[channel] = result
+	r.mu.Unlock()
+
 	return result
 }
 
@@ -59,5 +73,7 @@ func (r *Router) matches(pattern, channel string) bool {
 }
 
 func (r *Router) ClearCache() {
-	r.cache = sync.Map{}
+	r.mu.Lock()
+	r.cache = make(map[string]*RouteResult)
+	r.mu.Unlock()
 }
