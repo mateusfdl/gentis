@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package gentis.v1;
+
+option go_package = "github.com/mateusfdl/gentis/api/gen/gentis/v1;gentisv1";
+
+// GentisService provides pub/sub functionality over a bidirectional stream.
+service GentisService {
+  // Stream establishes a bidirectional streaming connection for all pub/sub operations.
+  rpc Stream(stream ClientMessage) returns (stream ServerMessage);
+}
+
+// ClientMessage wraps all possible client-to-server messages.
+message ClientMessage {
+  oneof message {
+    ConnectRequest connect = 1;
+    SubscribeRequest subscribe = 2;
+    UnsubscribeRequest unsubscribe = 3;
+    PublishRequest publish = 4;
+    PingRequest ping = 5;
+  }
+}
+
+// ServerMessage wraps all possible server-to-client messages.
+message ServerMessage {
+  oneof message {
+    ConnectedResponse connected = 1;
+    SubscribedResponse subscribed = 2;
+    UnsubscribedResponse unsubscribed = 3;
+    ChannelMessage channel_message = 4;
+    PongResponse pong = 5;
+    ErrorResponse error = 6;
+  }
+}
+
+// ConnectRequest authenticates the client.
+message ConnectRequest {
+  string auth_token = 1;
+}
+
+// ConnectedResponse confirms successful authentication.
+message ConnectedResponse {
+  string connection_id = 1;
+}
+
+// SubscribeRequest requests subscription to a channel.
+message SubscribeRequest {
+  string channel = 1;
+}
+
+// SubscribedResponse confirms subscription.
+message SubscribedResponse {
+  string channel = 1;
+}
+
+// UnsubscribeRequest requests unsubscription from a channel.
+message UnsubscribeRequest {
+  string channel = 1;
+}
+
+// UnsubscribedResponse confirms unsubscription.
+message UnsubscribedResponse {
+  string channel = 1;
+}
+
+// PublishRequest publishes a message to a channel.
+message PublishRequest {
+  string channel = 1;
+  bytes data = 2;
+}
+
+// ChannelMessage delivers a published message to subscribers.
+message ChannelMessage {
+  string channel = 1;
+  bytes data = 2;
+}
+
+// PingRequest is a keep-alive ping.
+message PingRequest {}
+
+// PongResponse is a keep-alive pong.
+message PongResponse {}
+
+// ErrorResponse reports an error.
+message ErrorResponse {
+  ErrorCode code = 1;
+  string message = 2;
+}
+
+// ErrorCode enumerates error types.
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_UNKNOWN_MESSAGE = 1;
+  ERROR_CODE_INVALID_PAYLOAD = 2;
+  ERROR_CODE_NOT_AUTHENTICATED = 3;
+  ERROR_CODE_CHANNEL_NOT_FOUND = 4;
+  ERROR_CODE_ALREADY_SUBSCRIBED = 5;
+  ERROR_CODE_NOT_SUBSCRIBED = 6;
+  ERROR_CODE_INTERNAL = 7;
+}

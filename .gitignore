@@ -1,6 +1,6 @@
 # Binaries
-gentis
-client
+/gentis
+/client
 *.exe
 *.exe~
 *.dll
