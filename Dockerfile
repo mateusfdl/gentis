@@ -27,4 +27,4 @@ COPY --from=builder /build/gentis /gentis
 EXPOSE 9000
 
 ENTRYPOINT ["/gentis"]
-CMD ["-addr", "0.0.0.0:9000"]
+CMD ["serve", "-addr", "0.0.0.0:9000"]
