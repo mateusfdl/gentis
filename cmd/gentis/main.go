@@ -12,6 +12,7 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/engine"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
+	"github.com/mateusfdl/gentis/internal/metrics"
 	"github.com/mateusfdl/gentis/internal/relay"
 	"github.com/mateusfdl/gentis/internal/transport"
 	wsserver "github.com/mateusfdl/gentis/internal/ws"
@@ -63,7 +64,14 @@ func runServe(args []string) int {
 	metricsEnabled := fs.Bool("metrics", true, "enable Prometheus metrics")
 	fs.Parse(args)
 
-	eng := engine.New()
+	var obs *metrics.Observer
+	engOpts := []engine.Option{}
+	if *metricsEnabled {
+		obs = metrics.NewObserver("server")
+		engOpts = append(engOpts, engine.WithObserver(obs))
+	}
+
+	eng := engine.New(engOpts...)
 	store := transport.NewSessionStore()
 
 	grpcOpts := []grpcserver.Option{
@@ -72,6 +80,7 @@ func runServe(args []string) int {
 	}
 	if *metricsEnabled {
 		grpcOpts = append(grpcOpts, grpcserver.WithMetrics(*metricsAddr))
+		grpcOpts = append(grpcOpts, grpcserver.WithObserver(obs))
 	}
 
 	grpcSrv := grpcserver.New(*addr, grpcOpts...)
@@ -132,7 +141,14 @@ func runRelay(args []string) int {
 
 	log.Printf("Starting Gentis relay on %s -> upstream %s", *addr, *upstream)
 
-	eng := engine.New()
+	var relayObs *metrics.Observer
+	relayEngOpts := []engine.Option{}
+	if *metricsEnabled {
+		relayObs = metrics.NewObserver("relay")
+		relayEngOpts = append(relayEngOpts, engine.WithObserver(relayObs))
+	}
+
+	eng := engine.New(relayEngOpts...)
 	store := transport.NewSessionStore()
 
 	opts := []relay.Option{
@@ -145,6 +161,7 @@ func runRelay(args []string) int {
 
 	if *metricsEnabled {
 		opts = append(opts, relay.WithMetrics(*metricsAddr))
+		opts = append(opts, relay.WithObserver(relayObs))
 	}
 
 	relaySrv := relay.New(opts...)
