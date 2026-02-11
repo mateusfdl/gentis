@@ -10,8 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mateusfdl/gentis/internal/engine"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
 	"github.com/mateusfdl/gentis/internal/relay"
+	"github.com/mateusfdl/gentis/internal/transport"
+	wsserver "github.com/mateusfdl/gentis/internal/ws"
 )
 
 func main() {
@@ -45,7 +48,7 @@ Usage:
   gentis <command> [flags]
 
 Commands:
-  serve    Start the pub/sub server
+  serve    Start the pub/sub server (gRPC + optional WebSocket)
   relay    Start a relay (reverse proxy) to an upstream server
   health   Check if a Gentis server is healthy
 
@@ -54,27 +57,57 @@ Run 'gentis <command> -h' for more information on a command.`)
 
 func runServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	addr := fs.String("addr", "127.0.0.1:9000", "listen address (host:port)")
+	addr := fs.String("addr", "127.0.0.1:9000", "gRPC listen address (host:port)")
+	wsAddr := fs.String("ws-addr", "", "WebSocket listen address (host:port), empty to disable")
 	metricsAddr := fs.String("metrics-addr", ":8080", "metrics server address")
 	metricsEnabled := fs.Bool("metrics", true, "enable Prometheus metrics")
 	fs.Parse(args)
 
-	log.Printf("Starting Gentis server on %s", *addr)
+	eng := engine.New()
+	store := transport.NewSessionStore()
 
-	var opts []grpcserver.Option
+	grpcOpts := []grpcserver.Option{
+		grpcserver.WithEngine(eng),
+		grpcserver.WithSessionStore(store),
+	}
 	if *metricsEnabled {
-		opts = append(opts, grpcserver.WithMetrics(*metricsAddr))
+		grpcOpts = append(grpcOpts, grpcserver.WithMetrics(*metricsAddr))
 	}
 
-	srv := grpcserver.New(*addr, opts...)
+	grpcSrv := grpcserver.New(*addr, grpcOpts...)
 
-	if err := srv.Start(); err != nil {
-		log.Printf("Failed to start server: %v", err)
+	log.Printf("Starting Gentis gRPC server on %s", *addr)
+	if err := grpcSrv.Start(); err != nil {
+		log.Printf("Failed to start gRPC server: %v", err)
 		return 1
 	}
 
+	var wsSrv *wsserver.Server
+	if *wsAddr != "" {
+		wsSrv = wsserver.New(*wsAddr,
+			wsserver.WithEngine(eng),
+			wsserver.WithSessionStore(store),
+		)
+
+		log.Printf("Starting Gentis WebSocket server on %s", *wsAddr)
+		if err := wsSrv.Start(); err != nil {
+			log.Printf("Failed to start WebSocket server: %v", err)
+			grpcSrv.Stop()
+			return 1
+		}
+	}
+
 	waitForShutdown(func() error {
-		return srv.Stop()
+		var firstErr error
+		if wsSrv != nil {
+			if err := wsSrv.Stop(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		if err := grpcSrv.Stop(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return firstErr
 	})
 
 	log.Println("Server stopped cleanly")
@@ -84,6 +117,7 @@ func runServe(args []string) int {
 func runRelay(args []string) int {
 	fs := flag.NewFlagSet("relay", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:9001", "relay listen address (host:port)")
+	wsAddr := fs.String("ws-addr", "", "WebSocket listen address (host:port), empty to disable")
 	upstream := fs.String("upstream", "", "upstream server address (required)")
 	authToken := fs.String("auth-token", "", "authentication token for upstream")
 	metricsAddr := fs.String("metrics-addr", ":8081", "metrics server address")
@@ -98,25 +132,54 @@ func runRelay(args []string) int {
 
 	log.Printf("Starting Gentis relay on %s -> upstream %s", *addr, *upstream)
 
+	eng := engine.New()
+	store := transport.NewSessionStore()
+
 	opts := []relay.Option{
 		relay.WithListenAddr(*addr),
 		relay.WithUpstream(*upstream, *authToken),
 		relay.WithReconnectPolicy(100*time.Millisecond, 30*time.Second, 2.0),
+		relay.WithEngine(eng),
+		relay.WithSessionStore(store),
 	}
 
 	if *metricsEnabled {
 		opts = append(opts, relay.WithMetrics(*metricsAddr))
 	}
 
-	srv := relay.New(opts...)
+	relaySrv := relay.New(opts...)
 
-	if err := srv.Start(); err != nil {
+	if err := relaySrv.Start(); err != nil {
 		log.Printf("Failed to start relay: %v", err)
 		return 1
 	}
 
+	var wsSrv *wsserver.Server
+	if *wsAddr != "" {
+		wsSrv = wsserver.New(*wsAddr,
+			wsserver.WithEngine(eng),
+			wsserver.WithSessionStore(store),
+		)
+
+		log.Printf("Starting Gentis WebSocket server on %s", *wsAddr)
+		if err := wsSrv.Start(); err != nil {
+			log.Printf("Failed to start WebSocket server: %v", err)
+			relaySrv.Stop()
+			return 1
+		}
+	}
+
 	waitForShutdown(func() error {
-		return srv.Stop()
+		var firstErr error
+		if wsSrv != nil {
+			if err := wsSrv.Stop(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		if err := relaySrv.Stop(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return firstErr
 	})
 
 	log.Println("Relay stopped cleanly")

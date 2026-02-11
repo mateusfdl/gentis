@@ -24,7 +24,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /build/gentis /gentis
 
-EXPOSE 9000
+EXPOSE 9000 9001
 
 ENTRYPOINT ["/gentis"]
-CMD ["serve", "-addr", "0.0.0.0:9000"]
+CMD ["serve", "-addr", "0.0.0.0:9000", "-ws-addr", "0.0.0.0:9001"]
