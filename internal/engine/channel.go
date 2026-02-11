@@ -19,9 +19,7 @@ func newChannel(name string) *channel {
 	return c
 }
 
-func (c *channel) Name() string {
-	return c.name
-}
+// --- Mutating methods ---
 
 func (c *channel) Subscribe(id SubscriberID) bool {
 	c.mu.Lock()
@@ -76,6 +74,12 @@ func (c *channel) Unsubscribe(id SubscriberID) bool {
 	return true
 }
 
+// --- Accessors ---
+
+func (c *channel) Name() string {
+	return c.name
+}
+
 func (c *channel) Subscribers() []SubscriberID {
 	ptr := c.subscribers.Load()
 
@@ -94,14 +98,4 @@ func (c *channel) SubscriberCount() int {
 	}
 
 	return len(*ptr)
-}
-
-// TryDelete atomically checks if the channel has no subscribers under the lock.
-// Returns true if the channel is empty and safe to remove from the shard map.
-func (c *channel) TryDelete() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	ptr := c.subscribers.Load()
-	return ptr == nil || len(*ptr) == 0
 }

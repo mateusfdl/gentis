@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"hash/fnv"
+	"maps"
 	"sync"
 	"sync/atomic"
 )
@@ -39,8 +39,10 @@ type Engine interface {
 const defaultNumShards = 32
 
 type shard struct {
-	channels sync.Map
-	_        [56]byte
+	mu       sync.RWMutex
+	channels map[string]*channel
+	peak     int
+	_        [16]byte
 }
 
 type engine struct {
@@ -61,95 +63,88 @@ func New(opts ...Option) Engine {
 		opt(cfg)
 	}
 
+	shards := make([]shard, cfg.numShards)
+	for i := range shards {
+		shards[i].channels = make(map[string]*channel)
+	}
+
 	e := &engine{
 		config:        cfg,
-		shards:        make([]shard, cfg.numShards),
+		shards:        shards,
 		subscriptions: newSubscriptions(),
 	}
 	return e
 }
 
-func (e *engine) getShard(channel string) *shard {
-	h := fnv.New32a()
-	h.Write([]byte(channel))
-	return &e.shards[h.Sum32()%uint32(len(e.shards))]
-}
+func (e *engine) Subscribe(id SubscriberID, channelName string) bool {
+	s := e.getShard(channelName)
+	s.mu.Lock()
 
-func (e *engine) getChannel(name string) *channel {
-	shard := e.getShard(name)
-	if ch, ok := shard.channels.Load(name); ok {
-		return ch.(*channel)
-	}
-	return nil
-}
-
-func (e *engine) getOrCreateChannel(name string) *channel {
-	shard := e.getShard(name)
-
-	if ch, ok := shard.channels.Load(name); ok {
-		return ch.(*channel)
-	}
-
-	newCh := newChannel(name)
-	actual, loaded := shard.channels.LoadOrStore(name, newCh)
-
-	if !loaded {
+	ch, ok := s.channels[channelName]
+	if !ok {
+		ch = newChannel(channelName)
+		s.channels[channelName] = ch
+		if len(s.channels) > s.peak {
+			s.peak = len(s.channels)
+		}
 		e.channelCount.Add(1)
 	}
 
-	return actual.(*channel)
-}
+	subscribed := ch.Subscribe(id)
+	s.mu.Unlock()
 
-func (e *engine) deleteChannelIfEmpty(name string) {
-	shard := e.getShard(name)
-	if ch, ok := shard.channels.Load(name); ok {
-		if ch.(*channel).TryDelete() {
-			if shard.channels.CompareAndDelete(name, ch) {
-				e.channelCount.Add(-1)
-			}
-		}
-	}
-}
-
-func (e *engine) Subscribe(id SubscriberID, channelName string) bool {
-	ch := e.getOrCreateChannel(channelName)
-
-	if !ch.Subscribe(id) {
-		return false
+	if subscribed {
+		e.subscriptions.Add(id, channelName)
+		e.subscriptionCount.Add(1)
 	}
 
-	e.subscriptions.Add(id, channelName)
-	e.subscriptionCount.Add(1)
-
-	return true
+	return subscribed
 }
 
 func (e *engine) Unsubscribe(id SubscriberID, channelName string) bool {
-	ch := e.getChannel(channelName)
-	if ch == nil {
+	s := e.getShard(channelName)
+	s.mu.Lock()
+
+	ch, ok := s.channels[channelName]
+	if !ok {
+		s.mu.Unlock()
 		return false
 	}
 
 	if !ch.Unsubscribe(id) {
+		s.mu.Unlock()
 		return false
 	}
 
+	if ch.SubscriberCount() == 0 {
+		delete(s.channels, channelName)
+		e.channelCount.Add(-1)
+		s.maybeRebuild()
+	}
+	s.mu.Unlock()
+
 	e.subscriptions.Remove(id, channelName)
 	e.subscriptionCount.Add(-1)
-	e.deleteChannelIfEmpty(channelName)
 	return true
 }
 
 func (e *engine) UnsubscribeAll(id SubscriberID) {
 	channels := e.subscriptions.GetChannels(id)
 	for _, channelName := range channels {
-		ch := e.getChannel(channelName)
-		if ch != nil {
+		s := e.getShard(channelName)
+		s.mu.Lock()
+		ch, ok := s.channels[channelName]
+		if ok {
 			if ch.Unsubscribe(id) {
 				e.subscriptionCount.Add(-1)
 			}
-			e.deleteChannelIfEmpty(channelName)
+			if ch.SubscriberCount() == 0 {
+				delete(s.channels, channelName)
+				e.channelCount.Add(-1)
+				s.maybeRebuild()
+			}
 		}
+		s.mu.Unlock()
 	}
 	e.subscriptions.RemoveAll(id)
 }
@@ -214,6 +209,40 @@ func (e *engine) Stats() EngineStats {
 		MessagesPublished: e.publishCount.Load(),
 		MessagesDelivered: e.deliveredCount.Load(),
 		MessagesDropped:   e.droppedCount.Load(),
+	}
+}
+
+// --- Private helpers ---
+
+// getShard returns the shard for a channel using inline FNV-1a hashing.
+// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+func (e *engine) getShard(channel string) *shard {
+	h := uint32(2166136261)
+	for i := 0; i < len(channel); i++ {
+		h ^= uint32(channel[i])
+		h *= 16777619
+	}
+	return &e.shards[h%uint32(len(e.shards))]
+}
+
+func (e *engine) getChannel(name string) *channel {
+	s := e.getShard(name)
+	s.mu.RLock()
+	ch := s.channels[name]
+	s.mu.RUnlock()
+	return ch
+}
+
+// maybeRebuild recreates the map to release old buckets when the load factor
+// drops well below the high-water mark. Must be called with s.mu held for writing.
+func (s *shard) maybeRebuild() {
+	if s.peak > 64 && len(s.channels) < s.peak/4 {
+		rebuilt := make(map[string]*channel, len(s.channels))
+
+		maps.Copy(rebuilt, s.channels)
+
+		s.channels = rebuilt
+		s.peak = len(s.channels)
 	}
 }
 
