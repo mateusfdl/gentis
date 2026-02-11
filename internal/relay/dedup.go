@@ -12,6 +12,8 @@ type Deduplicator struct {
 	ttl    time.Duration
 	window time.Duration
 	done   chan struct{}
+	hits   atomic.Int64
+	misses atomic.Int64
 }
 
 type dedupEntry struct {
@@ -39,11 +41,21 @@ func (d *Deduplicator) Check(channel string, data []byte) bool {
 		entry := val.(*dedupEntry)
 		ts := entry.timestamp.Load()
 		if now-ts < int64(d.ttl) {
+			d.hits.Add(1)
 			return false
 		}
 		entry.timestamp.Store(now)
 	}
+	d.misses.Add(1)
 	return true
+}
+
+func (d *Deduplicator) DedupHits() int64 {
+	return d.hits.Load()
+}
+
+func (d *Deduplicator) DedupMisses() int64 {
+	return d.misses.Load()
 }
 
 func (d *Deduplicator) Stop() {
@@ -55,7 +67,7 @@ func (d *Deduplicator) createKey(channel string, data []byte) uint64 {
 	h.Write([]byte(channel))
 	h.Write(data)
 
-	// Include time window to allow same message after TTL
+	// include time window to allow same message after TTL
 	window := time.Now().Unix() / int64(d.window.Seconds())
 	windowBytes := []byte{
 		byte(window >> 56), byte(window >> 48),

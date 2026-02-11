@@ -19,11 +19,21 @@ func (m *mockStatsProvider) Stats() engine.EngineStats {
 }
 
 type mockConnectionCounter struct {
-	count int64
+	count           int64
+	total           int64
+	disconnections  int64
 }
 
 func (m *mockConnectionCounter) ConnectionCount() int64 {
 	return m.count
+}
+
+func (m *mockConnectionCounter) ConnectionsTotal() int64 {
+	return m.total
+}
+
+func (m *mockConnectionCounter) DisconnectionsTotal() int64 {
+	return m.disconnections
 }
 
 func TestCollector(t *testing.T) {

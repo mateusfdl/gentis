@@ -28,12 +28,14 @@ type Server struct {
 	router   *Router
 	dedup    *Deduplicator
 
-	listener        net.Listener
-	grpcSrv         *grpc.Server
-	sessions        sync.Map
-	nextID          atomic.Int32
-	metrics         *metrics.Server
-	connectionCount atomic.Int64
+	listener            net.Listener
+	grpcSrv             *grpc.Server
+	sessions            sync.Map
+	nextID              atomic.Int32
+	metrics             *metrics.Server
+	connectionCount     atomic.Int64
+	connectionsTotal    atomic.Int64
+	disconnectionsTotal atomic.Int64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -51,7 +53,6 @@ type Session struct {
 	channels map[string]struct{}
 }
 
-// DeliverMessage implements transport.Sender.
 func (sess *Session) DeliverMessage(channel string, data []byte) bool {
 	msg := &gentisv1.ServerMessage{
 		Message: &gentisv1.ServerMessage_ChannelMessage{
@@ -99,9 +100,20 @@ func New(opts ...Option) *Server {
 	return s
 }
 
-// ConnectionCount returns the current number of active connections.
 func (s *Server) ConnectionCount() int64 {
 	return s.connectionCount.Load()
+}
+
+func (s *Server) ConnectionsTotal() int64 {
+	return s.connectionsTotal.Load()
+}
+
+func (s *Server) DisconnectionsTotal() int64 {
+	return s.disconnectionsTotal.Load()
+}
+
+func (s *Server) IsUpstreamConnected() bool {
+	return s.upstream.IsConnected()
 }
 
 func (s *Server) Start() error {
@@ -121,6 +133,11 @@ func (s *Server) Start() error {
 
 	if s.config.MetricsEnabled {
 		collector := metrics.NewCollector(s.engine, s, "relay")
+		collector.SetDedupStats(s.dedup)
+		collector.SetUpstreamStatus(s)
+		if s.config.Observer != nil {
+			collector.SetObserver(s.config.Observer)
+		}
 		s.metrics = metrics.NewServer(s.config.MetricsAddr, collector)
 		if err := s.metrics.Start(); err != nil {
 			listener.Close()
@@ -195,6 +212,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)
+	s.connectionsTotal.Add(1)
 	if s.store != nil {
 		s.store.Register(engine.SubscriberID(id), sess)
 	}
@@ -205,6 +223,7 @@ func (s *Server) cleanupSession(sess *Session) {
 	sess.cancel()
 	s.sessions.Delete(sess.id)
 	s.connectionCount.Add(-1)
+	s.disconnectionsTotal.Add(1)
 	if s.store != nil {
 		s.store.Unregister(engine.SubscriberID(sess.id))
 	}

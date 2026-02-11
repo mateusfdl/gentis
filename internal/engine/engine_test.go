@@ -340,7 +340,6 @@ func TestSubscriberCountNonexistentChannel(t *testing.T) {
 func TestUnsubscribeAllNoSubscriptions(t *testing.T) {
 	e := New()
 
-	// Should not panic
 	e.UnsubscribeAll(999)
 
 	if e.TotalSubscriptions() != 0 {
@@ -355,7 +354,7 @@ func TestStatsDropped(t *testing.T) {
 	e.Subscribe(2, "ch")
 
 	e.Publish("ch", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
-		return id != 2 // drop for subscriber 2
+		return id != 2
 	})
 
 	stats := e.Stats()
@@ -422,14 +421,12 @@ func TestConcurrentPublishMultipleChannels(t *testing.T) {
 	e := New()
 	var wg sync.WaitGroup
 
-	// Subscribe to different channels
 	for i := 0; i < 10; i++ {
 		for j := 0; j < 10; j++ {
 			e.Subscribe(SubscriberID(j), "channel-"+string(rune('a'+i)))
 		}
 	}
 
-	// Publish to different channels concurrently
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(ch string) {
@@ -452,7 +449,6 @@ func TestWithShardsZero(t *testing.T) {
 	e := New(WithShards(0))
 	eng := e.(*engine)
 
-	// WithShards(0) should keep default
 	if len(eng.shards) != defaultNumShards {
 		t.Errorf("expected %d shards for zero value, got %d", defaultNumShards, len(eng.shards))
 	}
@@ -544,7 +540,6 @@ func TestSubscriptionTrackerCountUnknown(t *testing.T) {
 func TestSubscriptionTrackerRemoveUnknown(t *testing.T) {
 	s := newSubscriptions()
 
-	// Should not panic
 	s.Remove(999, "ch")
 	s.RemoveAll(999)
 }
@@ -565,7 +560,6 @@ func TestMultipleSubscribersMultipleChannels(t *testing.T) {
 		t.Errorf("expected 4 subscriptions, got %d", e.TotalSubscriptions())
 	}
 
-	// Unsubscribe subscriber 1 from all
 	e.UnsubscribeAll(1)
 
 	if e.ChannelCount() != 2 {
@@ -587,7 +581,7 @@ func TestStatsAccumulate(t *testing.T) {
 
 	e.Publish("ch", []byte("msg1"), 0, deliver)
 	e.Publish("ch", []byte("msg2"), 0, deliver)
-	e.Publish("ch", []byte("msg3"), 1, deliver) // exclude 1
+	e.Publish("ch", []byte("msg3"), 1, deliver)
 
 	stats := e.Stats()
 
@@ -595,7 +589,6 @@ func TestStatsAccumulate(t *testing.T) {
 		t.Errorf("expected 3 published, got %d", stats.MessagesPublished)
 	}
 
-	// msg1: 2 delivered, msg2: 2 delivered, msg3: 1 delivered (exclude 1)
 	if stats.MessagesDelivered != 5 {
 		t.Errorf("expected 5 delivered, got %d", stats.MessagesDelivered)
 	}

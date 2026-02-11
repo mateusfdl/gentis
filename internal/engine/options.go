@@ -5,6 +5,7 @@ type Option func(*config)
 type config struct {
 	numShards     int
 	enableMetrics bool
+	observer      MetricsObserver
 }
 
 func defaultConfig() *config {
@@ -25,5 +26,11 @@ func WithShards(n int) Option {
 func WithMetrics(enabled bool) Option {
 	return func(c *config) {
 		c.enableMetrics = enabled
+	}
+}
+
+func WithObserver(obs MetricsObserver) Option {
+	return func(c *config) {
+		c.observer = obs
 	}
 }

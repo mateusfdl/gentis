@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// helper: allocate a free port and return the address
 func freeAddr(t *testing.T) string {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -24,7 +23,6 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
-// helper: start a Gentis gRPC server and return address + cleanup
 func startUpstream(t *testing.T) (string, func()) {
 	t.Helper()
 	addr := freeAddr(t)
@@ -35,7 +33,6 @@ func startUpstream(t *testing.T) (string, func()) {
 	return addr, func() { srv.Stop() }
 }
 
-// helper: start a relay pointing to upstream
 func startRelay(t *testing.T, upstreamAddr string) (string, func()) {
 	t.Helper()
 	addr := freeAddr(t)
@@ -48,12 +45,10 @@ func startRelay(t *testing.T, upstreamAddr string) (string, func()) {
 	if err := r.Start(); err != nil {
 		t.Fatalf("failed to start relay: %v", err)
 	}
-	// Give the relay time to connect and authenticate upstream
 	time.Sleep(100 * time.Millisecond)
 	return addr, func() { r.Stop() }
 }
 
-// helper: connect a client to a given address
 func connectClient(t *testing.T, addr string) (gentisv1.GentisService_StreamClient, func()) {
 	t.Helper()
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -75,7 +70,6 @@ func connectClient(t *testing.T, addr string) (gentisv1.GentisService_StreamClie
 	}
 }
 
-// helper: authenticate on a stream
 func authenticate(t *testing.T, stream gentisv1.GentisService_StreamClient, token string) {
 	t.Helper()
 	err := stream.Send(&gentisv1.ClientMessage{
@@ -92,7 +86,6 @@ func authenticate(t *testing.T, stream gentisv1.GentisService_StreamClient, toke
 	}
 }
 
-// helper: receive with timeout
 func recvWithTimeout(t *testing.T, stream gentisv1.GentisService_StreamClient, timeout time.Duration) *gentisv1.ServerMessage {
 	t.Helper()
 	type result struct {
@@ -138,7 +131,6 @@ func TestRelayConnectAndPing(t *testing.T) {
 	stream, closeClient := connectClient(t, relayAddr)
 	defer closeClient()
 
-	// Ping should work without auth
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
 	})
@@ -227,7 +219,6 @@ func TestRelaySubscribeAlreadySubscribed(t *testing.T) {
 
 	authenticate(t, stream, "token")
 
-	// First subscribe
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Subscribe{
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
@@ -235,7 +226,6 @@ func TestRelaySubscribeAlreadySubscribed(t *testing.T) {
 	})
 	recvWithTimeout(t, stream, 2*time.Second)
 
-	// Duplicate subscribe
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Subscribe{
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
@@ -373,7 +363,6 @@ func TestRelayE2EPublishViaUpstream(t *testing.T) {
 	relayAddr, stopRelay := startRelay(t, upstreamAddr)
 	defer stopRelay()
 
-	// Relay subscriber
 	relaySub, closeRelaySub := connectClient(t, relayAddr)
 	defer closeRelaySub()
 	authenticate(t, relaySub, "token")
@@ -384,10 +373,8 @@ func TestRelayE2EPublishViaUpstream(t *testing.T) {
 	})
 	recvWithTimeout(t, relaySub, 2*time.Second)
 
-	// Give time for upstream subscription to propagate
 	time.Sleep(200 * time.Millisecond)
 
-	// Direct upstream publisher
 	upstreamPub, closeUpstreamPub := connectClient(t, upstreamAddr)
 	defer closeUpstreamPub()
 	authenticate(t, upstreamPub, "token")
@@ -398,7 +385,6 @@ func TestRelayE2EPublishViaUpstream(t *testing.T) {
 	})
 	recvWithTimeout(t, upstreamPub, 2*time.Second)
 
-	// Publish on upstream
 	upstreamPub.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Publish{
 			Publish: &gentisv1.PublishRequest{
@@ -408,7 +394,6 @@ func TestRelayE2EPublishViaUpstream(t *testing.T) {
 		},
 	})
 
-	// Relay subscriber should receive the message via the relay
 	msg := recvWithTimeout(t, relaySub, 3*time.Second)
 	chMsg := msg.GetChannelMessage()
 	if chMsg == nil {
@@ -432,7 +417,7 @@ func TestRelayLocalPublishBetweenRelayClients(t *testing.T) {
 		WithUpstream(upstreamAddr, "relay-token"),
 		WithBufferSize(256),
 	)
-	// Configure router for local-only mode on "local-*" channels
+
 	r.router = NewRouter([]ChannelPattern{
 		{Pattern: "local-*", Mode: RouteModeLocal},
 	})
@@ -444,7 +429,6 @@ func TestRelayLocalPublishBetweenRelayClients(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	// Two local clients on the relay
 	sub, closeSub := connectClient(t, relayAddr)
 	defer closeSub()
 	authenticate(t, sub, "token")
@@ -465,7 +449,6 @@ func TestRelayLocalPublishBetweenRelayClients(t *testing.T) {
 	})
 	recvWithTimeout(t, pub, 2*time.Second)
 
-	// Publish locally
 	pub.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Publish{
 			Publish: &gentisv1.PublishRequest{
@@ -475,7 +458,6 @@ func TestRelayLocalPublishBetweenRelayClients(t *testing.T) {
 		},
 	})
 
-	// Subscriber should receive
 	msg := recvWithTimeout(t, sub, 2*time.Second)
 	chMsg := msg.GetChannelMessage()
 	if chMsg == nil {
@@ -511,7 +493,6 @@ func TestRelayConnectionCount(t *testing.T) {
 	defer close1()
 	authenticate(t, c1, "token")
 
-	// Send a ping to ensure the connection is established
 	c1.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
 	})
@@ -530,7 +511,6 @@ func TestUpstreamSubscriptionRefCounting(t *testing.T) {
 		handler,
 	)
 
-	// Manually test ref counting without a real connection
 	u.Subscribe("ch1")
 	u.Subscribe("ch1")
 	u.Subscribe("ch1")
@@ -566,7 +546,6 @@ func TestUpstreamUnsubscribeNonexistent(t *testing.T) {
 		handler,
 	)
 
-	// Should not panic
 	err := u.Unsubscribe("nonexistent")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -604,7 +583,6 @@ func TestDedupIntegration(t *testing.T) {
 	d := NewDeduplicator(5 * time.Second)
 	defer d.Stop()
 
-	// Different messages should all pass
 	if !d.Check("ch1", []byte("msg1")) {
 		t.Error("first message should pass")
 	}
@@ -615,7 +593,6 @@ func TestDedupIntegration(t *testing.T) {
 		t.Error("different channel should pass")
 	}
 
-	// Same message should be blocked
 	if d.Check("ch1", []byte("msg1")) {
 		t.Error("duplicate should be blocked")
 	}
@@ -627,19 +604,16 @@ func TestRouterIntegration(t *testing.T) {
 		{Pattern: "both-*", Mode: RouteModeBoth},
 	})
 
-	// local-chat should be local only
 	result := r.Route("local-chat")
 	if result.Mode != RouteModeLocal {
 		t.Errorf("expected RouteModeLocal, got %d", result.Mode)
 	}
 
-	// both-chat should be both
 	result = r.Route("both-chat")
 	if result.Mode != RouteModeBoth {
 		t.Errorf("expected RouteModeBoth, got %d", result.Mode)
 	}
 
-	// anything else defaults to relay
 	result = r.Route("other")
 	if result.Mode != RouteModeRelay {
 		t.Errorf("expected RouteModeRelay, got %d", result.Mode)

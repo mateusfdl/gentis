@@ -21,7 +21,7 @@ type Session struct {
 	cancel context.CancelFunc
 }
 
-// DeliverMessage implements transport.Sender.
+
 func (s *Session) DeliverMessage(channel string, data []byte) bool {
 	msg := &gentisv1.ServerMessage{
 		Message: &gentisv1.ServerMessage_ChannelMessage{
@@ -57,6 +57,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)
+	s.connectionsTotal.Add(1)
 	if s.store != nil {
 		s.store.Register(engine.SubscriberID(id), sess)
 	}
@@ -67,6 +68,7 @@ func (s *Server) cleanupSession(sess *Session) {
 	sess.cancel()
 	s.sessions.Delete(sess.id)
 	s.connectionCount.Add(-1)
+	s.disconnectionsTotal.Add(1)
 	if s.store != nil {
 		s.store.Unregister(engine.SubscriberID(sess.id))
 	}

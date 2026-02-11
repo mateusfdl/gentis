@@ -6,9 +6,8 @@ import (
 	"time"
 )
 
-// Note: Deduplicator.createKey divides by int64(d.window.Seconds()), which
+// TODO: Deduplicator.createKey divides by int64(d.window.Seconds()), which
 // truncates to 0 when window < 1s (TTL < 2s), causing a panic.
-// All tests use TTL >= 2s to avoid this.
 
 func TestDedupFirstCallAllowed(t *testing.T) {
 	d := NewDeduplicator(5 * time.Second)

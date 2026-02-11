@@ -1,14 +1,20 @@
 package engine
 
 import (
-	"maps"
-	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type SubscriberID uint64
 
 type DeliveryFunc func(id SubscriberID, channel string, data []byte) bool
+
+// MetricsObserver receives histogram observations from the engine.
+// Implementations should be thread-safe.
+type MetricsObserver interface {
+	ObservePublishDuration(seconds float64)
+	ObservePublishFanout(count float64)
+}
 
 type PublishResult struct {
 	Channel   string
@@ -22,6 +28,9 @@ type EngineStats struct {
 	MessagesPublished int64
 	MessagesDelivered int64
 	MessagesDropped   int64
+	SubscribeOps      int64
+	UnsubscribeOps    int64
+	MessageBytes      int64
 }
 
 type Engine interface {
@@ -36,25 +45,20 @@ type Engine interface {
 	Stats() EngineStats
 }
 
-const defaultNumShards = 32
-
-type shard struct {
-	mu       sync.RWMutex
-	channels map[string]*channel
-	peak     int
-	_        [16]byte
-}
-
 type engine struct {
 	config        *config
-	shards        []shard
+	shards        []Shard
 	subscriptions *subscriptions
+	observer      MetricsObserver
 
 	channelCount      atomic.Int64
 	publishCount      atomic.Int64
 	deliveredCount    atomic.Int64
 	droppedCount      atomic.Int64
 	subscriptionCount atomic.Int64
+	subscribeOps      atomic.Int64
+	unsubscribeOps    atomic.Int64
+	messageBytes      atomic.Int64
 }
 
 func New(opts ...Option) Engine {
@@ -63,7 +67,7 @@ func New(opts ...Option) Engine {
 		opt(cfg)
 	}
 
-	shards := make([]shard, cfg.numShards)
+	shards := make([]Shard, cfg.numShards)
 	for i := range shards {
 		shards[i].channels = make(map[string]*channel)
 	}
@@ -72,11 +76,14 @@ func New(opts ...Option) Engine {
 		config:        cfg,
 		shards:        shards,
 		subscriptions: newSubscriptions(),
+		observer:      cfg.observer,
 	}
 	return e
 }
 
 func (e *engine) Subscribe(id SubscriberID, channelName string) bool {
+	e.subscribeOps.Add(1)
+
 	s := e.getShard(channelName)
 	s.mu.Lock()
 
@@ -102,6 +109,8 @@ func (e *engine) Subscribe(id SubscriberID, channelName string) bool {
 }
 
 func (e *engine) Unsubscribe(id SubscriberID, channelName string) bool {
+	e.unsubscribeOps.Add(1)
+
 	s := e.getShard(channelName)
 	s.mu.Lock()
 
@@ -130,6 +139,9 @@ func (e *engine) Unsubscribe(id SubscriberID, channelName string) bool {
 
 func (e *engine) UnsubscribeAll(id SubscriberID) {
 	channels := e.subscriptions.GetChannels(id)
+	if len(channels) > 0 {
+		e.unsubscribeOps.Add(int64(len(channels)))
+	}
 	for _, channelName := range channels {
 		s := e.getShard(channelName)
 		s.mu.Lock()
@@ -151,11 +163,17 @@ func (e *engine) UnsubscribeAll(id SubscriberID) {
 
 func (e *engine) Publish(channel string, data []byte, exclude SubscriberID, deliver DeliveryFunc) PublishResult {
 	e.publishCount.Add(1)
+	e.messageBytes.Add(int64(len(data)))
 
+	start := time.Now()
 	result := PublishResult{Channel: channel}
 
 	ch := e.getChannel(channel)
 	if ch == nil {
+		if e.observer != nil {
+			e.observer.ObservePublishDuration(time.Since(start).Seconds())
+			e.observer.ObservePublishFanout(0)
+		}
 		return result
 	}
 
@@ -174,6 +192,11 @@ func (e *engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 
 	e.deliveredCount.Add(int64(result.Delivered))
 	e.droppedCount.Add(int64(result.Dropped))
+
+	if e.observer != nil {
+		e.observer.ObservePublishDuration(time.Since(start).Seconds())
+		e.observer.ObservePublishFanout(float64(result.Delivered + result.Dropped))
+	}
 
 	return result
 }
@@ -209,20 +232,10 @@ func (e *engine) Stats() EngineStats {
 		MessagesPublished: e.publishCount.Load(),
 		MessagesDelivered: e.deliveredCount.Load(),
 		MessagesDropped:   e.droppedCount.Load(),
+		SubscribeOps:      e.subscribeOps.Load(),
+		UnsubscribeOps:    e.unsubscribeOps.Load(),
+		MessageBytes:      e.messageBytes.Load(),
 	}
-}
-
-// --- Private helpers ---
-
-// getShard returns the shard for a channel using inline FNV-1a hashing.
-// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
-func (e *engine) getShard(channel string) *shard {
-	h := uint32(2166136261)
-	for i := 0; i < len(channel); i++ {
-		h ^= uint32(channel[i])
-		h *= 16777619
-	}
-	return &e.shards[h%uint32(len(e.shards))]
 }
 
 func (e *engine) getChannel(name string) *channel {
@@ -231,19 +244,6 @@ func (e *engine) getChannel(name string) *channel {
 	ch := s.channels[name]
 	s.mu.RUnlock()
 	return ch
-}
-
-// maybeRebuild recreates the map to release old buckets when the load factor
-// drops well below the high-water mark. Must be called with s.mu held for writing.
-func (s *shard) maybeRebuild() {
-	if s.peak > 64 && len(s.channels) < s.peak/4 {
-		rebuilt := make(map[string]*channel, len(s.channels))
-
-		maps.Copy(rebuilt, s.channels)
-
-		s.channels = rebuilt
-		s.peak = len(s.channels)
-	}
 }
 
 var _ Engine = (*engine)(nil)

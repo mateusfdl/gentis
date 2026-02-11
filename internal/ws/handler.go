@@ -18,7 +18,7 @@ const maxChannelNameLen = 256
 
 func (s *Server) runReader(sess *Session, conn net.Conn) {
 	for {
-		// Use a short read deadline so we can check context cancellation periodically.
+		// using a short read deadline to check context cancellation periodically
 		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 
 		data, _, err := wsutil.ReadClientData(conn)

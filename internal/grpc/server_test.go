@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// helper: start a Gentis gRPC server on a random port, return address and cleanup func
 func startTestServer(t *testing.T) (string, func()) {
 	t.Helper()
 
@@ -22,7 +21,7 @@ func startTestServer(t *testing.T) (string, func()) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	addr := lis.Addr().String()
-	lis.Close() // free the port so Server.Start can bind it
+	lis.Close()
 
 	srv := New(addr)
 	if err := srv.Start(); err != nil {
@@ -34,7 +33,6 @@ func startTestServer(t *testing.T) (string, func()) {
 	}
 }
 
-// helper: create a client stream to the server
 func connectClient(t *testing.T, addr string) (gentisv1.GentisService_StreamClient, func()) {
 	t.Helper()
 
@@ -60,7 +58,6 @@ func connectClient(t *testing.T, addr string) (gentisv1.GentisService_StreamClie
 	}
 }
 
-// helper: send connect and wait for connected response
 func authenticate(t *testing.T, stream gentisv1.GentisService_StreamClient, token string) string {
 	t.Helper()
 
@@ -86,7 +83,6 @@ func authenticate(t *testing.T, stream gentisv1.GentisService_StreamClient, toke
 	return connected.ConnectionId
 }
 
-// helper: receive next message with timeout
 func recvWithTimeout(t *testing.T, stream gentisv1.GentisService_StreamClient, timeout time.Duration) *gentisv1.ServerMessage {
 	t.Helper()
 	type result struct {
@@ -140,7 +136,6 @@ func TestPing(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	// Ping should work without authentication
 	err := stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Ping{
 			Ping: &gentisv1.PingRequest{},
@@ -275,15 +270,13 @@ func TestSubscribeAlreadySubscribed(t *testing.T) {
 
 	authenticate(t, stream, "token")
 
-	// First subscribe
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Subscribe{
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
 		},
 	})
-	recvWithTimeout(t, stream, 2*time.Second) // consume SubscribedResponse
+	recvWithTimeout(t, stream, 2*time.Second)
 
-	// Second subscribe to same channel
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Subscribe{
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
@@ -310,7 +303,6 @@ func TestSubscribeInvalidChannel(t *testing.T) {
 
 	authenticate(t, stream, "token")
 
-	// Empty channel name
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Subscribe{
 			Subscribe: &gentisv1.SubscribeRequest{Channel: ""},
@@ -337,7 +329,6 @@ func TestUnsubscribe(t *testing.T) {
 
 	authenticate(t, stream, "token")
 
-	// Subscribe first
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Subscribe{
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
@@ -345,7 +336,6 @@ func TestUnsubscribe(t *testing.T) {
 	})
 	recvWithTimeout(t, stream, 2*time.Second)
 
-	// Unsubscribe
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Unsubscribe{
 			Unsubscribe: &gentisv1.UnsubscribeRequest{Channel: "ch"},
@@ -445,7 +435,6 @@ func TestPublishAndReceive(t *testing.T) {
 	addr, cleanup := startTestServer(t)
 	defer cleanup()
 
-	// Subscriber
 	sub, closeSub := connectClient(t, addr)
 	defer closeSub()
 	authenticate(t, sub, "token")
@@ -455,9 +444,8 @@ func TestPublishAndReceive(t *testing.T) {
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "news"},
 		},
 	})
-	recvWithTimeout(t, sub, 2*time.Second) // SubscribedResponse
+	recvWithTimeout(t, sub, 2*time.Second)
 
-	// Publisher
 	pub, closePub := connectClient(t, addr)
 	defer closePub()
 	authenticate(t, pub, "token")
@@ -467,9 +455,8 @@ func TestPublishAndReceive(t *testing.T) {
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "news"},
 		},
 	})
-	recvWithTimeout(t, pub, 2*time.Second) // SubscribedResponse
+	recvWithTimeout(t, pub, 2*time.Second)
 
-	// Publish a message
 	pub.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Publish{
 			Publish: &gentisv1.PublishRequest{
@@ -479,7 +466,6 @@ func TestPublishAndReceive(t *testing.T) {
 		},
 	})
 
-	// Subscriber should receive the message
 	msg := recvWithTimeout(t, sub, 2*time.Second)
 	chMsg := msg.GetChannelMessage()
 	if chMsg == nil {
@@ -509,16 +495,14 @@ func TestPublisherExcludedFromOwnMessage(t *testing.T) {
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
 		},
 	})
-	recvWithTimeout(t, stream, 2*time.Second) // SubscribedResponse
+	recvWithTimeout(t, stream, 2*time.Second)
 
-	// Publish (sole subscriber is the publisher)
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Publish{
 			Publish: &gentisv1.PublishRequest{Channel: "ch", Data: []byte("msg")},
 		},
 	})
 
-	// Send a ping to verify no channel message comes through before the pong
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Ping{
 			Ping: &gentisv1.PingRequest{},
@@ -556,7 +540,6 @@ func TestMultipleSubscribers(t *testing.T) {
 		recvWithTimeout(t, s, 2*time.Second)
 	}
 
-	// Publisher (separate client)
 	pub, closePub := connectClient(t, addr)
 	defer closePub()
 	authenticate(t, pub, "token")
@@ -574,7 +557,6 @@ func TestMultipleSubscribers(t *testing.T) {
 		},
 	})
 
-	// All subscribers should receive the message
 	for i, sub := range subscribers {
 		msg := recvWithTimeout(t, sub, 2*time.Second)
 		chMsg := msg.GetChannelMessage()
@@ -591,7 +573,6 @@ func TestConnectionCount(t *testing.T) {
 	addr, cleanup := startTestServer(t)
 	defer cleanup()
 
-	// Get the server to check connection count - we'll use multiple clients
 	s1, close1 := connectClient(t, addr)
 	defer close1()
 	authenticate(t, s1, "token")
@@ -600,7 +581,6 @@ func TestConnectionCount(t *testing.T) {
 	defer close2()
 	authenticate(t, s2, "token")
 
-	// Send pings to ensure connections are established
 	s1.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
 	})
@@ -643,7 +623,6 @@ func TestPublishToSpecificChannel(t *testing.T) {
 	addr, cleanup := startTestServer(t)
 	defer cleanup()
 
-	// Sub1 on "ch-a" only
 	sub1, close1 := connectClient(t, addr)
 	defer close1()
 	authenticate(t, sub1, "token")
@@ -654,7 +633,6 @@ func TestPublishToSpecificChannel(t *testing.T) {
 	})
 	recvWithTimeout(t, sub1, 2*time.Second)
 
-	// Sub2 on "ch-b" only
 	sub2, close2 := connectClient(t, addr)
 	defer close2()
 	authenticate(t, sub2, "token")
@@ -665,7 +643,6 @@ func TestPublishToSpecificChannel(t *testing.T) {
 	})
 	recvWithTimeout(t, sub2, 2*time.Second)
 
-	// Publish to ch-a
 	pub, closePub := connectClient(t, addr)
 	defer closePub()
 	authenticate(t, pub, "token")
@@ -675,13 +652,11 @@ func TestPublishToSpecificChannel(t *testing.T) {
 		},
 	})
 
-	// Sub1 should receive
 	msg := recvWithTimeout(t, sub1, 2*time.Second)
 	if msg.GetChannelMessage() == nil {
 		t.Fatalf("sub1: expected ChannelMessage, got %T", msg.Message)
 	}
 
-	// Sub2 should NOT receive — verify with ping
 	sub2.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
 	})
@@ -695,7 +670,6 @@ func TestConcurrentPublishers(t *testing.T) {
 	addr, cleanup := startTestServer(t)
 	defer cleanup()
 
-	// One subscriber
 	sub, closeSub := connectClient(t, addr)
 	defer closeSub()
 	authenticate(t, sub, "token")
@@ -736,7 +710,6 @@ func TestConcurrentPublishers(t *testing.T) {
 
 	wg.Wait()
 
-	// Subscriber should receive all messages
 	received := 0
 	for range numPublishers {
 		msg := recvWithTimeout(t, sub, 3*time.Second)
@@ -759,7 +732,6 @@ func TestSubscribeUnsubscribeResubscribe(t *testing.T) {
 
 	authenticate(t, stream, "token")
 
-	// Subscribe
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Subscribe{
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
@@ -770,7 +742,6 @@ func TestSubscribeUnsubscribeResubscribe(t *testing.T) {
 		t.Fatalf("expected SubscribedResponse, got %T", msg.Message)
 	}
 
-	// Unsubscribe
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Unsubscribe{
 			Unsubscribe: &gentisv1.UnsubscribeRequest{Channel: "ch"},
@@ -781,7 +752,6 @@ func TestSubscribeUnsubscribeResubscribe(t *testing.T) {
 		t.Fatalf("expected UnsubscribedResponse, got %T", msg.Message)
 	}
 
-	// Resubscribe should work
 	stream.Send(&gentisv1.ClientMessage{
 		Message: &gentisv1.ClientMessage_Subscribe{
 			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},

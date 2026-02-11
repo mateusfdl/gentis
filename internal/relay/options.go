@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/metrics"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
@@ -16,6 +17,7 @@ type Config struct {
 	MetricsEnabled  bool
 	Engine          engine.Engine
 	SessionStore    *transport.SessionStore
+	Observer        *metrics.Observer
 }
 
 type UpstreamConfig struct {
@@ -85,6 +87,12 @@ func WithEngine(e engine.Engine) Option {
 func WithSessionStore(store *transport.SessionStore) Option {
 	return func(c *Config) {
 		c.SessionStore = store
+	}
+}
+
+func WithObserver(obs *metrics.Observer) Option {
+	return func(c *Config) {
+		c.Observer = obs
 	}
 }
 

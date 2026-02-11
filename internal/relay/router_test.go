@@ -68,7 +68,7 @@ func TestRouterGlobPattern(t *testing.T) {
 func TestRouterFirstMatchWins(t *testing.T) {
 	r := NewRouter([]ChannelPattern{
 		{Pattern: "chat-*", Mode: RouteModeLocal},
-		{Pattern: "chat-*", Mode: RouteModeBoth}, // should never match
+		{Pattern: "chat-*", Mode: RouteModeBoth},
 	})
 
 	result := r.Route("chat-room")
@@ -91,7 +91,7 @@ func TestRouterAllModes(t *testing.T) {
 		{"relay-ch", RouteModeRelay},
 		{"local-ch", RouteModeLocal},
 		{"both-ch", RouteModeBoth},
-		{"unknown", RouteModeRelay}, // default
+		{"unknown", RouteModeRelay},
 	}
 
 	for _, tt := range tests {
@@ -107,16 +107,13 @@ func TestRouterCacheHit(t *testing.T) {
 		{Pattern: "chat-*", Mode: RouteModeLocal},
 	})
 
-	// First call populates cache
 	r.Route("chat-room")
 
-	// Second call should hit cache
 	result := r.Route("chat-room")
 	if result.Mode != RouteModeLocal {
 		t.Errorf("expected RouteModeLocal from cache, got %d", result.Mode)
 	}
 
-	// Verify cache was populated
 	r.mu.RLock()
 	_, exists := r.cache["chat-room"]
 	r.mu.RUnlock()
@@ -130,12 +127,11 @@ func TestRouterCacheEviction(t *testing.T) {
 		{Pattern: "*", Mode: RouteModeLocal},
 	})
 
-	// Fill cache beyond maxCacheSize
+	// fill cache beyond maxCacheSize
 	for i := range maxCacheSize + 1 {
 		r.Route(fmt.Sprintf("channel-%d", i))
 	}
 
-	// Cache should have been cleared and now only have the last entry
 	r.mu.RLock()
 	cacheLen := len(r.cache)
 	r.mu.RUnlock()

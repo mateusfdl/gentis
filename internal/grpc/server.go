@@ -27,8 +27,10 @@ type Server struct {
 	sessions sync.Map
 	nextID   atomic.Int32
 
-	metrics         *metrics.Server
-	connectionCount atomic.Int64
+	metrics            *metrics.Server
+	connectionCount    atomic.Int64
+	connectionsTotal   atomic.Int64
+	disconnectionsTotal atomic.Int64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -57,9 +59,16 @@ func New(address string, opts ...Option) *Server {
 	}
 }
 
-// ConnectionCount returns the current number of active connections.
 func (s *Server) ConnectionCount() int64 {
 	return s.connectionCount.Load()
+}
+
+func (s *Server) ConnectionsTotal() int64 {
+	return s.connectionsTotal.Load()
+}
+
+func (s *Server) DisconnectionsTotal() int64 {
+	return s.disconnectionsTotal.Load()
 }
 
 func (s *Server) Start() error {
@@ -74,6 +83,9 @@ func (s *Server) Start() error {
 
 	if s.config.MetricsEnabled {
 		collector := metrics.NewCollector(s.engine, s, "server")
+		if s.config.Observer != nil {
+			collector.SetObserver(s.config.Observer)
+		}
 		s.metrics = metrics.NewServer(s.config.MetricsAddr, collector)
 		if err := s.metrics.Start(); err != nil {
 			return fmt.Errorf("failed to start metrics server: %w", err)
