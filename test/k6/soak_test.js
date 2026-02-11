@@ -1,117 +1,113 @@
-import grpc from 'k6/net/grpc';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
+import { newClient, openStream, closeStream } from './lib/grpc.js';
 
-const memoryCheckInterval = new Counter('memory_check_interval');
-const connectionUptime = new Trend('connection_uptime_seconds');
-const reconnectCount = new Counter('reconnect_count');
-const messageDeliveryRate = new Rate('message_delivery_rate');
+const connectionUptime = new Trend('connection_uptime_seconds', true);
+const reconnects = new Counter('reconnect_count');
+const messagesSent = new Counter('messages_sent');
+const messagesReceived = new Counter('messages_received');
+const deliverySuccess = new Rate('delivery_success');
 
-const SERVER_ADDR = __ENV.SERVER_ADDR || 'localhost:9000';
-const RELAY_ADDR = __ENV.RELAY_ADDR || 'localhost:9001';
-const TARGET = __ENV.TARGET || 'server';
 const SOAK_DURATION = __ENV.SOAK_DURATION || '30m';
+const ACTIVITY_INTERVAL = parseInt(__ENV.SOAK_INTERVAL || '10');
 
-const ADDR = TARGET === 'relay' ? RELAY_ADDR : SERVER_ADDR;
+const client = newClient();
 
-const client = new grpc.Client();
-client.load(['../../api/proto'], 'gentis/v1/gentis.proto');
-
-function parseDurationToSeconds(duration) {
-  const match = duration.match(/(\d+)([smh])/);
-  if (!match) return 1800; // default 30 minutes
-  const value = parseInt(match[1]);
-  const unit = match[2];
-  switch (unit) {
-    case 's': return value;
-    case 'm': return value * 60;
-    case 'h': return value * 3600;
+function durationToSeconds(d) {
+  const m = d.match(/(\d+)([smh])/);
+  if (!m) return 1800;
+  const v = parseInt(m[1]);
+  switch (m[2]) {
+    case 's': return v;
+    case 'm': return v * 60;
+    case 'h': return v * 3600;
     default: return 1800;
   }
 }
-
-const totalSeconds = parseDurationToSeconds(SOAK_DURATION);
 
 export const options = {
   scenarios: {
     soak: {
       executor: 'constant-vus',
-      vus: 50,
+      vus: parseInt(__ENV.SOAK_VUS || '50'),
       duration: SOAK_DURATION,
     },
   },
+  thresholds: {
+    reconnect_count: ['count<20'],
+    delivery_success: ['rate>0.80'],
+  },
 };
 
-export default function() {
-  const vuId = __VU;
-  const channelName = `soak-channel-${vuId % 5}`;
-  const connectionStart = Date.now();
-  let messagesSent = 0;
-  let messagesReceived = 0;
+export default function () {
+  const channel = `soak-ch-${__VU % 5}`;
+  const start = Date.now();
+  let sent = 0;
+  let received = 0;
 
-  try {
-    client.connect(ADDR, {
-      plaintext: true,
-      timeout: '10s',
-    });
-  } catch (e) {
-    reconnectCount.add(1);
+  const conn = openStream(client, 'soak-test', {
+    onData(msg) {
+      if (msg.channelMessage) received++;
+    },
+    onError() {
+      reconnects.add(1);
+    },
+  });
+
+  if (!conn) {
+    reconnects.add(1);
+    check(null, { 'connected': () => false });
     sleep(5);
     return;
   }
 
-  const stream = new grpc.Stream(client, 'gentis.v1.GentisService/Stream');
-
-  stream.on('data', (msg) => {
-    if (msg.channelMessage) {
-      messagesReceived++;
-    }
-  });
-
-  stream.on('error', () => {
-    reconnectCount.add(1);
-  });
-
-  stream.write({ connect: { authToken: 'soak-test' } });
+  conn.stream.write({ subscribe: { channel } });
   sleep(0.5);
 
-  stream.write({ subscribe: { channel: channelName } });
-  sleep(1);
-
-  const iterations = Math.floor(totalSeconds / 10); // Activity every 10 seconds
+  const totalSec = durationToSeconds(SOAK_DURATION);
+  const iterations = Math.floor(totalSec / ACTIVITY_INTERVAL);
 
   for (let i = 0; i < iterations; i++) {
-    const payload = `soak-test-${vuId}-${i}-${Date.now()}`;
-    stream.write({
-      publish: {
-        channel: channelName,
-        data: payload,
-      },
-    });
-    messagesSent++;
+    try {
+      conn.stream.write({
+        publish: { channel, data: `soak-${__VU}-${i}-${Date.now()}` },
+      });
+      sent++;
+      messagesSent.add(1);
+    } catch (_) {
+      reconnects.add(1);
+      break;
+    }
 
-    if (i % 30 === 0 && vuId % 3 === 0) {
-      const tempChannel = `temp-channel-${vuId}`;
-      stream.write({ subscribe: { channel: tempChannel } });
-      sleep(2);
-      stream.write({ unsubscribe: { channel: tempChannel } });
+    if (i % 30 === 0 && __VU % 3 === 0) {
+      const tmp = `soak-tmp-${__VU}-${i}`;
+      conn.stream.write({ subscribe: { channel: tmp } });
+      sleep(1);
+      conn.stream.write({ unsubscribe: { channel: tmp } });
     }
 
     if (i % 10 === 0) {
-      stream.write({ ping: {} });
+      conn.stream.write({ ping: {} });
     }
 
-    sleep(randomIntBetween(5, 15));
+    sleep(ACTIVITY_INTERVAL);
   }
 
-  const uptime = (Date.now() - connectionStart) / 1000;
-  connectionUptime.add(uptime);
+  const uptimeSec = (Date.now() - start) / 1000;
+  connectionUptime.add(uptimeSec);
+  messagesReceived.add(received);
 
-  if (messagesSent > 0) {
-    messageDeliveryRate.add(messagesReceived / messagesSent);
+  for (let i = 0; i < sent; i++) {
+    deliverySuccess.add(i < received ? 1 : 0);
   }
 
-  stream.end();
-  client.close();
+  check(null, {
+    'connection stayed alive': () => uptimeSec > totalSec * 0.8,
+    'received messages': () => received > 0,
+  });
+
+  conn.stream.write({ unsubscribe: { channel } });
+  sleep(0.2);
+  closeStream(client, conn.stream);
 }

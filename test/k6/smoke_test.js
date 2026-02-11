@@ -1,67 +1,70 @@
 import { check, sleep } from 'k6';
-import grpc from 'k6/net/grpc';
+import { Counter } from 'k6/metrics';
+import { newClient, openStream, closeStream } from './lib/grpc.js';
 
-const SERVER_ADDR = __ENV.SERVER_ADDR || 'localhost:9000';
-const RELAY_ADDR = __ENV.RELAY_ADDR || 'localhost:9001';
-const TARGET = __ENV.TARGET || 'server';
+const connectionFailures = new Counter('connection_failures');
 
-const ADDR = TARGET === 'relay' ? RELAY_ADDR : SERVER_ADDR;
-
-const client = new grpc.Client();
-client.load(['../../api/proto'], 'gentis/v1/gentis.proto');
+const client = newClient();
 
 export const options = {
   vus: 5,
   iterations: 10,
   thresholds: {
     checks: ['rate>0.99'],
+    connection_failures: ['count<1'],
   },
 };
 
-export default function() {
-  const vuId = __VU;
-  const iteration = __ITER;
-  const channelName = `smoke-channel-${iteration}`;
+export default function () {
+  const channel = `smoke-${__VU}-${__ITER}`;
+  const publishCount = 3;
+  let received = 0;
+  let subscribedOk = false;
+  let unsubscribedOk = false;
 
-  client.connect(ADDR, {
-    plaintext: true,
-    timeout: '5s',
+  const conn = openStream(client, 'smoke-test', {
+    onData(msg) {
+      if (msg.channelMessage && msg.channelMessage.channel === channel) {
+        received++;
+      }
+      if (msg.subscribed) subscribedOk = true;
+      if (msg.unsubscribed) unsubscribedOk = true;
+    },
+    onError(err) {
+      const s = String(err);
+      if (!s.includes('canceled') && !s.includes('CANCELLED')) {
+        connectionFailures.add(1);
+      }
+    },
   });
 
-  const stream = new grpc.Stream(client, 'gentis.v1.GentisService/Stream');
+  if (!conn) {
+    connectionFailures.add(1);
+    check(null, { 'connection established': () => false });
+    return;
+  }
 
-  let receivedCount = 0;
-  stream.on('data', (msg) => {
-    if (msg.channelMessage) {
-      receivedCount++;
-    }
-  });
+  check(null, { 'connection established': () => true });
 
-  stream.write({ connect: { authToken: 'smoke-test' } });
+  conn.stream.write({ subscribe: { channel } });
   sleep(0.3);
 
-  stream.write({ subscribe: { channel: channelName } });
-  sleep(0.3);
-
-  for (let i = 0; i < 3; i++) {
-    stream.write({
-      publish: {
-        channel: channelName,
-        data: `smoke-test-msg-${i}`,
-      },
+  for (let i = 0; i < publishCount; i++) {
+    conn.stream.write({
+      publish: { channel, data: `smoke-msg-${i}` },
     });
-    sleep(0.2);
+    sleep(0.1);
   }
 
   sleep(1);
 
-  stream.write({ unsubscribe: { channel: channelName } });
+  conn.stream.write({ unsubscribe: { channel } });
   sleep(0.3);
 
-  stream.end();
-  client.close();
-
   check(null, {
-    'received expected messages': () => receivedCount >= 0,
+    'subscribed confirmation received': () => subscribedOk,
+    'unsubscribed confirmation received': () => unsubscribedOk,
   });
+
+  closeStream(client, conn.stream);
 }

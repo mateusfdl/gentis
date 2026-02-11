@@ -1,27 +1,18 @@
-import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
-import { group, sleep } from 'k6';
+import { check, group, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
-import grpc from 'k6/net/grpc';
+import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
+import { CHANNEL_PREFIX, PAYLOAD_SIZE } from './lib/config.js';
+import { newClient, openStream, closeStream, generatePayload } from './lib/grpc.js';
 
-const subscribeLatency = new Trend('subscribe_latency');
-const publishLatency = new Trend('publish_latency');
-const messageReceiveLatency = new Trend('message_receive_latency');
+const subscribeLatency = new Trend('subscribe_latency', true);
+const publishLatency = new Trend('publish_latency', true);
+const messageLatency = new Trend('message_latency', true);
 const messagesReceived = new Counter('messages_received');
-const messagesDropped = new Counter('messages_dropped');
 const connectionErrors = new Counter('connection_errors');
-const subscribeSuccessRate = new Rate('subscribe_success_rate');
-const publishSuccessRate = new Rate('publish_success_rate');
+const subscribeSuccess = new Rate('subscribe_success_rate');
+const publishSuccess = new Rate('publish_success_rate');
 
-const SERVER_ADDR = __ENV.SERVER_ADDR || 'localhost:9000';
-const RELAY_ADDR = __ENV.RELAY_ADDR || 'localhost:9001';
-const TARGET = __ENV.TARGET || 'server';
-const PAYLOAD_SIZE = parseInt(__ENV.PAYLOAD_SIZE || '256');
-const CHANNEL_PREFIX = __ENV.CHANNEL_PREFIX || 'test-channel';
-
-const ADDR = TARGET === 'relay' ? RELAY_ADDR : SERVER_ADDR;
-
-const client = new grpc.Client();
-client.load(['../../api/proto'], 'gentis/v1/gentis.proto');
+const client = newClient();
 
 export const options = {
   scenarios: {
@@ -32,7 +23,6 @@ export const options = {
       startTime: '0s',
       gracefulStop: '15s',
     },
-
     ramp_up: {
       executor: 'ramping-vus',
       startVUs: 0,
@@ -45,7 +35,6 @@ export const options = {
       gracefulRampDown: '15s',
       gracefulStop: '15s',
     },
-
     spike: {
       executor: 'ramping-vus',
       startVUs: 0,
@@ -68,139 +57,78 @@ export const options = {
   },
 };
 
-function generatePayload(size) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < size; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
+export default function () {
+  const channel = `${CHANNEL_PREFIX}-${__VU % 10}`;
+  let subscribedOk = false;
 
-function getIdentifiers() {
-  const vuId = __VU;
-  const iteration = __ITER;
-  return {
-    connectionId: `vu-${vuId}-iter-${iteration}`,
-    channelName: `${CHANNEL_PREFIX}-${vuId % 10}`,
-    subscriberId: vuId,
-  };
-}
-
-export default function() {
-  const ids = getIdentifiers();
-
-  group('Connection Lifecycle', () => {
-    try {
-      client.connect(ADDR, {
-        plaintext: true,
-        timeout: '10s',
-      });
-    } catch (e) {
-      connectionErrors.add(1);
-      console.error(`Connection failed: ${e}`);
-      return;
-    }
-
-    const stream = new grpc.Stream(client, 'gentis.v1.GentisService/Stream', {
-      metadata: {
-        'x-client-id': ids.connectionId,
-      },
-    });
-
-    const receivedMessages = [];
-    stream.on('data', (message) => {
-      if (message.channelMessage) {
+  const conn = openStream(client, 'test-token', {
+    onData(msg) {
+      if (msg.subscribed && msg.subscribed.channel === channel) {
+        subscribedOk = true;
+      }
+      if (msg.channelMessage) {
         messagesReceived.add(1);
-        receivedMessages.push({
-          receivedAt: Date.now(),
-          channel: message.channelMessage.channel,
-        });
+        const data = String(msg.channelMessage.data);
+        const ts = parseInt(data.split('|')[0], 10);
+        if (ts > 0) {
+          messageLatency.add(Date.now() - ts);
+        }
       }
-    });
-
-    stream.on('error', (error) => {
-      const errStr = String(error);
-      if (errStr.includes('canceled') || errStr.includes('CANCELLED')) {
-        return;
+    },
+    onError(err) {
+      const s = String(err);
+      if (!s.includes('canceled') && !s.includes('CANCELLED')) {
+        connectionErrors.add(1);
       }
-      connectionErrors.add(1);
-      console.error(`Stream error: ${error}`);
-    });
+    },
+    metadata: { 'x-client-id': `vu-${__VU}-iter-${__ITER}` },
+  });
 
-    stream.write({
-      connect: {
-        authToken: 'test-token',
-      },
-    });
+  if (!conn) {
+    connectionErrors.add(1);
+    subscribeSuccess.add(0);
+    publishSuccess.add(0);
+    return;
+  }
 
-    sleep(randomIntBetween(1, 3) / 10);
+  sleep(randomIntBetween(1, 3) / 10);
 
-    group('Subscribe', () => {
-      const subStart = Date.now();
+  group('subscribe', () => {
+    const t0 = Date.now();
+    conn.stream.write({ subscribe: { channel } });
+    sleep(0.3);
+    subscribeLatency.add(Date.now() - t0);
+    subscribeSuccess.add(subscribedOk ? 1 : 0);
+  });
 
-      stream.write({
-        subscribe: {
-          channel: ids.channelName,
-        },
-      });
+  sleep(randomIntBetween(1, 2) / 10);
 
-      sleep(0.5);
+  group('publish', () => {
+    const count = randomIntBetween(3, 8);
+    for (let i = 0; i < count; i++) {
+      const ts = Date.now();
+      const body = `${ts}|${generatePayload(PAYLOAD_SIZE)}`;
 
-      const subLatency = Date.now() - subStart;
-      subscribeLatency.add(subLatency);
-      subscribeSuccessRate.add(1);
-    });
-
-    sleep(randomIntBetween(1, 2) / 10);
-
-    group('Publish', () => {
-      const numPublishes = randomIntBetween(3, 8);
-
-      for (let i = 0; i < numPublishes; i++) {
-        const pubStart = Date.now();
-        const payload = generatePayload(PAYLOAD_SIZE);
-
-        stream.write({
-          publish: {
-            channel: ids.channelName,
-            data: payload,
-          },
-        });
-
-        const pubLatency = Date.now() - pubStart;
-        publishLatency.add(pubLatency);
-        publishSuccessRate.add(1);
-
-        sleep(randomIntBetween(5, 15) / 100);
+      const t0 = Date.now();
+      try {
+        conn.stream.write({ publish: { channel, data: body } });
+        publishLatency.add(Date.now() - t0);
+        publishSuccess.add(1);
+      } catch (_) {
+        publishSuccess.add(0);
       }
-    });
 
-    sleep(randomIntBetween(2, 5));
-
-    group('Unsubscribe', () => {
-      stream.write({
-        unsubscribe: {
-          channel: ids.channelName,
-        },
-      });
-
-      sleep(0.3);
-    });
-
-    stream.end();
-    sleep(1);
-    client.close();
-
-    if (receivedMessages.length > 0) {
-      const avgLatency = receivedMessages.reduce((sum, m) => sum + m.receivedAt, 0) / receivedMessages.length;
-      messageReceiveLatency.add(avgLatency);
+      sleep(randomIntBetween(5, 15) / 100);
     }
   });
 
-  sleep(randomIntBetween(1, 3));
-}
+  sleep(randomIntBetween(2, 5));
 
-export function teardown(data) {
-  console.log('Test completed. Cleaning up...');
+  group('unsubscribe', () => {
+    conn.stream.write({ unsubscribe: { channel } });
+    sleep(0.3);
+  });
+
+  closeStream(client, conn.stream);
+  sleep(randomIntBetween(1, 3));
 }
