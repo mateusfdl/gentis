@@ -44,34 +44,36 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 }
 
 func (s *Session) handleMessage(msg *gentisv1.ClientMessage) {
+	reqID := msg.Id
 	switch m := msg.Message.(type) {
 	case *gentisv1.ClientMessage_Connect:
-		s.handleConnect(m.Connect)
+		s.handleConnect(m.Connect, reqID)
 	case *gentisv1.ClientMessage_Ping:
-		s.handlePing()
+		s.handlePing(reqID)
 	default:
 		if !s.state.IsAuthenticated() {
-			s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "not authenticated")
+			s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "not authenticated", reqID)
 			return
 		}
 
 		switch m := msg.Message.(type) {
 		case *gentisv1.ClientMessage_Subscribe:
-			s.handleSubscribe(m.Subscribe)
+			s.handleSubscribe(m.Subscribe, reqID)
 		case *gentisv1.ClientMessage_Unsubscribe:
-			s.handleUnsubscribe(m.Unsubscribe)
+			s.handleUnsubscribe(m.Unsubscribe, reqID)
 		case *gentisv1.ClientMessage_Publish:
-			s.handlePublish(m.Publish)
+			s.handlePublish(m.Publish, reqID)
 		default:
-			s.sendError(gentisv1.ErrorCode_ERROR_CODE_UNKNOWN_MESSAGE, "unknown message type")
+			s.sendError(gentisv1.ErrorCode_ERROR_CODE_UNKNOWN_MESSAGE, "unknown message type", reqID)
 		}
 	}
 }
 
-func (s *Session) handleConnect(req *gentisv1.ConnectRequest) {
+func (s *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 	s.state.Authenticate(req.AuthToken)
 
 	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Connected{
 			Connected: &gentisv1.ConnectedResponse{
 				ConnectionId: fmt.Sprintf("conn-%d", s.id),
@@ -80,19 +82,20 @@ func (s *Session) handleConnect(req *gentisv1.ConnectRequest) {
 	})
 }
 
-func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest) {
+func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
-		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name")
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
 
 	if !s.engine.Subscribe(engine.SubscriberID(s.id), req.Channel) {
-		s.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel")
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel", reqID)
 		return
 	}
 
 	s.state.AddSubscription(req.Channel)
 	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Subscribed{
 			Subscribed: &gentisv1.SubscribedResponse{
 				Channel: req.Channel,
@@ -101,19 +104,20 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest) {
 	})
 }
 
-func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest) {
+func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
-		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name")
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
 
 	if !s.engine.Unsubscribe(engine.SubscriberID(s.id), req.Channel) {
-		s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED, "Not subscribed to channel")
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED, "Not subscribed to channel", reqID)
 		return
 	}
 
 	s.state.RemoveSubscription(req.Channel)
 	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Unsubscribed{
 			Unsubscribed: &gentisv1.UnsubscribedResponse{
 				Channel: req.Channel,
@@ -122,9 +126,14 @@ func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest) {
 	})
 }
 
-func (s *Session) handlePublish(req *gentisv1.PublishRequest) {
+func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 	if !validateChannel(req.Channel) {
-		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name")
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
+		return
+	}
+
+	if s.server.store != nil {
+		s.engine.Publish(req.Channel, req.Data, engine.SubscriberID(s.id), s.server.store.Deliver)
 		return
 	}
 
@@ -152,8 +161,9 @@ func (s *Session) handlePublish(req *gentisv1.PublishRequest) {
 	})
 }
 
-func (s *Session) handlePing() {
+func (s *Session) handlePing(reqID string) {
 	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Pong{
 			Pong: &gentisv1.PongResponse{},
 		},

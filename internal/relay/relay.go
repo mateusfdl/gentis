@@ -14,6 +14,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/client"
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/metrics"
+	"github.com/mateusfdl/gentis/internal/transport"
 	"google.golang.org/grpc"
 )
 
@@ -22,6 +23,7 @@ type Server struct {
 
 	config   *Config
 	engine   engine.Engine
+	store    *transport.SessionStore
 	upstream *Upstream
 	router   *Router
 	dedup    *Deduplicator
@@ -49,6 +51,26 @@ type Session struct {
 	channels map[string]struct{}
 }
 
+// DeliverMessage implements transport.Sender.
+func (sess *Session) DeliverMessage(channel string, data []byte) bool {
+	msg := &gentisv1.ServerMessage{
+		Message: &gentisv1.ServerMessage_ChannelMessage{
+			ChannelMessage: &gentisv1.ChannelMessage{
+				Channel: channel,
+				Data:    data,
+			},
+		},
+	}
+	select {
+	case sess.sendCh <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
+var _ transport.Sender = (*Session)(nil)
+
 func New(opts ...Option) *Server {
 	config := defaultConfig()
 	for _, opt := range opts {
@@ -57,9 +79,15 @@ func New(opts ...Option) *Server {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	eng := config.Engine
+	if eng == nil {
+		eng = engine.New()
+	}
+
 	s := &Server{
 		config: config,
-		engine: engine.New(),
+		engine: eng,
+		store:  config.SessionStore,
 		router: NewRouter(nil),
 		dedup:  NewDeduplicator(5 * time.Second),
 		ctx:    ctx,
@@ -167,6 +195,9 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)
+	if s.store != nil {
+		s.store.Register(engine.SubscriberID(id), sess)
+	}
 	return sess
 }
 
@@ -174,6 +205,9 @@ func (s *Server) cleanupSession(sess *Session) {
 	sess.cancel()
 	s.sessions.Delete(sess.id)
 	s.connectionCount.Add(-1)
+	if s.store != nil {
+		s.store.Unregister(engine.SubscriberID(sess.id))
+	}
 	s.engine.UnsubscribeAll(engine.SubscriberID(sess.id))
 
 	sess.subsMu.RLock()
@@ -201,6 +235,11 @@ func (s *Server) getSession(id int) (*Session, bool) {
 
 func (s *Server) onUpstreamMessage(channel string, data []byte) {
 	if !s.dedup.Check(channel, data) {
+		return
+	}
+
+	if s.store != nil {
+		s.engine.Publish(channel, data, 0, s.store.Deliver)
 		return
 	}
 
@@ -245,26 +284,27 @@ func (sess *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 const maxChannelNameLen = 256
 
 func (sess *Session) handleMessage(msg *gentisv1.ClientMessage) {
+	reqID := msg.Id
 	switch m := msg.Message.(type) {
 	case *gentisv1.ClientMessage_Connect:
-		sess.handleConnect(m.Connect)
+		sess.handleConnect(m.Connect, reqID)
 	case *gentisv1.ClientMessage_Ping:
-		sess.handlePing()
+		sess.handlePing(reqID)
 	default:
 		if !sess.state.IsAuthenticated() {
-			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "not authenticated")
+			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "not authenticated", reqID)
 			return
 		}
 
 		switch m := msg.Message.(type) {
 		case *gentisv1.ClientMessage_Subscribe:
-			sess.handleSubscribe(m.Subscribe)
+			sess.handleSubscribe(m.Subscribe, reqID)
 		case *gentisv1.ClientMessage_Unsubscribe:
-			sess.handleUnsubscribe(m.Unsubscribe)
+			sess.handleUnsubscribe(m.Unsubscribe, reqID)
 		case *gentisv1.ClientMessage_Publish:
-			sess.handlePublish(m.Publish)
+			sess.handlePublish(m.Publish, reqID)
 		default:
-			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_UNKNOWN_MESSAGE, "unknown message type")
+			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_UNKNOWN_MESSAGE, "unknown message type", reqID)
 		}
 	}
 }
@@ -273,10 +313,11 @@ func validateChannel(name string) bool {
 	return len(name) > 0 && len(name) <= maxChannelNameLen
 }
 
-func (sess *Session) handleConnect(req *gentisv1.ConnectRequest) {
+func (sess *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 	sess.state.Authenticate(req.AuthToken)
 
 	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Connected{
 			Connected: &gentisv1.ConnectedResponse{
 				ConnectionId: fmt.Sprintf("relay-conn-%d", sess.id),
@@ -285,16 +326,16 @@ func (sess *Session) handleConnect(req *gentisv1.ConnectRequest) {
 	})
 }
 
-func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest) {
+func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name")
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
 
 	route := sess.relay.router.Route(req.Channel)
 
 	if !sess.relay.engine.Subscribe(engine.SubscriberID(sess.id), req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel")
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel", reqID)
 		return
 	}
 
@@ -309,6 +350,7 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest) {
 	}
 
 	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Subscribed{
 			Subscribed: &gentisv1.SubscribedResponse{
 				Channel: req.Channel,
@@ -317,14 +359,14 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest) {
 	})
 }
 
-func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest) {
+func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name")
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
 
 	if !sess.relay.engine.Unsubscribe(engine.SubscriberID(sess.id), req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED, "Not subscribed to channel")
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED, "Not subscribed to channel", reqID)
 		return
 	}
 
@@ -340,6 +382,7 @@ func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest) {
 	}
 
 	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Unsubscribed{
 			Unsubscribed: &gentisv1.UnsubscribedResponse{
 				Channel: req.Channel,
@@ -348,37 +391,41 @@ func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest) {
 	})
 }
 
-func (sess *Session) handlePublish(req *gentisv1.PublishRequest) {
+func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 	if !validateChannel(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name")
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
 
 	route := sess.relay.router.Route(req.Channel)
 
 	if route.Mode == RouteModeLocal || route.Mode == RouteModeBoth {
-		chMsg := &gentisv1.ChannelMessage{
-			Channel: req.Channel,
-			Data:    req.Data,
-		}
+		if sess.relay.store != nil {
+			sess.relay.engine.Publish(req.Channel, req.Data, engine.SubscriberID(sess.id), sess.relay.store.Deliver)
+		} else {
+			chMsg := &gentisv1.ChannelMessage{
+				Channel: req.Channel,
+				Data:    req.Data,
+			}
 
-		sess.relay.engine.Publish(req.Channel, req.Data, engine.SubscriberID(sess.id), func(id engine.SubscriberID, _ string, _ []byte) bool {
-			other, ok := sess.relay.getSession(int(id))
-			if !ok {
-				return false
-			}
-			msg := &gentisv1.ServerMessage{
-				Message: &gentisv1.ServerMessage_ChannelMessage{
-					ChannelMessage: chMsg,
-				},
-			}
-			select {
-			case other.sendCh <- msg:
-				return true
-			default:
-				return false
-			}
-		})
+			sess.relay.engine.Publish(req.Channel, req.Data, engine.SubscriberID(sess.id), func(id engine.SubscriberID, _ string, _ []byte) bool {
+				other, ok := sess.relay.getSession(int(id))
+				if !ok {
+					return false
+				}
+				msg := &gentisv1.ServerMessage{
+					Message: &gentisv1.ServerMessage_ChannelMessage{
+						ChannelMessage: chMsg,
+					},
+				}
+				select {
+				case other.sendCh <- msg:
+					return true
+				default:
+					return false
+				}
+			})
+		}
 	}
 
 	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
@@ -386,8 +433,9 @@ func (sess *Session) handlePublish(req *gentisv1.PublishRequest) {
 	}
 }
 
-func (sess *Session) handlePing() {
+func (sess *Session) handlePing(reqID string) {
 	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Pong{
 			Pong: &gentisv1.PongResponse{},
 		},
@@ -401,8 +449,9 @@ func (sess *Session) send(msg *gentisv1.ServerMessage) {
 	}
 }
 
-func (sess *Session) sendError(code gentisv1.ErrorCode, message string) {
+func (sess *Session) sendError(code gentisv1.ErrorCode, message string, reqID string) {
 	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
 		Message: &gentisv1.ServerMessage_Error{
 			Error: &gentisv1.ErrorResponse{
 				Code:    code,
