@@ -319,3 +319,284 @@ func TestSubscriptionTracker(t *testing.T) {
 		t.Error("expected 0 subscriptions after RemoveAll")
 	}
 }
+
+func TestSubscribersNonexistentChannel(t *testing.T) {
+	e := New()
+
+	subs := e.Subscribers("nonexistent")
+	if subs != nil {
+		t.Errorf("expected nil for nonexistent channel, got %v", subs)
+	}
+}
+
+func TestSubscriberCountNonexistentChannel(t *testing.T) {
+	e := New()
+
+	if e.SubscriberCount("nonexistent") != 0 {
+		t.Errorf("expected 0 for nonexistent channel, got %d", e.SubscriberCount("nonexistent"))
+	}
+}
+
+func TestUnsubscribeAllNoSubscriptions(t *testing.T) {
+	e := New()
+
+	// Should not panic
+	e.UnsubscribeAll(999)
+
+	if e.TotalSubscriptions() != 0 {
+		t.Errorf("expected 0 subscriptions, got %d", e.TotalSubscriptions())
+	}
+}
+
+func TestStatsDropped(t *testing.T) {
+	e := New()
+
+	e.Subscribe(1, "ch")
+	e.Subscribe(2, "ch")
+
+	e.Publish("ch", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+		return id != 2 // drop for subscriber 2
+	})
+
+	stats := e.Stats()
+
+	if stats.MessagesDropped != 1 {
+		t.Errorf("expected 1 message dropped, got %d", stats.MessagesDropped)
+	}
+
+	if stats.MessagesDelivered != 1 {
+		t.Errorf("expected 1 message delivered, got %d", stats.MessagesDelivered)
+	}
+}
+
+func TestPublishNoExclude(t *testing.T) {
+	e := New()
+
+	e.Subscribe(1, "ch")
+	e.Subscribe(2, "ch")
+	e.Subscribe(3, "ch")
+
+	result := e.Publish("ch", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+		return true
+	})
+
+	if result.Delivered != 3 {
+		t.Errorf("expected 3 delivered (no exclude), got %d", result.Delivered)
+	}
+}
+
+func TestPublishResultChannel(t *testing.T) {
+	e := New()
+
+	e.Subscribe(1, "my-channel")
+
+	result := e.Publish("my-channel", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+		return true
+	})
+
+	if result.Channel != "my-channel" {
+		t.Errorf("expected result.Channel 'my-channel', got %q", result.Channel)
+	}
+}
+
+func TestPublishDeliveryFuncReceivesCorrectArgs(t *testing.T) {
+	e := New()
+
+	e.Subscribe(1, "test-ch")
+
+	e.Publish("test-ch", []byte("payload"), 0, func(id SubscriberID, ch string, data []byte) bool {
+		if id != 1 {
+			t.Errorf("expected subscriber ID 1, got %d", id)
+		}
+		if ch != "test-ch" {
+			t.Errorf("expected channel 'test-ch', got %q", ch)
+		}
+		if string(data) != "payload" {
+			t.Errorf("expected data 'payload', got %q", string(data))
+		}
+		return true
+	})
+}
+
+func TestConcurrentPublishMultipleChannels(t *testing.T) {
+	e := New()
+	var wg sync.WaitGroup
+
+	// Subscribe to different channels
+	for i := 0; i < 10; i++ {
+		for j := 0; j < 10; j++ {
+			e.Subscribe(SubscriberID(j), "channel-"+string(rune('a'+i)))
+		}
+	}
+
+	// Publish to different channels concurrently
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(ch string) {
+			defer wg.Done()
+			e.Publish(ch, []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+				return true
+			})
+		}("channel-" + string(rune('a'+i)))
+	}
+
+	wg.Wait()
+
+	stats := e.Stats()
+	if stats.MessagesPublished != 10 {
+		t.Errorf("expected 10 messages published, got %d", stats.MessagesPublished)
+	}
+}
+
+func TestWithShardsZero(t *testing.T) {
+	e := New(WithShards(0))
+	eng := e.(*engine)
+
+	// WithShards(0) should keep default
+	if len(eng.shards) != defaultNumShards {
+		t.Errorf("expected %d shards for zero value, got %d", defaultNumShards, len(eng.shards))
+	}
+}
+
+func TestWithShardsNegative(t *testing.T) {
+	e := New(WithShards(-1))
+	eng := e.(*engine)
+
+	if len(eng.shards) != defaultNumShards {
+		t.Errorf("expected %d shards for negative value, got %d", defaultNumShards, len(eng.shards))
+	}
+}
+
+func TestChannelEmptyAfterCreation(t *testing.T) {
+	ch := newChannel("test")
+
+	if ch.SubscriberCount() != 0 {
+		t.Errorf("expected 0 subscribers for new channel, got %d", ch.SubscriberCount())
+	}
+}
+
+func TestChannelNotEmptyAfterSubscribe(t *testing.T) {
+	ch := newChannel("test")
+	ch.Subscribe(1)
+
+	if ch.SubscriberCount() != 1 {
+		t.Errorf("expected 1 subscriber, got %d", ch.SubscriberCount())
+	}
+}
+
+func TestChannelName(t *testing.T) {
+	ch := newChannel("my-channel")
+
+	if ch.Name() != "my-channel" {
+		t.Errorf("expected 'my-channel', got %q", ch.Name())
+	}
+}
+
+func TestChannelSubscribeIdempotent(t *testing.T) {
+	ch := newChannel("test")
+
+	if !ch.Subscribe(1) {
+		t.Error("first subscribe should return true")
+	}
+
+	if ch.Subscribe(1) {
+		t.Error("second subscribe should return false")
+	}
+
+	if ch.SubscriberCount() != 1 {
+		t.Errorf("expected 1 subscriber, got %d", ch.SubscriberCount())
+	}
+}
+
+func TestChannelUnsubscribeNonexistent(t *testing.T) {
+	ch := newChannel("test")
+
+	if ch.Unsubscribe(999) {
+		t.Error("unsubscribe non-existent should return false")
+	}
+}
+
+func TestSubscriptionTrackerGetChannelsEmpty(t *testing.T) {
+	s := newSubscriptions()
+
+	channels := s.GetChannels(999)
+	if channels != nil {
+		t.Errorf("expected nil for unknown subscriber, got %v", channels)
+	}
+}
+
+func TestSubscriptionTrackerHasUnknown(t *testing.T) {
+	s := newSubscriptions()
+
+	if s.Has(999, "ch") {
+		t.Error("expected false for unknown subscriber")
+	}
+}
+
+func TestSubscriptionTrackerCountUnknown(t *testing.T) {
+	s := newSubscriptions()
+
+	if s.Count(999) != 0 {
+		t.Errorf("expected 0 for unknown subscriber, got %d", s.Count(999))
+	}
+}
+
+func TestSubscriptionTrackerRemoveUnknown(t *testing.T) {
+	s := newSubscriptions()
+
+	// Should not panic
+	s.Remove(999, "ch")
+	s.RemoveAll(999)
+}
+
+func TestMultipleSubscribersMultipleChannels(t *testing.T) {
+	e := New()
+
+	e.Subscribe(1, "ch1")
+	e.Subscribe(1, "ch2")
+	e.Subscribe(2, "ch1")
+	e.Subscribe(2, "ch3")
+
+	if e.ChannelCount() != 3 {
+		t.Errorf("expected 3 channels, got %d", e.ChannelCount())
+	}
+
+	if e.TotalSubscriptions() != 4 {
+		t.Errorf("expected 4 subscriptions, got %d", e.TotalSubscriptions())
+	}
+
+	// Unsubscribe subscriber 1 from all
+	e.UnsubscribeAll(1)
+
+	if e.ChannelCount() != 2 {
+		t.Errorf("expected 2 channels after UnsubscribeAll(1), got %d", e.ChannelCount())
+	}
+
+	if e.TotalSubscriptions() != 2 {
+		t.Errorf("expected 2 subscriptions, got %d", e.TotalSubscriptions())
+	}
+}
+
+func TestStatsAccumulate(t *testing.T) {
+	e := New()
+
+	e.Subscribe(1, "ch")
+	e.Subscribe(2, "ch")
+
+	deliver := func(id SubscriberID, ch string, data []byte) bool { return true }
+
+	e.Publish("ch", []byte("msg1"), 0, deliver)
+	e.Publish("ch", []byte("msg2"), 0, deliver)
+	e.Publish("ch", []byte("msg3"), 1, deliver) // exclude 1
+
+	stats := e.Stats()
+
+	if stats.MessagesPublished != 3 {
+		t.Errorf("expected 3 published, got %d", stats.MessagesPublished)
+	}
+
+	// msg1: 2 delivered, msg2: 2 delivered, msg3: 1 delivered (exclude 1)
+	if stats.MessagesDelivered != 5 {
+		t.Errorf("expected 5 delivered, got %d", stats.MessagesDelivered)
+	}
+}
