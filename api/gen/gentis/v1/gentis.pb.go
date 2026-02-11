@@ -89,6 +89,8 @@ func (ErrorCode) EnumDescriptor() ([]byte, []int) {
 // ClientMessage wraps all possible client-to-server messages.
 type ClientMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional correlation ID; echoed back in the response.
+	Id string `protobuf:"bytes,10,opt,name=id,proto3" json:"id,omitempty"`
 	// Types that are valid to be assigned to Message:
 	//
 	//	*ClientMessage_Connect
@@ -129,6 +131,13 @@ func (x *ClientMessage) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ClientMessage.ProtoReflect.Descriptor instead.
 func (*ClientMessage) Descriptor() ([]byte, []int) {
 	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ClientMessage) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
 }
 
 func (x *ClientMessage) GetMessage() isClientMessage_Message {
@@ -220,6 +229,9 @@ func (*ClientMessage_Ping) isClientMessage_Message() {}
 // ServerMessage wraps all possible server-to-client messages.
 type ServerMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Echoed from the client request that triggered this response.
+	// Empty for server-initiated messages (e.g. channel deliveries).
+	Id string `protobuf:"bytes,10,opt,name=id,proto3" json:"id,omitempty"`
 	// Types that are valid to be assigned to Message:
 	//
 	//	*ServerMessage_Connected
@@ -261,6 +273,13 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
 func (*ServerMessage) Descriptor() ([]byte, []int) {
 	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ServerMessage) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
 }
 
 func (x *ServerMessage) GetMessage() isServerMessage_Message {
@@ -871,15 +890,19 @@ var File_gentis_v1_gentis_proto protoreflect.FileDescriptor
 
 const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\n" +
-	"\x16gentis/v1/gentis.proto\x12\tgentis.v1\"\xb6\x02\n" +
-	"\rClientMessage\x125\n" +
+	"\x16gentis/v1/gentis.proto\x12\tgentis.v1\"\xc6\x02\n" +
+	"\rClientMessage\x12\x0e\n" +
+	"\x02id\x18\n" +
+	" \x01(\tR\x02id\x125\n" +
 	"\aconnect\x18\x01 \x01(\v2\x19.gentis.v1.ConnectRequestH\x00R\aconnect\x12;\n" +
 	"\tsubscribe\x18\x02 \x01(\v2\x1b.gentis.v1.SubscribeRequestH\x00R\tsubscribe\x12A\n" +
 	"\vunsubscribe\x18\x03 \x01(\v2\x1d.gentis.v1.UnsubscribeRequestH\x00R\vunsubscribe\x125\n" +
 	"\apublish\x18\x04 \x01(\v2\x19.gentis.v1.PublishRequestH\x00R\apublish\x12,\n" +
 	"\x04ping\x18\x05 \x01(\v2\x16.gentis.v1.PingRequestH\x00R\x04pingB\t\n" +
-	"\amessage\"\x87\x03\n" +
-	"\rServerMessage\x12<\n" +
+	"\amessage\"\x97\x03\n" +
+	"\rServerMessage\x12\x0e\n" +
+	"\x02id\x18\n" +
+	" \x01(\tR\x02id\x12<\n" +
 	"\tconnected\x18\x01 \x01(\v2\x1c.gentis.v1.ConnectedResponseH\x00R\tconnected\x12?\n" +
 	"\n" +
 	"subscribed\x18\x02 \x01(\v2\x1d.gentis.v1.SubscribedResponseH\x00R\n" +

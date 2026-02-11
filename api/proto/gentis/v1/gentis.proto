@@ -12,6 +12,9 @@ service GentisService {
 
 // ClientMessage wraps all possible client-to-server messages.
 message ClientMessage {
+  // Optional correlation ID; echoed back in the response.
+  string id = 10;
+
   oneof message {
     ConnectRequest connect = 1;
     SubscribeRequest subscribe = 2;
@@ -23,6 +26,10 @@ message ClientMessage {
 
 // ServerMessage wraps all possible server-to-client messages.
 message ServerMessage {
+  // Echoed from the client request that triggered this response.
+  // Empty for server-initiated messages (e.g. channel deliveries).
+  string id = 10;
+
   oneof message {
     ConnectedResponse connected = 1;
     SubscribedResponse subscribed = 2;
