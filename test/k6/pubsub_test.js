@@ -30,6 +30,7 @@ export const options = {
       vus: parseInt(__ENV.STEADY_VUS || '100'),
       duration: parseInt(__ENV.STEADY_DURATION || '60') + 's',
       startTime: '0s',
+      gracefulStop: '15s',
     },
 
     ramp_up: {
@@ -41,6 +42,8 @@ export const options = {
         { duration: '10s', target: 0 },
       ],
       startTime: '70s',
+      gracefulRampDown: '15s',
+      gracefulStop: '15s',
     },
 
     spike: {
@@ -52,6 +55,8 @@ export const options = {
         { duration: '10s', target: 0 },
       ],
       startTime: '150s',
+      gracefulRampDown: '15s',
+      gracefulStop: '15s',
     },
   },
   thresholds: {
@@ -115,6 +120,10 @@ export default function() {
     });
 
     stream.on('error', (error) => {
+      const errStr = String(error);
+      if (errStr.includes('canceled') || errStr.includes('CANCELLED')) {
+        return;
+      }
       connectionErrors.add(1);
       console.error(`Stream error: ${error}`);
     });
@@ -180,6 +189,7 @@ export default function() {
     });
 
     stream.end();
+    sleep(1);
     client.close();
 
     if (receivedMessages.length > 0) {
