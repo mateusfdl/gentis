@@ -27,13 +27,11 @@ func (s *Server) runReader(sess *Session, conn net.Conn) {
 				return
 			}
 
-			// Check for timeout — just retry the loop to re-check context.
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
 				continue
 			}
 
-			// Normal close from client.
 			var closeErr wsutil.ClosedError
 			if errors.As(err, &closeErr) {
 				if closeErr.Code == ws.StatusNormalClosure || closeErr.Code == ws.StatusGoingAway {

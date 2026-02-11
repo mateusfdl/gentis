@@ -22,7 +22,6 @@ type Session struct {
 	cancel context.CancelFunc
 }
 
-// DeliverMessage implements transport.Sender.
 func (s *Session) DeliverMessage(channel string, data []byte) bool {
 	msg := &ServerMessage{
 		ChannelMessage: &ChannelMessagePayload{
