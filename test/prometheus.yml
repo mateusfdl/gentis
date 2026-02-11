@@ -6,9 +6,9 @@ scrape_configs:
   - job_name: "gentis-server"
     scrape_interval: 2s
     static_configs:
-      - targets: ["gentis-server:8080"]
+      - targets: ["server:8080"]
 
   - job_name: "gentis-relay"
     scrape_interval: 2s
     static_configs:
-      - targets: ["gentis-relay:8081"]
+      - targets: ["relay:8081"]

@@ -1,7 +1,7 @@
 services:
   server:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     ports:
       - "9000:9000"
@@ -23,7 +23,7 @@ services:
 
   relay:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     ports:
       - "9001:9001"
@@ -51,7 +51,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./test/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -75,8 +75,8 @@ services:
       - GF_LIVE_ALLOWED_ORIGINS=*
       - GF_DASHBOARDS_MIN_REFRESH_INTERVAL=100ms
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./test/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./test/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
     networks:

@@ -3,10 +3,7 @@
     "list": [
       {
         "builtIn": 1,
-        "datasource": {
-          "type": "grafana",
-          "uid": "-- Grafana --"
-        },
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
@@ -28,7 +25,7 @@
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
       "id": 100,
       "panels": [],
-      "title": "\u26a1 Live Overview",
+      "title": "\u26a1 Command Center",
       "type": "row"
     },
     {
@@ -56,11 +53,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "value_and_name",
         "wideLayout": true
       },
@@ -101,11 +94,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "value_and_name",
         "wideLayout": true
       },
@@ -146,11 +135,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "value_and_name",
         "wideLayout": true
       },
@@ -191,11 +176,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "value_and_name",
         "wideLayout": true
       },
@@ -238,11 +219,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "value_and_name",
         "wideLayout": true
       },
@@ -283,11 +260,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "value_and_name",
         "wideLayout": true
       },
@@ -310,173 +283,12 @@
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
       "id": 101,
       "panels": [],
-      "title": "\ud83d\udcc8 Connection Gauges",
+      "title": "\ud83d\udcca Throughput & Latency",
       "type": "row"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Total active connections across all modes. The gauge shows current load relative to threshold levels.",
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "#73BF69", "value": null },
-              { "color": "#EAB839", "value": 250 },
-              { "color": "#FF9830", "value": 500 },
-              { "color": "#F2495C", "value": 800 }
-            ]
-          },
-          "max": 1000,
-          "min": 0,
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 7 },
-      "id": 10,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdLabels": true,
-        "showThresholdMarkers": true,
-        "text": {}
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(gentis_connections_active)",
-          "interval": "2s",
-          "instant": true,
-          "legendFormat": "Total Connections",
-          "refId": "A"
-        }
-      ],
-      "title": "Total Connections Gauge",
-      "type": "gauge"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Active subscriptions gauge showing current subscription load.",
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "#B877D9", "value": null },
-              { "color": "#EAB839", "value": 1000 },
-              { "color": "#FF9830", "value": 3000 },
-              { "color": "#F2495C", "value": 5000 }
-            ]
-          },
-          "max": 5000,
-          "min": 0,
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 7 },
-      "id": 11,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdLabels": true,
-        "showThresholdMarkers": true,
-        "text": {}
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(gentis_subscriptions_total)",
-          "interval": "2s",
-          "instant": true,
-          "legendFormat": "Total Subscriptions",
-          "refId": "A"
-        }
-      ],
-      "title": "Total Subscriptions Gauge",
-      "type": "gauge"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Message throughput gauge showing instantaneous messages published per second.",
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "#56A64B", "value": null },
-              { "color": "#EAB839", "value": 500 },
-              { "color": "#FF9830", "value": 2000 },
-              { "color": "#F2495C", "value": 5000 }
-            ]
-          },
-          "max": 5000,
-          "min": 0,
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 7 },
-      "id": 12,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdLabels": true,
-        "showThresholdMarkers": true,
-        "text": {}
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(irate(gentis_messages_published_total[10s]))",
-          "interval": "2s",
-          "legendFormat": "Throughput",
-          "refId": "A"
-        }
-      ],
-      "title": "Message Throughput Gauge",
-      "type": "gauge"
-    },
-
-    {
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
-      "id": 102,
-      "panels": [],
-      "title": "\ud83d\udce8 Message Metrics",
-      "type": "row"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Instantaneous rate of messages published, delivered, and dropped per second.",
+      "description": "Instantaneous rate of messages published, delivered, and dropped per second by mode.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -501,12 +313,7 @@
             "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
           "unit": "ops"
         },
         "overrides": [
@@ -519,54 +326,27 @@
           },
           {
             "matcher": { "id": "byRegexp", "options": "/Published/" },
-            "properties": [
-              { "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }
-            ]
+            "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }]
           },
           {
             "matcher": { "id": "byRegexp", "options": "/Delivered/" },
-            "properties": [
-              { "id": "color", "value": { "fixedColor": "#6ED0E0", "mode": "fixed" } }
-            ]
+            "properties": [{ "id": "color", "value": { "fixedColor": "#6ED0E0", "mode": "fixed" } }]
           }
         ]
       },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 16 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 7 },
       "id": 20,
       "options": {
-        "legend": {
-          "calcs": ["mean", "max", "lastNotNull"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
+        "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(irate(gentis_messages_published_total{mode=~\"$mode\"}[10s])) by (mode)",
-          "interval": "2s",
-          "legendFormat": "Published ({{mode}})",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(irate(gentis_messages_delivered_total{mode=~\"$mode\"}[10s])) by (mode)",
-          "interval": "2s",
-          "legendFormat": "Delivered ({{mode}})",
-          "refId": "B"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(irate(gentis_messages_dropped_total{mode=~\"$mode\"}[10s])) by (mode)",
-          "interval": "2s",
-          "legendFormat": "Dropped ({{mode}})",
-          "refId": "C"
-        }
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_published_total{mode=~\"$mode\"}[10s])) by (mode)", "interval": "2s", "legendFormat": "Published ({{mode}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_delivered_total{mode=~\"$mode\"}[10s])) by (mode)", "interval": "2s", "legendFormat": "Delivered ({{mode}})", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_dropped_total{mode=~\"$mode\"}[10s])) by (mode)", "interval": "2s", "legendFormat": "Dropped ({{mode}})", "refId": "C" }
       ],
-      "title": "Message Rate (instant)",
+      "title": "Message Rate by Mode",
       "type": "timeseries"
     },
     {
@@ -576,239 +356,244 @@
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "messages",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "opacity",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "messages", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5,
+            "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 16 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 7 },
       "id": 21,
       "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(gentis_messages_published_total{mode=~\"$mode\"}) by (mode)",
-          "legendFormat": "Published ({{mode}})",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(gentis_messages_delivered_total{mode=~\"$mode\"}) by (mode)",
-          "legendFormat": "Delivered ({{mode}})",
-          "refId": "B"
-        }
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_messages_published_total{mode=~\"$mode\"}) by (mode)", "legendFormat": "Published ({{mode}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_messages_delivered_total{mode=~\"$mode\"}) by (mode)", "legendFormat": "Delivered ({{mode}})", "refId": "B" }
       ],
       "title": "Cumulative Messages",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Published vs Delivered message rates stacked to show total throughput and the gap between them.",
+      "description": "Publish latency percentiles (p50, p90, p99) from the engine fan-out loop.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "messages/sec",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "normal" },
-            "thresholdsStyle": { "mode": "off" }
+            "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "latency", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "scheme",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5,
+            "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          },
-          "unit": "ops"
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "s"
         },
         "overrides": [
-          {
-            "matcher": { "id": "byRegexp", "options": "/Published/" },
-            "properties": [
-              { "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }
-            ]
-          },
-          {
-            "matcher": { "id": "byRegexp", "options": "/Delivered/" },
-            "properties": [
-              { "id": "color", "value": { "fixedColor": "#6ED0E0", "mode": "fixed" } }
-            ]
-          }
+          { "matcher": { "id": "byRegexp", "options": "/p99/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/p90/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/p50/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] }
         ]
       },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 25 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 16 },
       "id": 22,
       "options": {
-        "legend": {
-          "calcs": ["mean", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
+        "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(irate(gentis_messages_published_total{mode=~\"$mode\"}[10s]))",
-          "interval": "2s",
-          "legendFormat": "Published",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(irate(gentis_messages_delivered_total{mode=~\"$mode\"}[10s]))",
-          "interval": "2s",
-          "legendFormat": "Delivered",
-          "refId": "B"
-        }
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.50, sum(rate(gentis_publish_duration_seconds_bucket{mode=~\"$mode\"}[30s])) by (le, mode))", "interval": "2s", "legendFormat": "p50 ({{mode}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.90, sum(rate(gentis_publish_duration_seconds_bucket{mode=~\"$mode\"}[30s])) by (le, mode))", "interval": "2s", "legendFormat": "p90 ({{mode}})", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.99, sum(rate(gentis_publish_duration_seconds_bucket{mode=~\"$mode\"}[30s])) by (le, mode))", "interval": "2s", "legendFormat": "p99 ({{mode}})", "refId": "C" }
       ],
-      "title": "Throughput Breakdown (1m)",
+      "title": "Publish Latency Percentiles",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Donut chart showing the proportion of connections by mode (server, relay, etc.).",
+      "description": "Fan-out distribution: how many subscribers each publish reaches (p50, p90, p99).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+            "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "subscribers", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "scheme",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5,
+            "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" }
           },
-          "mappings": []
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 9, "w": 6, "x": 12, "y": 25 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 16 },
       "id": 23,
       "options": {
-        "displayLabels": ["name", "percent"],
-        "legend": {
-          "displayMode": "list",
-          "placement": "right",
-          "showLegend": true,
-          "values": ["value", "percent"]
-        },
-        "pieType": "donut",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "tooltip": { "mode": "single", "sort": "none" }
+        "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(gentis_connections_active) by (mode)",
-          "legendFormat": "{{mode}}",
-          "refId": "A"
-        }
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.50, sum(rate(gentis_publish_fanout_bucket{mode=~\"$mode\"}[30s])) by (le, mode))", "interval": "2s", "legendFormat": "p50 ({{mode}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.90, sum(rate(gentis_publish_fanout_bucket{mode=~\"$mode\"}[30s])) by (le, mode))", "interval": "2s", "legendFormat": "p90 ({{mode}})", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.99, sum(rate(gentis_publish_fanout_bucket{mode=~\"$mode\"}[30s])) by (le, mode))", "interval": "2s", "legendFormat": "p99 ({{mode}})", "refId": "C" }
       ],
-      "title": "Connections by Mode",
-      "type": "piechart"
+      "title": "Fan-out Distribution",
+      "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Donut chart showing the proportion of subscriptions by mode.",
+      "description": "Published vs Delivered stacked bar chart.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+            "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "messages/sec", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "bars", "fillOpacity": 80, "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5,
+            "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" }, "thresholdsStyle": { "mode": "off" }
           },
-          "mappings": []
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "ops"
         },
-        "overrides": []
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/Published/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/Delivered/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#6ED0E0", "mode": "fixed" } }] }
+        ]
       },
-      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 25 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 25 },
       "id": 24,
       "options": {
-        "displayLabels": ["name", "percent"],
-        "legend": {
-          "displayMode": "list",
-          "placement": "right",
-          "showLegend": true,
-          "values": ["value", "percent"]
-        },
-        "pieType": "donut",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "tooltip": { "mode": "single", "sort": "none" }
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "pluginVersion": "10.0.0",
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(gentis_subscriptions_total) by (mode)",
-          "legendFormat": "{{mode}}",
-          "refId": "A"
-        }
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_published_total{mode=~\"$mode\"}[10s]))", "interval": "2s", "legendFormat": "Published", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_delivered_total{mode=~\"$mode\"}[10s]))", "interval": "2s", "legendFormat": "Delivered", "refId": "B" }
       ],
-      "title": "Subscriptions by Mode",
-      "type": "piechart"
+      "title": "Throughput Stacked",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Data throughput in bytes per second by mode.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto",
+            "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "scheme",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false,
+            "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5,
+            "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 25 },
+      "id": 25,
+      "options": {
+        "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_message_bytes_total{mode=~\"$mode\"}[10s])) by (mode)", "interval": "2s", "legendFormat": "{{mode}}", "refId": "A" }
+      ],
+      "title": "Data Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }] },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 25 },
+      "id": 26,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_message_bytes_total{mode=~\"$mode\"}) / clamp_min(sum(gentis_messages_published_total{mode=~\"$mode\"}), 1)", "legendFormat": "", "refId": "A" }],
+      "title": "Avg Message Size",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#6ED0E0", "value": null }] },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 25 },
+      "id": 27,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "max_over_time(sum(irate(gentis_messages_published_total{mode=~\"$mode\"}[10s]))[5m:2s])", "legendFormat": "", "refId": "A" }],
+      "title": "Peak Throughput",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "#B877D9", "value": null }] }, "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 29 },
+      "id": 28,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_message_bytes_total{mode=~\"$mode\"})", "legendFormat": "", "refId": "A" }],
+      "title": "Total Bytes Sent",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "#56A64B", "value": null }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 29 },
+      "id": 29,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_messages_published_total{mode=~\"$mode\"})", "legendFormat": "", "refId": "A" }],
+      "title": "Total Messages",
+      "type": "stat"
     },
 
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
-      "id": 103,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "id": 102,
       "panels": [],
-      "title": "\ud83d\udd17 Connection & Subscription Metrics",
+      "title": "\ud83d\udd17 Connection & Subscription Lifecycle",
       "type": "row"
     },
     {
@@ -817,760 +602,658 @@
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "connections",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "gradientMode": "scheme",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "normal" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          },
-          "unit": "short"
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "connections", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "normal" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 35 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 34 },
       "id": 30,
-      "options": {
-        "legend": {
-          "calcs": ["mean", "max", "lastNotNull"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
+      "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "gentis_connections_active{mode=~\"$mode\"}",
-          "legendFormat": "{{mode}}",
-          "refId": "A"
-        }
-      ],
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_connections_active{mode=~\"$mode\"}", "legendFormat": "{{mode}}", "refId": "A" }],
       "title": "Active Connections Over Time",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Active channels and total subscriptions over time.",
+      "description": "Rate of new connections and disconnections per second.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "count",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 15,
-            "gradientMode": "scheme",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          },
-          "unit": "short"
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "ops/s", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "ops"
         },
         "overrides": [
-          {
-            "matcher": { "id": "byRegexp", "options": "/Channels/" },
-            "properties": [
-              { "id": "color", "value": { "fixedColor": "#6ED0E0", "mode": "fixed" } }
-            ]
-          },
-          {
-            "matcher": { "id": "byRegexp", "options": "/Subscriptions/" },
-            "properties": [
-              { "id": "color", "value": { "fixedColor": "#B877D9", "mode": "fixed" } },
-              { "id": "custom.axisPlacement", "value": "right" }
-            ]
-          }
+          { "matcher": { "id": "byRegexp", "options": "/New/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/Closed/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] }
         ]
       },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 35 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 34 },
       "id": 31,
-      "options": {
-        "legend": {
-          "calcs": ["mean", "max", "lastNotNull"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
+      "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "pluginVersion": "10.0.0",
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(gentis_channels_active{mode=~\"$mode\"}) by (mode)",
-          "legendFormat": "Channels ({{mode}})",
-          "refId": "A"
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_connections_total{mode=~\"$mode\"}[30s])) by (mode)", "interval": "2s", "legendFormat": "New /s ({{mode}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_disconnections_total{mode=~\"$mode\"}[30s])) by (mode)", "interval": "2s", "legendFormat": "Closed /s ({{mode}})", "refId": "B" }
+      ],
+      "title": "Connection Churn Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Subscribe and unsubscribe operation rates per second.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "ops/s", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "ops"
         },
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(gentis_subscriptions_total{mode=~\"$mode\"}) by (mode)",
-          "legendFormat": "Subscriptions ({{mode}})",
-          "refId": "B"
-        }
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/Subscribe /" }, "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/Unsubscribe/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 43 },
+      "id": 32,
+      "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_subscribe_ops_total{mode=~\"$mode\"}[30s])) by (mode)", "interval": "2s", "legendFormat": "Subscribe /s ({{mode}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_unsubscribe_ops_total{mode=~\"$mode\"}[30s])) by (mode)", "interval": "2s", "legendFormat": "Unsubscribe /s ({{mode}})", "refId": "B" }
+      ],
+      "title": "Subscription Ops Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Active channels and total subscriptions over time with dual axes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "count", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/Channels/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#6ED0E0", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/Subscriptions/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#B877D9", "mode": "fixed" } }, { "id": "custom.axisPlacement", "value": "right" }] }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 43 },
+      "id": 33,
+      "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_channels_active{mode=~\"$mode\"}) by (mode)", "legendFormat": "Channels ({{mode}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_subscriptions_total{mode=~\"$mode\"}) by (mode)", "legendFormat": "Subscriptions ({{mode}})", "refId": "B" }
       ],
       "title": "Channels & Subscriptions",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Connections and subscriptions per mode displayed as horizontal bars for quick comparison.",
+      "description": "Subscriptions per connection ratio by mode.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "subs/conn", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "opacity", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 52 },
+      "id": 34,
+      "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_subscriptions_total{mode=~\"$mode\"} / clamp_min(gentis_connections_active{mode=~\"$mode\"}, 1)", "legendFormat": "Fan-out ({{mode}})", "refId": "A" }],
+      "title": "Fan-out Ratio",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Average subscriptions per channel.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "avg subs", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "opacity", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 52 },
+      "id": 35,
+      "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_subscriptions_total{mode=~\"$mode\"}) / clamp_min(sum(gentis_channels_active{mode=~\"$mode\"}), 1)", "legendFormat": "Subs/Channel", "refId": "A" }],
+      "title": "Avg Subscriptions per Channel",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Distribution of connections by mode.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "hideFrom": { "legend": false, "tooltip": false, "viz": false } }, "mappings": [] }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 52 },
+      "id": 36,
+      "options": { "displayLabels": ["name", "percent"], "legend": { "displayMode": "list", "placement": "right", "showLegend": true, "values": ["value", "percent"] }, "pieType": "donut", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "tooltip": { "mode": "single", "sort": "none" } },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_connections_active) by (mode)", "legendFormat": "{{mode}}", "refId": "A" }],
+      "title": "Mode Distribution",
+      "type": "piechart"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 59 },
+      "id": 103,
+      "panels": [],
+      "title": "\ud83c\udfaf Reliability & Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Percentage of published messages successfully delivered. Drops below 95% should be investigated.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "delivery %", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "area" } },
+          "mappings": [], "max": 100, "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#F2495C", "value": null }, { "color": "#FF9830", "value": 80 }, { "color": "#73BF69", "value": 95 }] },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 60 },
+      "id": 40,
+      "options": { "legend": { "calcs": ["mean", "min", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=~\"$mode\"} / clamp_min(gentis_messages_published_total{mode=~\"$mode\"}, 1)) * 100", "legendFormat": "Delivery Rate ({{mode}})", "refId": "A" }],
+      "title": "Message Delivery Rate (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Percentage of published messages dropped. Spikes above 5% trigger the critical threshold.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "drop %", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "area" } },
+          "mappings": [], "max": 100, "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }, { "color": "#EAB839", "value": 1 }, { "color": "#F2495C", "value": 5 }] },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 60 },
+      "id": 41,
+      "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_dropped_total{mode=~\"$mode\"} / clamp_min(gentis_messages_published_total{mode=~\"$mode\"}, 1)) * 100", "legendFormat": "Drop Rate ({{mode}})", "refId": "A" }],
+      "title": "Message Drop Rate (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Instantaneous drop rate over time.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "drops/s", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#F2495C", "value": null }] }, "unit": "ops"
+        },
+        "overrides": [{ "matcher": { "id": "byRegexp", "options": "/.*/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] }]
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 69 },
+      "id": 42,
+      "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_dropped_total{mode=~\"$mode\"}[10s])) by (mode)", "interval": "2s", "legendFormat": "Drops /s ({{mode}})", "refId": "A" }],
+      "title": "Messages Dropped Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Overall system health based on delivery rate.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
           "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "#73BF69", "value": null },
-              { "color": "#EAB839", "value": 200 },
-              { "color": "#F2495C", "value": 500 }
-            ]
-          },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#F2495C", "value": null }, { "color": "#EAB839", "value": 70 }, { "color": "#73BF69", "value": 90 }] },
+          "max": 100, "min": 0, "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 69 },
+      "id": 43,
+      "options": { "minVizHeight": 75, "minVizWidth": 75, "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showThresholdLabels": true, "showThresholdMarkers": true, "text": {} },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(sum(gentis_messages_delivered_total{mode=~\"$mode\"}) / clamp_min(sum(gentis_messages_published_total{mode=~\"$mode\"}), 1)) * 100", "instant": true, "legendFormat": "Health Score", "refId": "A" }],
+      "title": "System Health Score",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Drop events per minute timeline.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "drops/min", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "bars", "fillOpacity": 60, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#F2495C", "value": null }] }, "unit": "short"
+        },
+        "overrides": [{ "matcher": { "id": "byRegexp", "options": "/.*/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] }]
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 69 },
+      "id": 44,
+      "options": { "legend": { "calcs": ["sum", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(increase(gentis_messages_dropped_total{mode=~\"$mode\"}[1m])) by (mode)", "legendFormat": "Drops/min ({{mode}})", "refId": "A" }],
+      "title": "Drop Events Timeline",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 77 },
+      "id": 104,
+      "panels": [],
+      "title": "\ud83d\udd04 Relay Performance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Whether the relay is connected to its upstream server.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "#F2495C", "index": 1, "text": "Disconnected" } , "1": { "color": "#73BF69", "index": 0, "text": "Connected" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#F2495C", "value": null }, { "color": "#73BF69", "value": 1 }] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 78 },
+      "id": 50,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value", "wideLayout": true },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_relay_upstream_connected{mode=\"relay\"}", "legendFormat": "", "refId": "A" }],
+      "title": "Upstream Status",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Deduplication: duplicates blocked vs unique messages passed per second.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "msgs/s", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "normal" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "ops"
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/Blocked/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/Passed/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 10, "x": 4, "y": 78 },
+      "id": 51,
+      "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_relay_dedup_hits_total{mode=~\"$mode\"}[30s]))", "interval": "2s", "legendFormat": "Duplicates Blocked /s", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_relay_dedup_passes_total{mode=~\"$mode\"}[30s]))", "interval": "2s", "legendFormat": "Unique Passed /s", "refId": "B" }
+      ],
+      "title": "Dedup Hit Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Relay vs Server message throughput comparison.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "msgs/s", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "ops"
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/Server/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/Relay/" }, "properties": [{ "id": "color", "value": { "fixedColor": "#6ED0E0", "mode": "fixed" } }] }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 10, "x": 14, "y": 78 },
+      "id": 53,
+      "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_published_total{mode=\"server\"}[10s]))", "interval": "2s", "legendFormat": "Server Msgs /s", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_published_total{mode=\"relay\"}[10s]))", "interval": "2s", "legendFormat": "Relay Msgs /s", "refId": "B" }
+      ],
+      "title": "Relay vs Server Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Dedup efficiency: percentage of messages that were duplicates.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }, { "color": "#EAB839", "value": 50 }, { "color": "#F2495C", "value": 80 }] },
+          "max": 100, "min": 0, "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 83 },
+      "id": 52,
+      "options": { "minVizHeight": 75, "minVizWidth": 75, "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showThresholdLabels": false, "showThresholdMarkers": true, "text": {} },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_relay_dedup_hits_total) / clamp_min(sum(gentis_relay_dedup_hits_total) + sum(gentis_relay_dedup_passes_total), 1) * 100", "instant": true, "legendFormat": "Dedup %", "refId": "A" }],
+      "title": "Dedup Efficiency",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Connections and subscriptions per mode as horizontal bars.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }, { "color": "#EAB839", "value": 200 }, { "color": "#F2495C", "value": 500 }] },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 44 },
-      "id": 32,
-      "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 10,
-        "minVizWidth": 0,
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true,
-        "valueMode": "color"
-      },
+      "gridPos": { "h": 7, "w": 12, "x": 4, "y": 87 },
+      "id": 55,
+      "options": { "displayMode": "gradient", "minVizHeight": 10, "minVizWidth": 0, "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showUnfilled": true, "valueMode": "color" },
       "pluginVersion": "10.0.0",
       "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "gentis_connections_active",
-          "legendFormat": "Connections ({{mode}})",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "gentis_subscriptions_total",
-          "legendFormat": "Subscriptions ({{mode}})",
-          "refId": "B"
-        }
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_connections_active", "legendFormat": "Connections ({{mode}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_subscriptions_total", "legendFormat": "Subscriptions ({{mode}})", "refId": "B" }
       ],
       "title": "Per-Mode Resource Bar",
       "type": "bargauge"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Subscribers-to-connections ratio by mode. Higher values indicate more fan-out per connection.",
+      "description": "Relay fan-out amplification: delivered messages per published message.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "subs/conn",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "opacity",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          },
-          "unit": "short"
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "amplification", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [], "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 44 },
-      "id": 33,
-      "options": {
-        "legend": {
-          "calcs": ["mean", "lastNotNull"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 87 },
+      "id": 54,
+      "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "gentis_subscriptions_total{mode=~\"$mode\"} / clamp_min(gentis_connections_active{mode=~\"$mode\"}, 1)",
-          "legendFormat": "Fan-out ({{mode}})",
-          "refId": "A"
-        }
-      ],
-      "title": "Subscription Fan-out Ratio",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_delivered_total{mode=\"relay\"}[10s])) / clamp_min(sum(irate(gentis_messages_published_total{mode=\"relay\"}[10s])), 0.001)", "interval": "2s", "legendFormat": "Relay Amplification", "refId": "A" }],
+      "title": "Relay Fan-out Amplification",
       "type": "timeseries"
     },
 
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 51 },
-      "id": 104,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 94 },
+      "id": 105,
       "panels": [],
-      "title": "\ud83c\udfaf Performance & Reliability",
+      "title": "\ud83d\udcc8 Capacity Gauges",
       "type": "row"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Percentage of published messages that were successfully delivered. Drops below 95% should be investigated.",
+      "description": "Total active connections gauge.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "delivery %",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 15,
-            "gradientMode": "scheme",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": {
-              "mode": "area"
-            }
-          },
+          "color": { "mode": "thresholds" },
           "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "#F2495C", "value": null },
-              { "color": "#FF9830", "value": 80 },
-              { "color": "#73BF69", "value": 95 }
-            ]
-          },
-          "unit": "percent"
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }, { "color": "#EAB839", "value": 250 }, { "color": "#FF9830", "value": 500 }, { "color": "#F2495C", "value": 800 }] },
+          "max": 1000, "min": 0, "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 52 },
-      "id": 40,
-      "options": {
-        "legend": {
-          "calcs": ["mean", "min", "lastNotNull"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 95 },
+      "id": 60,
+      "options": { "minVizHeight": 75, "minVizWidth": 75, "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showThresholdLabels": true, "showThresholdMarkers": true, "text": {} },
       "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "(gentis_messages_delivered_total{mode=~\"$mode\"} / clamp_min(gentis_messages_published_total{mode=~\"$mode\"}, 1)) * 100",
-          "legendFormat": "Delivery Rate ({{mode}})",
-          "refId": "A"
-        }
-      ],
-      "title": "Message Delivery Rate (%)",
-      "type": "timeseries"
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_connections_active)", "interval": "2s", "instant": true, "legendFormat": "Total Connections", "refId": "A" }],
+      "title": "Total Connections Gauge",
+      "type": "gauge"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "description": "Percentage of published messages that were dropped. Spikes above 5% trigger the critical threshold band.",
+      "description": "Active subscriptions gauge.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "drop %",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 15,
-            "gradientMode": "scheme",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": {
-              "mode": "area"
-            }
-          },
+          "color": { "mode": "thresholds" },
           "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "#73BF69", "value": null },
-              { "color": "#EAB839", "value": 1 },
-              { "color": "#F2495C", "value": 5 }
-            ]
-          },
-          "unit": "percent"
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#B877D9", "value": null }, { "color": "#EAB839", "value": 1000 }, { "color": "#FF9830", "value": 3000 }, { "color": "#F2495C", "value": 5000 }] },
+          "max": 5000, "min": 0, "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 52 },
-      "id": 41,
-      "options": {
-        "legend": {
-          "calcs": ["mean", "max", "lastNotNull"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 95 },
+      "id": 61,
+      "options": { "minVizHeight": 75, "minVizWidth": 75, "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showThresholdLabels": true, "showThresholdMarkers": true, "text": {} },
       "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "(gentis_messages_dropped_total{mode=~\"$mode\"} / clamp_min(gentis_messages_published_total{mode=~\"$mode\"}, 1)) * 100",
-          "legendFormat": "Drop Rate ({{mode}})",
-          "refId": "A"
-        }
-      ],
-      "title": "Message Drop Rate (%)",
-      "type": "timeseries"
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(gentis_subscriptions_total)", "interval": "2s", "instant": true, "legendFormat": "Total Subscriptions", "refId": "A" }],
+      "title": "Total Subscriptions Gauge",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "description": "Message throughput gauge.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#56A64B", "value": null }, { "color": "#EAB839", "value": 500 }, { "color": "#FF9830", "value": 2000 }, { "color": "#F2495C", "value": 5000 }] },
+          "max": 5000, "min": 0, "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 95 },
+      "id": 62,
+      "options": { "minVizHeight": 75, "minVizWidth": 75, "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showThresholdLabels": true, "showThresholdMarkers": true, "text": {} },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_published_total[10s]))", "interval": "2s", "legendFormat": "Throughput", "refId": "A" }],
+      "title": "Message Throughput Gauge",
+      "type": "gauge"
     },
 
     {
       "collapsed": true,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 61 },
-      "id": 105,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 103 },
+      "id": 106,
       "panels": [
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "description": "Number of goroutines currently running in the Gentis process.",
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "palette-classic" },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "goroutines",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 20,
-                "gradientMode": "scheme",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false,
-                "lineInterpolation": "smooth",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": { "type": "linear" },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
-              },
-              "mappings": [],
-              "min": 0,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 62 },
-          "id": 50,
-          "options": {
-            "legend": {
-              "calcs": ["mean", "max", "lastNotNull"],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": { "mode": "multi", "sort": "desc" }
-          },
+          "description": "Number of goroutines running.",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "goroutines", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 104 },
+          "id": 70,
+          "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
           "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "go_goroutines",
-              "legendFormat": "Goroutines",
-              "refId": "A"
-            }
-          ],
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "go_goroutines", "legendFormat": "Goroutines", "refId": "A" }],
           "title": "Goroutines",
           "type": "timeseries"
         },
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "description": "Heap memory allocated and in-use by the Gentis process.",
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "palette-classic" },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 20,
-                "gradientMode": "scheme",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false,
-                "lineInterpolation": "smooth",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": { "type": "linear" },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
-              },
-              "mappings": [],
-              "min": 0,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null }
-                ]
-              },
-              "unit": "bytes"
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 62 },
-          "id": 51,
-          "options": {
-            "legend": {
-              "calcs": ["mean", "max", "lastNotNull"],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": { "mode": "multi", "sort": "desc" }
-          },
+          "description": "Heap and stack memory usage.",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 104 },
+          "id": 71,
+          "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
           "pluginVersion": "10.0.0",
           "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "go_memstats_heap_alloc_bytes",
-              "legendFormat": "Heap Alloc",
-              "refId": "A"
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "go_memstats_heap_inuse_bytes",
-              "legendFormat": "Heap In-Use",
-              "refId": "B"
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "go_memstats_stack_inuse_bytes",
-              "legendFormat": "Stack In-Use",
-              "refId": "C"
-            }
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "go_memstats_heap_alloc_bytes", "legendFormat": "Heap Alloc", "refId": "A" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "go_memstats_heap_inuse_bytes", "legendFormat": "Heap In-Use", "refId": "B" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "go_memstats_stack_inuse_bytes", "legendFormat": "Stack In-Use", "refId": "C" }
           ],
           "title": "Memory Usage",
           "type": "timeseries"
         },
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "description": "CPU time consumed by the Gentis process, shown as a rate (cores used).",
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "palette-classic" },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "cores",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 20,
-                "gradientMode": "scheme",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false,
-                "lineInterpolation": "smooth",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": { "type": "linear" },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
-              },
-              "mappings": [],
-              "min": 0,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 62 },
-          "id": 52,
-          "options": {
-            "legend": {
-              "calcs": ["mean", "max", "lastNotNull"],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": { "mode": "multi", "sort": "desc" }
-          },
+          "description": "CPU time consumed (cores).",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "cores", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 104 },
+          "id": 72,
+          "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
           "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "irate(process_cpu_seconds_total[10s])",
-              "interval": "2s",
-              "legendFormat": "CPU Usage",
-              "refId": "A"
-            }
-          ],
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "irate(process_cpu_seconds_total[10s])", "interval": "2s", "legendFormat": "CPU Usage", "refId": "A" }],
           "title": "CPU Usage (cores)",
           "type": "timeseries"
         },
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "description": "Resident set size of the Gentis process.",
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "thresholds" },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "#73BF69", "value": null },
-                  { "color": "#EAB839", "value": 268435456 },
-                  { "color": "#F2495C", "value": 536870912 }
-                ]
-              },
-              "unit": "bytes"
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 70 },
-          "id": 53,
-          "options": {
-            "colorMode": "background",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": ["lastNotNull"],
-              "fields": "",
-              "values": false
-            },
-            "textMode": "value_and_name",
-            "wideLayout": true
-          },
+          "description": "Memory allocation rate.",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "Bps" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 112 },
+          "id": 73,
+          "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "pluginVersion": "10.0.0",
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "irate(go_memstats_alloc_bytes_total[10s])", "interval": "2s", "legendFormat": "Alloc Rate", "refId": "A" }],
+          "title": "Allocation Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "description": "Goroutines per active connection.",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "goroutines/conn", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "opacity", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 112 },
+          "id": 74,
+          "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "pluginVersion": "10.0.0",
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "go_goroutines / clamp_min(gentis_connections_active, 1)", "legendFormat": "Goroutines/Conn", "refId": "A" }],
+          "title": "Goroutines per Connection",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "description": "GC pause durations.",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "s" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 112 },
+          "id": 75,
+          "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
           "pluginVersion": "10.0.0",
           "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "process_resident_memory_bytes",
-              "legendFormat": "",
-              "refId": "A"
-            }
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "irate(go_gc_duration_seconds_sum[10s])", "interval": "2s", "legendFormat": "GC Duration Rate", "refId": "A" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "go_gc_duration_seconds{quantile=\"0.75\"}", "legendFormat": "GC p75", "refId": "B" }
           ],
+          "title": "GC Pause Duration",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }, { "color": "#EAB839", "value": 268435456 }, { "color": "#F2495C", "value": 536870912 }] }, "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 120 },
+          "id": 76,
+          "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
+          "pluginVersion": "10.0.0",
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "process_resident_memory_bytes", "legendFormat": "", "refId": "A" }],
           "title": "Resident Memory",
           "type": "stat"
         },
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "description": "Number of open file descriptors.",
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "thresholds" },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "#6ED0E0", "value": null },
-                  { "color": "#EAB839", "value": 500 },
-                  { "color": "#F2495C", "value": 900 }
-                ]
-              },
-              "unit": "none"
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 70 },
-          "id": 54,
-          "options": {
-            "colorMode": "background",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": ["lastNotNull"],
-              "fields": "",
-              "values": false
-            },
-            "textMode": "value_and_name",
-            "wideLayout": true
-          },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "#6ED0E0", "value": null }, { "color": "#EAB839", "value": 500 }, { "color": "#F2495C", "value": 900 }] }, "unit": "none" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 120 },
+          "id": 77,
+          "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
           "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "process_open_fds",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ],
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "process_open_fds", "legendFormat": "", "refId": "A" }],
           "title": "Open File Descriptors",
           "type": "stat"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "description": "GC pause durations over time.",
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "palette-classic" },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 15,
-                "gradientMode": "scheme",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false,
-                "lineInterpolation": "smooth",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": { "type": "linear" },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
-              },
-              "mappings": [],
-              "min": 0,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null }
-                ]
-              },
-              "unit": "s"
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 70 },
-          "id": 55,
-          "options": {
-            "legend": {
-              "calcs": ["mean", "max"],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": { "mode": "multi", "sort": "desc" }
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "irate(go_gc_duration_seconds_sum[10s])",
-              "interval": "2s",
-              "legendFormat": "GC Duration Rate",
-              "refId": "A"
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-              "expr": "go_gc_duration_seconds{quantile=\"0.75\"}",
-              "legendFormat": "GC p75",
-              "refId": "B"
-            }
-          ],
-          "title": "GC Pause Duration",
-          "type": "timeseries"
         }
       ],
       "title": "\u2699\ufe0f Go Runtime & Process",
+      "type": "row"
+    },
+
+    {
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 104 },
+      "id": 107,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "description": "Server vs Relay message throughput comparison.",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "msgs/s", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 105 },
+          "id": 80,
+          "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_published_total{mode=\"server\"}[10s]))", "interval": "2s", "legendFormat": "Server Published /s", "refId": "A" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_delivered_total{mode=\"server\"}[10s]))", "interval": "2s", "legendFormat": "Server Delivered /s", "refId": "B" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_published_total{mode=\"relay\"}[10s]))", "interval": "2s", "legendFormat": "Relay Published /s", "refId": "C" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "sum(irate(gentis_messages_delivered_total{mode=\"relay\"}[10s]))", "interval": "2s", "legendFormat": "Relay Delivered /s", "refId": "D" }
+          ],
+          "title": "Server vs Relay: Messages",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "description": "Connection count comparison between server and relay.",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "connections", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 20, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 105 },
+          "id": 81,
+          "options": { "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_connections_active{mode=\"server\"}", "legendFormat": "Server Connections", "refId": "A" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_connections_active{mode=\"relay\"}", "legendFormat": "Relay Connections", "refId": "B" }
+          ],
+          "title": "Server vs Relay: Connections",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "description": "Delivery rate comparison between server and relay.",
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "delivery %", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "area" } }, "mappings": [], "max": 100, "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "#F2495C", "value": null }, { "color": "#FF9830", "value": 80 }, { "color": "#73BF69", "value": 95 }] }, "unit": "percent" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 113 },
+          "id": 82,
+          "options": { "legend": { "calcs": ["mean", "min", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=\"server\"} / clamp_min(gentis_messages_published_total{mode=\"server\"}, 1)) * 100", "legendFormat": "Server Delivery %", "refId": "A" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=\"relay\"} / clamp_min(gentis_messages_published_total{mode=\"relay\"}, 1)) * 100", "legendFormat": "Relay Delivery %", "refId": "B" }
+          ],
+          "title": "Server vs Relay: Delivery Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "description": "Key metrics comparison by mode.",
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 113 },
+          "id": 83,
+          "options": { "displayMode": "gradient", "minVizHeight": 10, "minVizWidth": 0, "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showUnfilled": true, "valueMode": "color" },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_connections_active", "legendFormat": "Connections ({{mode}})", "refId": "A" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_subscriptions_total", "legendFormat": "Subscriptions ({{mode}})", "refId": "B" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "gentis_channels_active", "legendFormat": "Channels ({{mode}})", "refId": "C" }
+          ],
+          "title": "Per-Mode Metrics Comparison",
+          "type": "bargauge"
+        }
+      ],
+      "title": "\ud83d\udccb Comparative Analysis",
       "type": "row"
     }
   ],
@@ -1581,11 +1264,7 @@
   "templating": {
     "list": [
       {
-        "current": {
-          "selected": true,
-          "text": "All",
-          "value": "$__all"
-        },
+        "current": { "selected": true, "text": "All", "value": "$__all" },
         "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
         "definition": "label_values(gentis_connections_active, mode)",
         "hide": 0,
@@ -1594,10 +1273,7 @@
         "multi": true,
         "name": "mode",
         "options": [],
-        "query": {
-          "query": "label_values(gentis_connections_active, mode)",
-          "refId": "StandardVariableQuery"
-        },
+        "query": { "query": "label_values(gentis_connections_active, mode)", "refId": "StandardVariableQuery" },
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -1606,21 +1282,9 @@
       }
     ]
   },
-  "time": {
-    "from": "now-5m",
-    "to": "now"
-  },
+  "time": { "from": "now-5m", "to": "now" },
   "timepicker": {
-    "refresh_intervals": [
-      "100ms",
-      "250ms",
-      "500ms",
-      "1s",
-      "2s",
-      "5s",
-      "10s",
-      "30s"
-    ]
+    "refresh_intervals": ["100ms", "250ms", "500ms", "1s", "2s", "5s", "10s", "30s"]
   },
   "timezone": "",
   "title": "Gentis Dashboard",
