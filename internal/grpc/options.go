@@ -1,9 +1,16 @@
 package grpc
 
+import (
+	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/transport"
+)
+
 type Config struct {
 	Address        string
 	MetricsAddr    string
 	MetricsEnabled bool
+	Engine         engine.Engine
+	SessionStore   *transport.SessionStore
 }
 
 type Option func(*Config)
@@ -12,6 +19,18 @@ func WithMetrics(addr string) Option {
 	return func(c *Config) {
 		c.MetricsAddr = addr
 		c.MetricsEnabled = true
+	}
+}
+
+func WithEngine(e engine.Engine) Option {
+	return func(c *Config) {
+		c.Engine = e
+	}
+}
+
+func WithSessionStore(store *transport.SessionStore) Option {
+	return func(c *Config) {
+		c.SessionStore = store
 	}
 }
 

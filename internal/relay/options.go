@@ -1,6 +1,11 @@
 package relay
 
-import "time"
+import (
+	"time"
+
+	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/transport"
+)
 
 type Config struct {
 	ListenAddr      string
@@ -9,6 +14,8 @@ type Config struct {
 	ReconnectPolicy ReconnectPolicy
 	MetricsAddr     string
 	MetricsEnabled  bool
+	Engine          engine.Engine
+	SessionStore    *transport.SessionStore
 }
 
 type UpstreamConfig struct {
@@ -66,6 +73,18 @@ func WithMetrics(addr string) Option {
 	return func(c *Config) {
 		c.MetricsAddr = addr
 		c.MetricsEnabled = true
+	}
+}
+
+func WithEngine(e engine.Engine) Option {
+	return func(c *Config) {
+		c.Engine = e
+	}
+}
+
+func WithSessionStore(store *transport.SessionStore) Option {
+	return func(c *Config) {
+		c.SessionStore = store
 	}
 }
 

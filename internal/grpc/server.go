@@ -13,6 +13,7 @@ import (
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/metrics"
+	"github.com/mateusfdl/gentis/internal/transport"
 )
 
 type Server struct {
@@ -22,6 +23,7 @@ type Server struct {
 	listener net.Listener
 	grpcSrv  *grpc.Server
 	engine   engine.Engine
+	store    *transport.SessionStore
 	sessions sync.Map
 	nextID   atomic.Int32
 
@@ -41,9 +43,15 @@ func New(address string, opts ...Option) *Server {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	eng := cfg.Engine
+	if eng == nil {
+		eng = engine.New()
+	}
+
 	return &Server{
 		config: cfg,
-		engine: engine.New(),
+		engine: eng,
+		store:  cfg.SessionStore,
 		ctx:    ctx,
 		cancel: cancel,
 	}
