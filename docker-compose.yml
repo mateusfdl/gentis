@@ -1,9 +1,8 @@
 services:
-  gentis-server:
+  server:
     build:
       context: ..
       dockerfile: Dockerfile
-    container_name: gentis-server
     ports:
       - "9000:9000"
       - "8080:8080"
@@ -20,19 +19,18 @@ services:
       retries: 5
       start_period: 5s
     networks:
-      - gentis-test
+      - gentis
 
-  gentis-relay:
+  relay:
     build:
       context: ..
       dockerfile: Dockerfile
-    container_name: gentis-relay
     ports:
       - "9001:9001"
       - "8081:8081"
-    command: ["relay", "-addr", "0.0.0.0:9001", "-upstream", "gentis-server:9000", "-metrics-addr", "0.0.0.0:8081", "-metrics", "true"]
+    command: ["relay", "-addr", "0.0.0.0:9001", "-upstream", "server:9000", "-metrics-addr", "0.0.0.0:8081", "-metrics", "true"]
     depends_on:
-      gentis-server:
+      server:
         condition: service_healthy
     deploy:
       resources:
@@ -46,11 +44,10 @@ services:
       retries: 5
       start_period: 5s
     networks:
-      - gentis-test
+      - gentis
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: gentis-prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -62,14 +59,13 @@ services:
       - "--storage.tsdb.min-block-duration=2m"
       - "--query.lookback-delta=30s"
     depends_on:
-      - gentis-server
-      - gentis-relay
+      - server
+      - relay
     networks:
-      - gentis-test
+      - gentis
 
   grafana:
     image: grafana/grafana:latest
-    container_name: gentis-grafana
     ports:
       - "3000:3000"
     environment:
@@ -84,8 +80,8 @@ services:
     depends_on:
       - prometheus
     networks:
-      - gentis-test
+      - gentis
 
 networks:
-  gentis-test:
+  gentis:
     driver: bridge
