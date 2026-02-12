@@ -9,15 +9,17 @@ import (
 )
 
 type Config struct {
-	ListenAddr      string
-	Upstream        UpstreamConfig
-	BufferSize      int
-	ReconnectPolicy ReconnectPolicy
-	MetricsAddr     string
-	MetricsEnabled  bool
-	Engine          engine.Engine
-	SessionStore    *transport.SessionStore
-	Observer        *metrics.Observer
+	ListenAddr         string
+	Upstream           UpstreamConfig
+	BufferSize         int
+	IncomingBufferSize int
+	FanoutWorkers      int
+	ReconnectPolicy    ReconnectPolicy
+	MetricsAddr        string
+	MetricsEnabled     bool
+	Engine             engine.Engine
+	SessionStore       *transport.SessionStore
+	Observer           *metrics.Observer
 }
 
 type UpstreamConfig struct {
@@ -96,10 +98,24 @@ func WithObserver(obs *metrics.Observer) Option {
 	}
 }
 
+func WithIncomingBuffer(size int) Option {
+	return func(c *Config) {
+		c.IncomingBufferSize = size
+	}
+}
+
+func WithFanoutWorkers(n int) Option {
+	return func(c *Config) {
+		c.FanoutWorkers = n
+	}
+}
+
 func defaultConfig() *Config {
 	return &Config{
-		ListenAddr: "127.0.0.1:9001",
-		BufferSize: 256,
+		ListenAddr:         "127.0.0.1:9001",
+		BufferSize:         256,
+		IncomingBufferSize: 4096,
+		FanoutWorkers:      4,
 		ReconnectPolicy: ReconnectPolicy{
 			InitialDelay: 100 * time.Millisecond,
 			MaxDelay:     30 * time.Second,
