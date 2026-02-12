@@ -27,9 +27,9 @@ type Server struct {
 	sessions sync.Map
 	nextID   atomic.Int32
 
-	metrics            *metrics.Server
-	connectionCount    atomic.Int64
-	connectionsTotal   atomic.Int64
+	metrics             *metrics.Server
+	connectionCount     atomic.Int64
+	connectionsTotal    atomic.Int64
 	disconnectionsTotal atomic.Int64
 
 	ctx    context.Context

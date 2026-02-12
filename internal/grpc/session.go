@@ -21,7 +21,6 @@ type Session struct {
 	cancel context.CancelFunc
 }
 
-
 func (s *Session) DeliverMessage(channel string, data []byte) bool {
 	msg := getServerMsg(channel, data)
 	select {
