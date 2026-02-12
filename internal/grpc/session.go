@@ -23,18 +23,12 @@ type Session struct {
 
 
 func (s *Session) DeliverMessage(channel string, data []byte) bool {
-	msg := &gentisv1.ServerMessage{
-		Message: &gentisv1.ServerMessage_ChannelMessage{
-			ChannelMessage: &gentisv1.ChannelMessage{
-				Channel: channel,
-				Data:    data,
-			},
-		},
-	}
+	msg := getServerMsg(channel, data)
 	select {
 	case s.sendCh <- msg:
 		return true
 	default:
+		putServerMsg(msg)
 		return false
 	}
 }

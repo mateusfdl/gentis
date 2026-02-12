@@ -18,6 +18,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+type incomingMsg struct {
+	channel string
+	data    []byte
+}
+
 type Server struct {
 	gentisv1.UnimplementedGentisServiceServer
 
@@ -27,6 +32,8 @@ type Server struct {
 	upstream *Upstream
 	router   *Router
 	dedup    *Deduplicator
+
+	incomingCh chan incomingMsg
 
 	listener            net.Listener
 	grpcSrv             *grpc.Server
@@ -54,18 +61,12 @@ type Session struct {
 }
 
 func (sess *Session) DeliverMessage(channel string, data []byte) bool {
-	msg := &gentisv1.ServerMessage{
-		Message: &gentisv1.ServerMessage_ChannelMessage{
-			ChannelMessage: &gentisv1.ChannelMessage{
-				Channel: channel,
-				Data:    data,
-			},
-		},
-	}
+	msg := getServerMsg(channel, data)
 	select {
 	case sess.sendCh <- msg:
 		return true
 	default:
+		putServerMsg(msg)
 		return false
 	}
 }
@@ -86,16 +87,17 @@ func New(opts ...Option) *Server {
 	}
 
 	s := &Server{
-		config: config,
-		engine: eng,
-		store:  config.SessionStore,
-		router: NewRouter(nil),
-		dedup:  NewDeduplicator(5 * time.Second),
-		ctx:    ctx,
-		cancel: cancel,
+		config:     config,
+		engine:     eng,
+		store:      config.SessionStore,
+		router:     NewRouter(nil),
+		dedup:      NewDeduplicator(5 * time.Second),
+		incomingCh: make(chan incomingMsg, config.IncomingBufferSize),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 
-	s.upstream = NewUpstream(config.Upstream, config.ReconnectPolicy, s.onUpstreamMessage)
+	s.upstream = NewUpstream(config.Upstream, config.ReconnectPolicy, s.enqueueUpstreamMessage)
 
 	return s
 }
@@ -147,6 +149,12 @@ func (s *Server) Start() error {
 		log.Printf("Metrics server listening on %s", s.config.MetricsAddr)
 	}
 
+	for range s.config.FanoutWorkers {
+		s.wg.Go(func() {
+			s.fanoutWorker()
+		})
+	}
+
 	s.wg.Go(func() {
 		if err := s.grpcSrv.Serve(listener); err != nil {
 			log.Printf("grpc server error: %v", err)
@@ -161,6 +169,7 @@ func (s *Server) Stop() error {
 	s.cancel()
 	s.grpcSrv.GracefulStop()
 	s.upstream.Stop()
+	close(s.incomingCh)
 	s.dedup.Stop()
 
 	if s.metrics != nil {
@@ -252,6 +261,19 @@ func (s *Server) getSession(id int) (*Session, bool) {
 	return val.(*Session), true
 }
 
+func (s *Server) enqueueUpstreamMessage(channel string, data []byte) {
+	select {
+	case s.incomingCh <- incomingMsg{channel: channel, data: data}:
+	case <-s.ctx.Done():
+	}
+}
+
+func (s *Server) fanoutWorker() {
+	for msg := range s.incomingCh {
+		s.onUpstreamMessage(msg.channel, msg.data)
+	}
+}
+
 func (s *Server) onUpstreamMessage(channel string, data []byte) {
 	if !s.dedup.Check(channel, data) {
 		return
@@ -262,25 +284,17 @@ func (s *Server) onUpstreamMessage(channel string, data []byte) {
 		return
 	}
 
-	chMsg := &gentisv1.ChannelMessage{
-		Channel: channel,
-		Data:    data,
-	}
-
-	s.engine.Publish(channel, data, 0, func(id engine.SubscriberID, _ string, _ []byte) bool {
+	s.engine.Publish(channel, data, 0, func(id engine.SubscriberID, ch string, d []byte) bool {
 		sess, ok := s.getSession(int(id))
 		if !ok {
 			return false
 		}
-		msg := &gentisv1.ServerMessage{
-			Message: &gentisv1.ServerMessage_ChannelMessage{
-				ChannelMessage: chMsg,
-			},
-		}
+		msg := getServerMsg(ch, d)
 		select {
 		case sess.sendCh <- msg:
 			return true
 		default:
+			putServerMsg(msg)
 			return false
 		}
 	})
@@ -292,7 +306,11 @@ func (sess *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 		case <-sess.ctx.Done():
 			return
 		case msg := <-sess.sendCh:
-			if err := stream.Send(msg); err != nil {
+			err := stream.Send(msg)
+			if msg.GetChannelMessage() != nil {
+				putServerMsg(msg)
+			}
+			if err != nil {
 				sess.cancel()
 				return
 			}
@@ -422,25 +440,17 @@ func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 		if sess.relay.store != nil {
 			sess.relay.engine.Publish(req.Channel, req.Data, engine.SubscriberID(sess.id), sess.relay.store.Deliver)
 		} else {
-			chMsg := &gentisv1.ChannelMessage{
-				Channel: req.Channel,
-				Data:    req.Data,
-			}
-
-			sess.relay.engine.Publish(req.Channel, req.Data, engine.SubscriberID(sess.id), func(id engine.SubscriberID, _ string, _ []byte) bool {
+			sess.relay.engine.Publish(req.Channel, req.Data, engine.SubscriberID(sess.id), func(id engine.SubscriberID, ch string, d []byte) bool {
 				other, ok := sess.relay.getSession(int(id))
 				if !ok {
 					return false
 				}
-				msg := &gentisv1.ServerMessage{
-					Message: &gentisv1.ServerMessage_ChannelMessage{
-						ChannelMessage: chMsg,
-					},
-				}
+				msg := getServerMsg(ch, d)
 				select {
 				case other.sendCh <- msg:
 					return true
 				default:
+					putServerMsg(msg)
 					return false
 				}
 			})

@@ -69,6 +69,9 @@ func (s *Server) runWriter(sess *Session, conn net.Conn) {
 			return
 		case msg := <-sess.sendCh:
 			data, err := json.Marshal(msg)
+			if msg.ChannelMessage != nil {
+				putWSMsg(msg)
+			}
 			if err != nil {
 				log.Printf("ws marshal error (session %d): %v", sess.id, err)
 				continue

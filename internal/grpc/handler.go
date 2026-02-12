@@ -35,7 +35,11 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 		case <-s.ctx.Done():
 			return
 		case msg := <-s.sendCh:
-			if err := stream.Send(msg); err != nil {
+			err := stream.Send(msg)
+			if msg.GetChannelMessage() != nil {
+				putServerMsg(msg)
+			}
+			if err != nil {
 				s.cancel()
 				return
 			}
@@ -137,25 +141,17 @@ func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 		return
 	}
 
-	chMsg := &gentisv1.ChannelMessage{
-		Channel: req.Channel,
-		Data:    req.Data,
-	}
-
-	s.engine.Publish(req.Channel, req.Data, engine.SubscriberID(s.id), func(id engine.SubscriberID, _ string, _ []byte) bool {
+	s.engine.Publish(req.Channel, req.Data, engine.SubscriberID(s.id), func(id engine.SubscriberID, ch string, d []byte) bool {
 		other, ok := s.server.getSession(int(id))
 		if !ok {
 			return false
 		}
-		msg := &gentisv1.ServerMessage{
-			Message: &gentisv1.ServerMessage_ChannelMessage{
-				ChannelMessage: chMsg,
-			},
-		}
+		msg := getServerMsg(ch, d)
 		select {
 		case other.sendCh <- msg:
 			return true
 		default:
+			putServerMsg(msg)
 			return false
 		}
 	})

@@ -2,7 +2,6 @@ package ws
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/mateusfdl/gentis/internal/client"
 	"github.com/mateusfdl/gentis/internal/engine"
@@ -23,16 +22,12 @@ type Session struct {
 }
 
 func (s *Session) DeliverMessage(channel string, data []byte) bool {
-	msg := &ServerMessage{
-		ChannelMessage: &ChannelMessagePayload{
-			Channel: channel,
-			Data:    json.RawMessage(data),
-		},
-	}
+	msg := getWSMsg(channel, data)
 	select {
 	case s.sendCh <- msg:
 		return true
 	default:
+		putWSMsg(msg)
 		return false
 	}
 }
