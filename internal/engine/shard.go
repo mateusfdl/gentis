@@ -7,11 +7,21 @@ import (
 
 const defaultNumShards = 32
 
+// cacheLineSize is the typical CPU cache line size on modern x86-64 processors.
+// Padding shards to this boundary prevents false sharing when different goroutines
+// access adjacent shards in the slice.
+const cacheLineSize = 64
+
 type Shard struct {
 	mu       sync.RWMutex
-	channels map[string]*channel
+	channels map[string]*Channel
 	peak     int
-	_        [16]byte
+
+	// Pad to a multiple of the cache line size to prevent false sharing
+	// between adjacent shards. Without this, two shards can share a cache
+	// line, causing expensive cross-core invalidation when concurrent
+	// goroutines access different shards.
+	_ [cacheLineSize]byte
 }
 
 // getShard returns the shard for a channel using inline FNV-1a hashing.
@@ -62,7 +72,7 @@ func (e *engine) getShard(channel string) *Shard {
 // This method MUST be called with the shard mutex held
 func (s *Shard) maybeRebuild() {
 	if s.peak > 64 && len(s.channels) < s.peak/4 {
-		rebuilt := make(map[string]*channel, len(s.channels))
+		rebuilt := make(map[string]*Channel, len(s.channels))
 
 		maps.Copy(rebuilt, s.channels)
 

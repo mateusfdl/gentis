@@ -11,7 +11,9 @@ type subShard struct {
 	mu    sync.RWMutex
 	index map[SubscriberID]map[string]struct{}
 	peak  int
-	_     [16]byte
+
+	// Pad to prevent false sharing between adjacent subShards (see Shard).
+	_ [cacheLineSize]byte
 }
 
 // recreates index map to release old buckets when the load
