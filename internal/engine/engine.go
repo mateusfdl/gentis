@@ -69,7 +69,7 @@ func New(opts ...Option) Engine {
 
 	shards := make([]Shard, cfg.numShards)
 	for i := range shards {
-		shards[i].channels = make(map[string]*channel)
+		shards[i].channels = make(map[string]*Channel)
 	}
 
 	e := &engine{
@@ -89,7 +89,7 @@ func (e *engine) Subscribe(id SubscriberID, channelName string) bool {
 
 	ch, ok := s.channels[channelName]
 	if !ok {
-		ch = newChannel(channelName)
+		ch = NewChannel(channelName)
 		s.channels[channelName] = ch
 		if len(s.channels) > s.peak {
 			s.peak = len(s.channels)
@@ -165,12 +165,17 @@ func (e *engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	e.publishCount.Add(1)
 	e.messageBytes.Add(int64(len(data)))
 
-	start := time.Now()
+	observed := e.observer != nil
+	var start time.Time
+	if observed {
+		start = time.Now()
+	}
+
 	result := PublishResult{Channel: channel}
 
 	ch := e.getChannel(channel)
 	if ch == nil {
-		if e.observer != nil {
+		if observed {
 			e.observer.ObservePublishDuration(time.Since(start).Seconds())
 			e.observer.ObservePublishFanout(0)
 		}
@@ -179,21 +184,33 @@ func (e *engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 
 	subscribers := ch.Subscribers()
 
-	for _, id := range subscribers {
-		if id == exclude {
-			continue
-		}
-		if deliver(id, channel, data) {
-			result.Delivered++
-		} else {
-			result.Dropped++
+	// Use parallel fan-out for high-subscriber channels to reduce
+	// publish latency by distributing delivery across multiple goroutines.
+	if len(subscribers) >= e.config.fanoutThreshold && e.config.fanoutWorkers > 1 {
+		result.Delivered, result.Dropped = e.parallelFanout(subscribers, channel, data, exclude, deliver)
+	} else {
+		for _, id := range subscribers {
+			if id == exclude {
+				continue
+			}
+			if deliver(id, channel, data) {
+				result.Delivered++
+			} else {
+				result.Dropped++
+			}
 		}
 	}
 
-	e.deliveredCount.Add(int64(result.Delivered))
-	e.droppedCount.Add(int64(result.Dropped))
+	delivered := int64(result.Delivered)
+	dropped := int64(result.Dropped)
+	if delivered > 0 {
+		e.deliveredCount.Add(delivered)
+	}
+	if dropped > 0 {
+		e.droppedCount.Add(dropped)
+	}
 
-	if e.observer != nil {
+	if observed {
 		e.observer.ObservePublishDuration(time.Since(start).Seconds())
 		e.observer.ObservePublishFanout(float64(result.Delivered + result.Dropped))
 	}
@@ -238,7 +255,7 @@ func (e *engine) Stats() EngineStats {
 	}
 }
 
-func (e *engine) getChannel(name string) *channel {
+func (e *engine) getChannel(name string) *Channel {
 	s := e.getShard(name)
 	s.mu.RLock()
 	ch := s.channels[name]
