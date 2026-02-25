@@ -58,7 +58,7 @@ Run 'gentis <command> -h' for more information on a command.`)
 
 func runServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	addr := fs.String("addr", "127.0.0.1:9000", "gRPC listen address (host:port)")
+	addr := fs.String("addr", "0.0.0.0:9000", "gRPC listen address (host:port)")
 	wsAddr := fs.String("ws-addr", "", "WebSocket listen address (host:port), empty to disable")
 	metricsAddr := fs.String("metrics-addr", ":8080", "metrics server address")
 	metricsEnabled := fs.Bool("metrics", true, "enable Prometheus metrics")

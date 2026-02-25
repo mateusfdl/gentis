@@ -76,18 +76,21 @@ func (s *Session) handleMessage(msg *gentisv1.ClientMessage) {
 func (s *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 	s.state.Authenticate(req.AuthToken)
 
+	connID := fmt.Sprintf("conn-%d", s.id)
 	s.send(&gentisv1.ServerMessage{
 		Id: reqID,
 		Message: &gentisv1.ServerMessage_Connected{
 			Connected: &gentisv1.ConnectedResponse{
-				ConnectionId: fmt.Sprintf("conn-%d", s.id),
+				ConnectionId: connID,
 			},
 		},
 	})
+	s.logger.Debug("client connected", "connection_id", connID)
 }
 
 func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
+		s.logger.Debug("invalid channel name", "channel", req.Channel)
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
@@ -106,10 +109,12 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 			},
 		},
 	})
+	s.logger.Debug("subscribed", "channel", req.Channel)
 }
 
 func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
+		s.logger.Debug("invalid channel name", "channel", req.Channel)
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
@@ -128,6 +133,7 @@ func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID stri
 			},
 		},
 	})
+	s.logger.Debug("unsubscribed", "channel", req.Channel)
 }
 
 func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {

@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"log/slog"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/client"
@@ -17,6 +18,7 @@ type Session struct {
 	sendCh chan *gentisv1.ServerMessage
 	engine engine.Engine
 	server *Server
+	logger *slog.Logger
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -28,6 +30,7 @@ func (s *Session) DeliverMessage(channel string, data []byte) bool {
 		return true
 	default:
 		putServerMsg(msg)
+		s.logger.Warn("message dropped, send buffer full", "channel", channel)
 		return false
 	}
 }
@@ -44,6 +47,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		sendCh: make(chan *gentisv1.ServerMessage, sendBufferSize),
 		engine: s.engine,
 		server: s,
+		logger: s.logger.With("session_id", id),
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -54,6 +58,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 	if s.store != nil {
 		s.store.Register(engine.SubscriberID(id), sess)
 	}
+	sess.logger.Info("session created")
 	return sess
 }
 
@@ -66,6 +71,7 @@ func (s *Server) cleanupSession(sess *Session) {
 		s.store.Unregister(engine.SubscriberID(sess.id))
 	}
 	s.engine.UnsubscribeAll(engine.SubscriberID(sess.id))
+	sess.logger.Info("session closed")
 }
 
 func (s *Session) send(msg *gentisv1.ServerMessage) {

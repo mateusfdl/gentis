@@ -6,22 +6,20 @@ import (
 	"sync/atomic"
 )
 
-type channel struct {
+type Channel struct {
 	name        string
 	subscribers atomic.Pointer[[]SubscriberID]
 	mu          sync.Mutex
 }
 
-func newChannel(name string) *channel {
-	c := &channel{name: name}
+func NewChannel(name string) *Channel {
+	c := &Channel{name: name}
 	empty := make([]SubscriberID, 0)
 	c.subscribers.Store(&empty)
 	return c
 }
 
-// --- Mutating methods ---
-
-func (c *channel) Subscribe(id SubscriberID) bool {
+func (c *Channel) Subscribe(id SubscriberID) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -43,7 +41,7 @@ func (c *channel) Subscribe(id SubscriberID) bool {
 	return true
 }
 
-func (c *channel) Unsubscribe(id SubscriberID) bool {
+func (c *Channel) Unsubscribe(id SubscriberID) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -74,13 +72,11 @@ func (c *channel) Unsubscribe(id SubscriberID) bool {
 	return true
 }
 
-// --- Accessors ---
-
-func (c *channel) Name() string {
+func (c *Channel) Name() string {
 	return c.name
 }
 
-func (c *channel) Subscribers() []SubscriberID {
+func (c *Channel) Subscribers() []SubscriberID {
 	ptr := c.subscribers.Load()
 
 	if ptr == nil {
@@ -90,7 +86,7 @@ func (c *channel) Subscribers() []SubscriberID {
 	return *ptr
 }
 
-func (c *channel) SubscriberCount() int {
+func (c *Channel) SubscriberCount() int {
 	ptr := c.subscribers.Load()
 
 	if ptr == nil {

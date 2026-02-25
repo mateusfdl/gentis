@@ -259,7 +259,7 @@ func TestWithShards(t *testing.T) {
 }
 
 func TestChannelAtomicSubscribers(t *testing.T) {
-	ch := newChannel("test")
+	ch := NewChannel("test")
 
 	ch.Subscribe(1)
 	ch.Subscribe(2)
@@ -464,7 +464,7 @@ func TestWithShardsNegative(t *testing.T) {
 }
 
 func TestChannelEmptyAfterCreation(t *testing.T) {
-	ch := newChannel("test")
+	ch := NewChannel("test")
 
 	if ch.SubscriberCount() != 0 {
 		t.Errorf("expected 0 subscribers for new channel, got %d", ch.SubscriberCount())
@@ -472,7 +472,7 @@ func TestChannelEmptyAfterCreation(t *testing.T) {
 }
 
 func TestChannelNotEmptyAfterSubscribe(t *testing.T) {
-	ch := newChannel("test")
+	ch := NewChannel("test")
 	ch.Subscribe(1)
 
 	if ch.SubscriberCount() != 1 {
@@ -481,7 +481,7 @@ func TestChannelNotEmptyAfterSubscribe(t *testing.T) {
 }
 
 func TestChannelName(t *testing.T) {
-	ch := newChannel("my-channel")
+	ch := NewChannel("my-channel")
 
 	if ch.Name() != "my-channel" {
 		t.Errorf("expected 'my-channel', got %q", ch.Name())
@@ -489,7 +489,7 @@ func TestChannelName(t *testing.T) {
 }
 
 func TestChannelSubscribeIdempotent(t *testing.T) {
-	ch := newChannel("test")
+	ch := NewChannel("test")
 
 	if !ch.Subscribe(1) {
 		t.Error("first subscribe should return true")
@@ -505,7 +505,7 @@ func TestChannelSubscribeIdempotent(t *testing.T) {
 }
 
 func TestChannelUnsubscribeNonexistent(t *testing.T) {
-	ch := newChannel("test")
+	ch := NewChannel("test")
 
 	if ch.Unsubscribe(999) {
 		t.Error("unsubscribe non-existent should return false")

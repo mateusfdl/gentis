@@ -3,7 +3,7 @@ package grpc
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -12,6 +12,7 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/engine"
+	gentislog "github.com/mateusfdl/gentis/internal/log"
 	"github.com/mateusfdl/gentis/internal/metrics"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
@@ -27,6 +28,7 @@ type Server struct {
 	sessions sync.Map
 	nextID   atomic.Int32
 
+	logger              *slog.Logger
 	metrics             *metrics.Server
 	connectionCount     atomic.Int64
 	connectionsTotal    atomic.Int64
@@ -50,10 +52,17 @@ func New(address string, opts ...Option) *Server {
 		eng = engine.New()
 	}
 
+	logger := cfg.Logger
+	if logger == nil {
+		logger = gentislog.Nop()
+	}
+	logger = logger.With("component", "grpc")
+
 	return &Server{
 		config: cfg,
 		engine: eng,
 		store:  cfg.SessionStore,
+		logger: logger,
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -90,7 +99,7 @@ func (s *Server) Start() error {
 		if err := s.metrics.Start(); err != nil {
 			return fmt.Errorf("failed to start metrics server: %w", err)
 		}
-		log.Printf("Metrics server listening on %s", s.config.MetricsAddr)
+		s.logger.Info("metrics server started", "addr", s.config.MetricsAddr)
 	}
 
 	s.wg.Add(1)
@@ -111,7 +120,7 @@ func (s *Server) Stop() error {
 
 	if s.metrics != nil {
 		if err := s.metrics.Stop(); err != nil {
-			log.Printf("Error stopping metrics server: %v", err)
+			s.logger.Error("failed to stop metrics server", "error", err)
 		}
 	}
 

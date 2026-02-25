@@ -1,8 +1,8 @@
-import { check, group, sleep } from 'k6';
-import { Counter, Rate, Trend } from 'k6/metrics';
 import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
+import { group, sleep } from 'k6';
+import { Counter, Rate, Trend } from 'k6/metrics';
 import { CHANNEL_PREFIX, PAYLOAD_SIZE } from './lib/config.js';
-import { newClient, openStream, closeStream, generatePayload } from './lib/grpc.js';
+import { closeStream, generatePayload, newClient, openStream } from './lib/grpc.js';
 
 const subscribeLatency = new Trend('subscribe_latency', true);
 const publishLatency = new Trend('publish_latency', true);

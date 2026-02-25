@@ -2,6 +2,7 @@ package context
 
 import (
 	"context"
+	"log/slog"
 	"maps"
 	"sync"
 	"time"
@@ -106,6 +107,7 @@ type contextKey struct{}
 type Context struct {
 	context.Context
 	metadata *Metadata
+	logger   *slog.Logger
 }
 
 func New(parent context.Context) *Context {
@@ -153,11 +155,51 @@ func (c *Context) Value(key any) any {
 	return c.Context.Value(key)
 }
 
+func (c *Context) WithLogger(l *slog.Logger) *Context {
+	c.logger = l
+	return c
+}
+
+func (c *Context) Logger() *slog.Logger {
+	l := c.logger
+	if l == nil {
+		l = slog.Default()
+	}
+
+	attrs := make([]any, 0, 16)
+
+	if v := c.metadata.GetString(KeyTraceID); v != "" {
+		attrs = append(attrs, slog.String(KeyTraceID, v))
+	}
+	if v := c.metadata.GetInt(KeySessionID); v != 0 {
+		attrs = append(attrs, slog.Int(KeySessionID, v))
+	}
+	if v := c.metadata.GetString(KeyClientID); v != "" {
+		attrs = append(attrs, slog.String(KeyClientID, v))
+	}
+	if v := c.metadata.GetString(KeyClientIP); v != "" {
+		attrs = append(attrs, slog.String(KeyClientIP, v))
+	}
+	if v := c.metadata.GetString(KeyChannel); v != "" {
+		attrs = append(attrs, slog.String(KeyChannel, v))
+	}
+	if v := c.metadata.GetString(KeyOperation); v != "" {
+		attrs = append(attrs, slog.String(KeyOperation, v))
+	}
+
+	if len(attrs) == 0 {
+		return l
+	}
+
+	return l.With(attrs...)
+}
+
 func (c *Context) WithCancel() (*Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(c.Context)
 	return &Context{
 		Context:  ctx,
 		metadata: c.metadata,
+		logger:   c.logger,
 	}, cancel
 }
 
@@ -166,6 +208,7 @@ func (c *Context) WithTimeout(timeout time.Duration) (*Context, context.CancelFu
 	return &Context{
 		Context:  ctx,
 		metadata: c.metadata,
+		logger:   c.logger,
 	}, cancel
 }
 
@@ -174,6 +217,7 @@ func (c *Context) WithDeadline(d time.Time) (*Context, context.CancelFunc) {
 	return &Context{
 		Context:  ctx,
 		metadata: c.metadata,
+		logger:   c.logger,
 	}, cancel
 }
 
