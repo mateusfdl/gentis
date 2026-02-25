@@ -29,7 +29,7 @@ func BenchmarkUnsubscribe(b *testing.B) {
 func BenchmarkGetSubscribers(b *testing.B) {
 	for _, numSubs := range []int{10, 100, 1000, 10000} {
 		b.Run(fmt.Sprintf("subs=%d", numSubs), func(b *testing.B) {
-			ch := newChannel("bench")
+			ch := NewChannel("bench")
 			for i := 0; i < numSubs; i++ {
 				ch.Subscribe(SubscriberID(i))
 			}
@@ -122,7 +122,7 @@ func BenchmarkMixedOperations(b *testing.B) {
 }
 
 func BenchmarkChannelSubscribe(b *testing.B) {
-	ch := newChannel("bench")
+	ch := NewChannel("bench")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -131,7 +131,7 @@ func BenchmarkChannelSubscribe(b *testing.B) {
 }
 
 func BenchmarkChannelUnsubscribe(b *testing.B) {
-	ch := newChannel("bench")
+	ch := NewChannel("bench")
 	for i := 0; i < b.N; i++ {
 		ch.Subscribe(SubscriberID(i))
 	}
@@ -154,6 +154,61 @@ func BenchmarkUnsubscribeAll(b *testing.B) {
 					e.Subscribe(id, fmt.Sprintf("channel-%d", j))
 				}
 				e.UnsubscribeAll(id)
+			}
+		})
+	}
+}
+
+func BenchmarkPublishParallelFanout(b *testing.B) {
+	for _, numSubs := range []int{1000, 5000, 10000} {
+		b.Run(fmt.Sprintf("subs=%d", numSubs), func(b *testing.B) {
+			e := New(WithFanoutThreshold(500), WithFanoutWorkers(4))
+			for i := 0; i < numSubs; i++ {
+				e.Subscribe(SubscriberID(i), "bench-channel")
+			}
+
+			data := []byte("benchmark message payload")
+			deliver := func(id SubscriberID, ch string, d []byte) bool {
+				return true
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				e.Publish("bench-channel", data, 0, deliver)
+			}
+		})
+	}
+}
+
+func BenchmarkPublishSequentialVsParallel(b *testing.B) {
+	numSubs := 5000
+	data := []byte("benchmark message payload")
+	deliver := func(id SubscriberID, ch string, d []byte) bool {
+		return true
+	}
+
+	b.Run("sequential", func(b *testing.B) {
+		e := New(WithFanoutThreshold(numSubs + 1)) // force sequential
+		for i := 0; i < numSubs; i++ {
+			e.Subscribe(SubscriberID(i), "bench-channel")
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			e.Publish("bench-channel", data, 0, deliver)
+		}
+	})
+
+	for _, workers := range []int{2, 4, 8} {
+		b.Run(fmt.Sprintf("parallel/workers=%d", workers), func(b *testing.B) {
+			e := New(WithFanoutThreshold(0), WithFanoutWorkers(workers))
+			for i := 0; i < numSubs; i++ {
+				e.Subscribe(SubscriberID(i), "bench-channel")
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				e.Publish("bench-channel", data, 0, deliver)
 			}
 		})
 	}

@@ -191,3 +191,64 @@ func BenchmarkDeliveryPooledParallel(b *testing.B) {
 		})
 	}
 }
+
+// --- Parallel fanout delivery benchmarks ---
+
+func setupPooledFanoutBench(b *testing.B, numSubs int, threshold int, workers int) (engine.Engine, *transport.SessionStore, context.CancelFunc) {
+	b.Helper()
+
+	eng := engine.New(engine.WithFanoutThreshold(threshold), engine.WithFanoutWorkers(workers))
+	store := transport.NewSessionStore()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	for i := 1; i <= numSubs; i++ {
+		id := engine.SubscriberID(i)
+		sender := &pooledBenchSender{sendCh: make(chan *gentisv1.ServerMessage, 256)}
+		store.Register(id, sender)
+		eng.Subscribe(id, "bench-channel")
+
+		go func(ch <-chan *gentisv1.ServerMessage) {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case msg := <-ch:
+					cm := msg.Message.(*gentisv1.ServerMessage_ChannelMessage)
+					cm.ChannelMessage.Data = nil
+					benchMsgPool.Put(msg)
+				}
+			}
+		}(sender.sendCh)
+	}
+
+	return eng, store, cancel
+}
+
+func BenchmarkDeliveryPooledFanout(b *testing.B) {
+	numSubs := 5000
+	data := []byte(`{"msg":"benchmark payload data"}`)
+
+	b.Run("sequential", func(b *testing.B) {
+		eng, store, cancel := setupPooledFanoutBench(b, numSubs, numSubs+1, 1)
+		defer cancel()
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			eng.Publish("bench-channel", data, 0, store.Deliver)
+		}
+	})
+
+	for _, workers := range []int{2, 4, 8} {
+		b.Run(fmt.Sprintf("parallel/workers=%d", workers), func(b *testing.B) {
+			eng, store, cancel := setupPooledFanoutBench(b, numSubs, 0, workers)
+			defer cancel()
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				eng.Publish("bench-channel", data, 0, store.Deliver)
+			}
+		})
+	}
+}
