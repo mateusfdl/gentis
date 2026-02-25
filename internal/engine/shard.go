@@ -26,7 +26,7 @@ type Shard struct {
 
 // getShard returns the shard for a channel using inline FNV-1a hashing.
 // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
-func (e *engine) getShard(channel string) *Shard {
+func (e *Engine) getShard(channel string) *Shard {
 	h := uint32(2166136261)
 	for i := 0; i < len(channel); i++ {
 		h ^= uint32(channel[i])

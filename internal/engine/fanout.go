@@ -18,7 +18,7 @@ type fanoutResult struct {
 // This is beneficial when len(subscribers) is large AND the deliver callback has
 // non-trivial per-call cost (e.g., sync.Map lookup + channel send). For trivially
 // fast deliver callbacks, the goroutine coordination overhead may negate the benefit.
-func (e *engine) parallelFanout(
+func (e *Engine) parallelFanout(
 	subscribers []SubscriberID,
 	channel string,
 	data []byte,

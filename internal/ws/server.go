@@ -19,7 +19,7 @@ type Server struct {
 	config   *Config
 	listener net.Listener
 	httpSrv  *http.Server
-	engine   engine.Engine
+	engine   *engine.Engine
 	store    *transport.SessionStore
 	sessions sync.Map
 	nextID   atomic.Int64

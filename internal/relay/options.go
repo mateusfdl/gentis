@@ -17,7 +17,7 @@ type Config struct {
 	ReconnectPolicy    ReconnectPolicy
 	MetricsAddr        string
 	MetricsEnabled     bool
-	Engine             engine.Engine
+	Engine             *engine.Engine
 	SessionStore       *transport.SessionStore
 	Observer           *metrics.Observer
 }
@@ -80,7 +80,7 @@ func WithMetrics(addr string) Option {
 	}
 }
 
-func WithEngine(e engine.Engine) Option {
+func WithEngine(e *engine.Engine) Option {
 	return func(c *Config) {
 		c.Engine = e
 	}

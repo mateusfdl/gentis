@@ -14,7 +14,7 @@ type Session struct {
 	id     int
 	state  *client.State
 	sendCh chan *ServerMessage
-	engine engine.Engine
+	engine *engine.Engine
 	store  *transport.SessionStore
 	server *Server
 	ctx    context.Context

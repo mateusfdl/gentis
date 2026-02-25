@@ -9,7 +9,7 @@ import (
 
 type Config struct {
 	Address        string
-	Engine         engine.Engine
+	Engine         *engine.Engine
 	SessionStore   *transport.SessionStore
 	ReadLimit      int64
 	WriteTimeout   time.Duration
@@ -27,7 +27,7 @@ func defaultConfig(address string) *Config {
 	}
 }
 
-func WithEngine(e engine.Engine) Option {
+func WithEngine(e *engine.Engine) Option {
 	return func(c *Config) {
 		c.Engine = e
 	}

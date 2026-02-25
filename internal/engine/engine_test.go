@@ -252,9 +252,8 @@ func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
 func TestWithShards(t *testing.T) {
 	e := New(WithShards(64))
 
-	eng := e.(*engine)
-	if len(eng.shards) != 64 {
-		t.Errorf("expected 64 shards, got %d", len(eng.shards))
+	if len(e.shards) != 64 {
+		t.Errorf("expected 64 shards, got %d", len(e.shards))
 	}
 }
 
@@ -447,19 +446,17 @@ func TestConcurrentPublishMultipleChannels(t *testing.T) {
 
 func TestWithShardsZero(t *testing.T) {
 	e := New(WithShards(0))
-	eng := e.(*engine)
 
-	if len(eng.shards) != defaultNumShards {
-		t.Errorf("expected %d shards for zero value, got %d", defaultNumShards, len(eng.shards))
+	if len(e.shards) != defaultNumShards {
+		t.Errorf("expected %d shards for zero value, got %d", defaultNumShards, len(e.shards))
 	}
 }
 
 func TestWithShardsNegative(t *testing.T) {
 	e := New(WithShards(-1))
-	eng := e.(*engine)
 
-	if len(eng.shards) != defaultNumShards {
-		t.Errorf("expected %d shards for negative value, got %d", defaultNumShards, len(eng.shards))
+	if len(e.shards) != defaultNumShards {
+		t.Errorf("expected %d shards for negative value, got %d", defaultNumShards, len(e.shards))
 	}
 }
 

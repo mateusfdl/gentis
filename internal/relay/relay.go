@@ -27,7 +27,7 @@ type Server struct {
 	gentisv1.UnimplementedGentisServiceServer
 
 	config   *Config
-	engine   engine.Engine
+	engine   *engine.Engine
 	store    *transport.SessionStore
 	upstream *Upstream
 	router   *Router

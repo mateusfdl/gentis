@@ -32,7 +32,7 @@ func (s *benchSender) DeliverMessage(channel string, data []byte) bool {
 	}
 }
 
-func setupDeliveryBench(b *testing.B, numSubs int) (engine.Engine, *transport.SessionStore, context.CancelFunc) {
+func setupDeliveryBench(b *testing.B, numSubs int) (*engine.Engine, *transport.SessionStore, context.CancelFunc) {
 	b.Helper()
 
 	eng := engine.New()
@@ -126,7 +126,7 @@ func (s *pooledBenchSender) DeliverMessage(channel string, data []byte) bool {
 	}
 }
 
-func setupPooledDeliveryBench(b *testing.B, numSubs int) (engine.Engine, *transport.SessionStore, context.CancelFunc) {
+func setupPooledDeliveryBench(b *testing.B, numSubs int) (*engine.Engine, *transport.SessionStore, context.CancelFunc) {
 	b.Helper()
 
 	eng := engine.New()
@@ -194,7 +194,7 @@ func BenchmarkDeliveryPooledParallel(b *testing.B) {
 
 // --- Parallel fanout delivery benchmarks ---
 
-func setupPooledFanoutBench(b *testing.B, numSubs int, threshold int, workers int) (engine.Engine, *transport.SessionStore, context.CancelFunc) {
+func setupPooledFanoutBench(b *testing.B, numSubs int, threshold int, workers int) (*engine.Engine, *transport.SessionStore, context.CancelFunc) {
 	b.Helper()
 
 	eng := engine.New(engine.WithFanoutThreshold(threshold), engine.WithFanoutWorkers(workers))

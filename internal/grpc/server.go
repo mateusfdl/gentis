@@ -23,7 +23,7 @@ type Server struct {
 	config   *Config
 	listener net.Listener
 	grpcSrv  *grpc.Server
-	engine   engine.Engine
+	engine   *engine.Engine
 	store    *transport.SessionStore
 	sessions sync.Map
 	nextID   atomic.Int32

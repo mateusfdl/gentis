@@ -12,7 +12,7 @@ type Config struct {
 	Address        string
 	MetricsAddr    string
 	MetricsEnabled bool
-	Engine         engine.Engine
+	Engine         *engine.Engine
 	SessionStore   *transport.SessionStore
 	Observer       *metrics.Observer
 	Logger         *slog.Logger
@@ -27,7 +27,7 @@ func WithMetrics(addr string) Option {
 	}
 }
 
-func WithEngine(e engine.Engine) Option {
+func WithEngine(e *engine.Engine) Option {
 	return func(c *Config) {
 		c.Engine = e
 	}

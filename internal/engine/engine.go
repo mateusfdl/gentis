@@ -33,19 +33,7 @@ type EngineStats struct {
 	MessageBytes      int64
 }
 
-type Engine interface {
-	Subscribe(id SubscriberID, channel string) bool
-	Unsubscribe(id SubscriberID, channel string) bool
-	UnsubscribeAll(id SubscriberID)
-	Publish(channel string, data []byte, exclude SubscriberID, deliver DeliveryFunc) PublishResult
-	Subscribers(channel string) []SubscriberID
-	ChannelCount() int
-	SubscriberCount(channel string) int
-	TotalSubscriptions() int
-	Stats() EngineStats
-}
-
-type engine struct {
+type Engine struct {
 	config        *config
 	shards        []Shard
 	subscriptions *subscriptions
@@ -61,7 +49,7 @@ type engine struct {
 	messageBytes      atomic.Int64
 }
 
-func New(opts ...Option) Engine {
+func New(opts ...Option) *Engine {
 	cfg := defaultConfig()
 	for _, opt := range opts {
 		opt(cfg)
@@ -72,7 +60,7 @@ func New(opts ...Option) Engine {
 		shards[i].channels = make(map[string]*Channel)
 	}
 
-	e := &engine{
+	e := &Engine{
 		config:        cfg,
 		shards:        shards,
 		subscriptions: newSubscriptions(),
@@ -81,7 +69,7 @@ func New(opts ...Option) Engine {
 	return e
 }
 
-func (e *engine) Subscribe(id SubscriberID, channelName string) bool {
+func (e *Engine) Subscribe(id SubscriberID, channelName string) bool {
 	e.subscribeOps.Add(1)
 
 	s := e.getShard(channelName)
@@ -108,7 +96,7 @@ func (e *engine) Subscribe(id SubscriberID, channelName string) bool {
 	return subscribed
 }
 
-func (e *engine) Unsubscribe(id SubscriberID, channelName string) bool {
+func (e *Engine) Unsubscribe(id SubscriberID, channelName string) bool {
 	e.unsubscribeOps.Add(1)
 
 	s := e.getShard(channelName)
@@ -137,7 +125,7 @@ func (e *engine) Unsubscribe(id SubscriberID, channelName string) bool {
 	return true
 }
 
-func (e *engine) UnsubscribeAll(id SubscriberID) {
+func (e *Engine) UnsubscribeAll(id SubscriberID) {
 	channels := e.subscriptions.GetChannels(id)
 	if len(channels) > 0 {
 		e.unsubscribeOps.Add(int64(len(channels)))
@@ -161,7 +149,7 @@ func (e *engine) UnsubscribeAll(id SubscriberID) {
 	e.subscriptions.RemoveAll(id)
 }
 
-func (e *engine) Publish(channel string, data []byte, exclude SubscriberID, deliver DeliveryFunc) PublishResult {
+func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deliver DeliveryFunc) PublishResult {
 	e.publishCount.Add(1)
 	e.messageBytes.Add(int64(len(data)))
 
@@ -218,7 +206,7 @@ func (e *engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	return result
 }
 
-func (e *engine) Subscribers(channel string) []SubscriberID {
+func (e *Engine) Subscribers(channel string) []SubscriberID {
 	ch := e.getChannel(channel)
 	if ch == nil {
 		return nil
@@ -226,11 +214,11 @@ func (e *engine) Subscribers(channel string) []SubscriberID {
 	return ch.Subscribers()
 }
 
-func (e *engine) ChannelCount() int {
+func (e *Engine) ChannelCount() int {
 	return int(e.channelCount.Load())
 }
 
-func (e *engine) SubscriberCount(channel string) int {
+func (e *Engine) SubscriberCount(channel string) int {
 	ch := e.getChannel(channel)
 	if ch == nil {
 		return 0
@@ -238,11 +226,11 @@ func (e *engine) SubscriberCount(channel string) int {
 	return ch.SubscriberCount()
 }
 
-func (e *engine) TotalSubscriptions() int {
+func (e *Engine) TotalSubscriptions() int {
 	return int(e.subscriptionCount.Load())
 }
 
-func (e *engine) Stats() EngineStats {
+func (e *Engine) Stats() EngineStats {
 	return EngineStats{
 		Channels:          e.channelCount.Load(),
 		TotalSubscribers:  e.subscriptionCount.Load(),
@@ -255,12 +243,10 @@ func (e *engine) Stats() EngineStats {
 	}
 }
 
-func (e *engine) getChannel(name string) *Channel {
+func (e *Engine) getChannel(name string) *Channel {
 	s := e.getShard(name)
 	s.mu.RLock()
 	ch := s.channels[name]
 	s.mu.RUnlock()
 	return ch
 }
-
-var _ Engine = (*engine)(nil)
