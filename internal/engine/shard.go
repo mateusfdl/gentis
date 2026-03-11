@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"hash/maphash"
 	"maps"
 	"sync"
+	"sync/atomic"
 )
 
 const defaultNumShards = 32
@@ -17,6 +19,13 @@ type Shard struct {
 	channels map[string]*Channel
 	peak     int
 
+	// Per-shard counters avoid cross-core cache-line bouncing on publish.
+	// Engine.Stats() sums across all shards (infrequent, ~once per Prometheus scrape).
+	publishCount   atomic.Int64
+	deliveredCount atomic.Int64
+	droppedCount   atomic.Int64
+	messageBytes   atomic.Int64
+
 	// Pad to a multiple of the cache line size to prevent false sharing
 	// between adjacent shards. Without this, two shards can share a cache
 	// line, causing expensive cross-core invalidation when concurrent
@@ -24,15 +33,12 @@ type Shard struct {
 	_ [cacheLineSize]byte
 }
 
-// getShard returns the shard for a channel using inline FNV-1a hashing.
-// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+// getShard returns the shard for a channel using maphash.String which
+// leverages AES-NI hardware acceleration on amd64 for fast, well-distributed
+// hashing. The seed is initialized once at engine creation.
 func (e *Engine) getShard(channel string) *Shard {
-	h := uint32(2166136261)
-	for i := 0; i < len(channel); i++ {
-		h ^= uint32(channel[i])
-		h *= 16777619
-	}
-	return &e.shards[h%uint32(len(e.shards))]
+	h := maphash.String(e.hashSeed, channel)
+	return &e.shards[h%uint64(len(e.shards))]
 }
 
 // we try to reclaim memory when a shard’s channel map has
