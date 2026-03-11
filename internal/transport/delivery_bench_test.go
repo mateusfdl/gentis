@@ -198,6 +198,7 @@ func setupPooledFanoutBench(b *testing.B, numSubs int, threshold int, workers in
 	b.Helper()
 
 	eng := engine.New(engine.WithFanoutThreshold(threshold), engine.WithFanoutWorkers(workers))
+	b.Cleanup(eng.Stop)
 	store := transport.NewSessionStore()
 	ctx, cancel := context.WithCancel(context.Background())
 
