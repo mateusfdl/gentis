@@ -120,11 +120,7 @@ func TestDedupCleanupRemovesExpired(t *testing.T) {
 	// Entry must be >4s old. Wait 5s for entry to expire, then up to 2s for ticker.
 	time.Sleep(7 * time.Second)
 
-	count := 0
-	d.seen.Range(func(_, _ any) bool {
-		count++
-		return true
-	})
+	count := d.Len()
 
 	if count > 0 {
 		t.Errorf("expected 0 entries after cleanup, got %d", count)
