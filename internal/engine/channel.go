@@ -10,13 +10,81 @@ type Channel struct {
 	name        string
 	subscribers atomic.Pointer[[]SubscriberID]
 	mu          sync.Mutex
+	refs        atomic.Int32 // holds a ref outside RLock
+	recycled    atomic.Bool
+	pooled      atomic.Bool   // CAS guard: exactly one goroutine may pool this channel
+	gen         atomic.Uint64 // incremented on each pool reuse to prevent ABA races
+}
+
+var channelPool = sync.Pool{
+	New: func() any {
+		return &Channel{}
+	},
 }
 
 func NewChannel(name string) *Channel {
-	c := &Channel{name: name}
+	c := channelPool.Get().(*Channel)
+	c.gen.Add(1) // invalidates any stale returnToPool calls
+	c.name = name
+	c.refs.Store(0)
+	c.recycled.Store(false)
+	c.pooled.Store(false)
 	empty := make([]SubscriberID, 0)
 	c.subscribers.Store(&empty)
 	return c
+}
+
+// recycleChannel marks a Channel for return to the pool. If no readers hold
+// a reference (refs == 0), the channel is pooled immediately. Otherwise, the
+// last reader to call Release will pool it. The caller must hold the shard
+// write lock and must have already removed the channel from the shard map.
+//
+// We set recycled BEFORE attempting to pool so that in-flight readers (who
+// hold a ref via Acquire) can still read the subscriber list and complete
+// delivery. The pooled CAS ensures exactly one goroutine clears and pools
+// the channel, even if Release() races with this function.
+//
+// A generation counter prevents ABA races: if the channel is pooled by
+// Release(), re-acquired by NewChannel (which increments gen), and then
+// this function's deferred returnToPool runs, the stale generation will
+// cause it to no-op instead of clearing a live channel.
+func recycleChannel(c *Channel) {
+	g := c.gen.Load()
+	c.recycled.Store(true)
+	if c.refs.Load() == 0 {
+		c.returnToPool(g)
+	}
+	// Otherwise the last Release() call will handle it.
+}
+
+// returnToPool clears the channel's fields and returns it to the pool.
+// The CAS on pooled ensures this runs exactly once, preventing a race
+// between recycleChannel and Release. The generation check prevents ABA
+// races where a channel has been re-acquired from the pool by NewChannel
+// (which increments gen) before a stale returnToPool call executes.
+func (c *Channel) returnToPool(expectedGen uint64) {
+	if c.gen.Load() != expectedGen {
+		return // channel was reused by NewChannel; this call is stale
+	}
+	if !c.pooled.CompareAndSwap(false, true) {
+		return
+	}
+	c.name = ""
+	c.subscribers.Store(nil)
+	channelPool.Put(c)
+}
+
+// Acquire increments the reader reference count. Must be called under the
+// shard's RLock before releasing it, so that the channel cannot be recycled
+// between the map lookup and the Acquire call.
+func (c *Channel) Acquire() { c.refs.Add(1) }
+
+// Release decrements the reader reference count. If the channel was marked
+// for recycling and this is the last reader, the channel is returned to the pool.
+func (c *Channel) Release() {
+	if c.refs.Add(-1) == 0 && c.recycled.Load() {
+		c.returnToPool(c.gen.Load())
+	}
 }
 
 func (c *Channel) Subscribe(id SubscriberID) bool {
@@ -32,11 +100,15 @@ func (c *Channel) Subscribe(id SubscriberID) bool {
 		return false
 	}
 
-	newSubs := make([]SubscriberID, len(*current)+1)
-	copy(newSubs, *current)
-	newSubs[len(*current)] = id
+	needed := len(*current) + 1
+	newSubs := getSubscriberSlice(needed)
+	newSubs = append(newSubs, *current...)
+	newSubs = append(newSubs, id)
 
 	c.subscribers.Store(&newSubs)
+	// Note: old slice is NOT returned to the pool because concurrent
+	// publishers may still be iterating it via Subscribers(). The GC
+	// will reclaim it once all readers finish.
 
 	return true
 }
@@ -62,12 +134,15 @@ func (c *Channel) Unsubscribe(id SubscriberID) bool {
 		return false
 	}
 
-	newSubs := make([]SubscriberID, len(*current)-1)
-
-	copy(newSubs[:idx], (*current)[:idx])
-	copy(newSubs[idx:], (*current)[idx+1:])
+	newLen := len(*current) - 1
+	newSubs := getSubscriberSlice(newLen)
+	newSubs = append(newSubs, (*current)[:idx]...)
+	newSubs = append(newSubs, (*current)[idx+1:]...)
 
 	c.subscribers.Store(&newSubs)
+	// Note: old slice is NOT returned to the pool because concurrent
+	// publishers may still be iterating it via Subscribers(). The GC
+	// will reclaim it once all readers finish.
 
 	return true
 }
