@@ -62,6 +62,8 @@ func runServe(args []string) int {
 	wsAddr := fs.String("ws-addr", "", "WebSocket listen address (host:port), empty to disable")
 	metricsAddr := fs.String("metrics-addr", ":8080", "metrics server address")
 	metricsEnabled := fs.Bool("metrics", true, "enable Prometheus metrics")
+	gcPacer := fs.Bool("gc-pacer", false, "enable automatic GC tuning (spike detection + idle GC)")
+	gcMemLimit := fs.Int64("gc-mem-limit", 0, "soft memory limit in bytes for GC pacer (0 = no limit)")
 	fs.Parse(args)
 
 	var obs *metrics.Observer
@@ -69,6 +71,9 @@ func runServe(args []string) int {
 	if *metricsEnabled {
 		obs = metrics.NewObserver("server")
 		engOpts = append(engOpts, engine.WithObserver(obs))
+	}
+	if *gcPacer {
+		engOpts = append(engOpts, engine.WithGCPacer(*gcMemLimit))
 	}
 
 	eng := engine.New(engOpts...)
@@ -116,6 +121,7 @@ func runServe(args []string) int {
 		if err := grpcSrv.Stop(); err != nil && firstErr == nil {
 			firstErr = err
 		}
+		eng.Stop()
 		return firstErr
 	})
 
@@ -131,6 +137,8 @@ func runRelay(args []string) int {
 	authToken := fs.String("auth-token", "", "authentication token for upstream")
 	metricsAddr := fs.String("metrics-addr", ":8081", "metrics server address")
 	metricsEnabled := fs.Bool("metrics", true, "enable Prometheus metrics")
+	gcPacer := fs.Bool("gc-pacer", false, "enable automatic GC tuning (spike detection + idle GC)")
+	gcMemLimit := fs.Int64("gc-mem-limit", 0, "soft memory limit in bytes for GC pacer (0 = no limit)")
 	fs.Parse(args)
 
 	if *upstream == "" {
@@ -146,6 +154,9 @@ func runRelay(args []string) int {
 	if *metricsEnabled {
 		relayObs = metrics.NewObserver("relay")
 		relayEngOpts = append(relayEngOpts, engine.WithObserver(relayObs))
+	}
+	if *gcPacer {
+		relayEngOpts = append(relayEngOpts, engine.WithGCPacer(*gcMemLimit))
 	}
 
 	eng := engine.New(relayEngOpts...)
@@ -196,6 +207,7 @@ func runRelay(args []string) int {
 		if err := relaySrv.Stop(); err != nil && firstErr == nil {
 			firstErr = err
 		}
+		eng.Stop()
 		return firstErr
 	})
 
