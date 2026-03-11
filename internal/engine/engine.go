@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"hash/maphash"
 	"sync/atomic"
 	"time"
 )
@@ -9,8 +10,6 @@ type SubscriberID uint64
 
 type DeliveryFunc func(id SubscriberID, channel string, data []byte) bool
 
-// MetricsObserver receives histogram observations from the engine.
-// Implementations should be thread-safe.
 type MetricsObserver interface {
 	ObservePublishDuration(seconds float64)
 	ObservePublishFanout(count float64)
@@ -38,15 +37,14 @@ type Engine struct {
 	shards        []Shard
 	subscriptions *subscriptions
 	observer      MetricsObserver
+	pacer         *gcPacer
+	fanoutPool    *fanoutPool
+	hashSeed      maphash.Seed
 
 	channelCount      atomic.Int64
-	publishCount      atomic.Int64
-	deliveredCount    atomic.Int64
-	droppedCount      atomic.Int64
 	subscriptionCount atomic.Int64
 	subscribeOps      atomic.Int64
 	unsubscribeOps    atomic.Int64
-	messageBytes      atomic.Int64
 }
 
 func New(opts ...Option) *Engine {
@@ -65,7 +63,17 @@ func New(opts ...Option) *Engine {
 		shards:        shards,
 		subscriptions: newSubscriptions(),
 		observer:      cfg.observer,
+		hashSeed:      maphash.MakeSeed(),
 	}
+
+	if cfg.gcPacer.enabled {
+		e.pacer = newGCPacer(e, cfg.gcPacer)
+	}
+
+	if cfg.fanoutWorkers > 1 {
+		e.fanoutPool = newFanoutPool(cfg.fanoutWorkers)
+	}
+
 	return e
 }
 
@@ -117,6 +125,7 @@ func (e *Engine) Unsubscribe(id SubscriberID, channelName string) bool {
 		delete(s.channels, channelName)
 		e.channelCount.Add(-1)
 		s.maybeRebuild()
+		recycleChannel(ch)
 	}
 	s.mu.Unlock()
 
@@ -142,6 +151,7 @@ func (e *Engine) UnsubscribeAll(id SubscriberID) {
 				delete(s.channels, channelName)
 				e.channelCount.Add(-1)
 				s.maybeRebuild()
+				recycleChannel(ch)
 			}
 		}
 		s.mu.Unlock()
@@ -150,8 +160,10 @@ func (e *Engine) UnsubscribeAll(id SubscriberID) {
 }
 
 func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deliver DeliveryFunc) PublishResult {
-	e.publishCount.Add(1)
-	e.messageBytes.Add(int64(len(data)))
+	// Accumulate on per-shard counters to avoid cross-core cache-line bouncing.
+	s := e.getShard(channel)
+	s.publishCount.Add(1)
+	s.messageBytes.Add(int64(len(data)))
 
 	observed := e.observer != nil
 	var start time.Time
@@ -161,7 +173,13 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 
 	result := PublishResult{Channel: channel}
 
-	ch := e.getChannel(channel)
+	s.mu.RLock()
+	ch := s.channels[channel]
+	if ch != nil {
+		ch.Acquire()
+	}
+	s.mu.RUnlock()
+
 	if ch == nil {
 		if observed {
 			e.observer.ObservePublishDuration(time.Since(start).Seconds())
@@ -169,6 +187,7 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 		}
 		return result
 	}
+	defer ch.Release()
 
 	subscribers := ch.Subscribers()
 
@@ -192,10 +211,10 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	delivered := int64(result.Delivered)
 	dropped := int64(result.Dropped)
 	if delivered > 0 {
-		e.deliveredCount.Add(delivered)
+		s.deliveredCount.Add(delivered)
 	}
 	if dropped > 0 {
-		e.droppedCount.Add(dropped)
+		s.droppedCount.Add(dropped)
 	}
 
 	if observed {
@@ -207,10 +226,18 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 }
 
 func (e *Engine) Subscribers(channel string) []SubscriberID {
-	ch := e.getChannel(channel)
+	s := e.getShard(channel)
+	s.mu.RLock()
+	ch := s.channels[channel]
+	if ch != nil {
+		ch.Acquire()
+	}
+	s.mu.RUnlock()
+
 	if ch == nil {
 		return nil
 	}
+	defer ch.Release()
 	return ch.Subscribers()
 }
 
@@ -219,10 +246,18 @@ func (e *Engine) ChannelCount() int {
 }
 
 func (e *Engine) SubscriberCount(channel string) int {
-	ch := e.getChannel(channel)
+	s := e.getShard(channel)
+	s.mu.RLock()
+	ch := s.channels[channel]
+	if ch != nil {
+		ch.Acquire()
+	}
+	s.mu.RUnlock()
+
 	if ch == nil {
 		return 0
 	}
+	defer ch.Release()
 	return ch.SubscriberCount()
 }
 
@@ -231,22 +266,32 @@ func (e *Engine) TotalSubscriptions() int {
 }
 
 func (e *Engine) Stats() EngineStats {
+	var published, delivered, dropped, msgBytes int64
+	for i := range e.shards {
+		published += e.shards[i].publishCount.Load()
+		delivered += e.shards[i].deliveredCount.Load()
+		dropped += e.shards[i].droppedCount.Load()
+		msgBytes += e.shards[i].messageBytes.Load()
+	}
 	return EngineStats{
 		Channels:          e.channelCount.Load(),
 		TotalSubscribers:  e.subscriptionCount.Load(),
-		MessagesPublished: e.publishCount.Load(),
-		MessagesDelivered: e.deliveredCount.Load(),
-		MessagesDropped:   e.droppedCount.Load(),
+		MessagesPublished: published,
+		MessagesDelivered: delivered,
+		MessagesDropped:   dropped,
 		SubscribeOps:      e.subscribeOps.Load(),
 		UnsubscribeOps:    e.unsubscribeOps.Load(),
-		MessageBytes:      e.messageBytes.Load(),
+		MessageBytes:      msgBytes,
 	}
 }
 
-func (e *Engine) getChannel(name string) *Channel {
-	s := e.getShard(name)
-	s.mu.RLock()
-	ch := s.channels[name]
-	s.mu.RUnlock()
-	return ch
+// Stop shuts down background goroutines (GC pacer, fanout workers).
+// Safe to call even if no background tasks are running.
+func (e *Engine) Stop() {
+	if e.pacer != nil {
+		e.pacer.Stop()
+	}
+	if e.fanoutPool != nil {
+		e.fanoutPool.stop()
+	}
 }
