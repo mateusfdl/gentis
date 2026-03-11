@@ -2,7 +2,9 @@ package engine
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestSubscribeAndUnsubscribe(t *testing.T) {
@@ -589,4 +591,90 @@ func TestStatsAccumulate(t *testing.T) {
 	if stats.MessagesDelivered != 5 {
 		t.Errorf("expected 5 delivered, got %d", stats.MessagesDelivered)
 	}
+}
+
+// TestConcurrentPublishDuringUnsubscribe exercises the channel refcount fix.
+// Without the Acquire/Release mechanism in Publish, the race detector catches
+// a use-after-free on the recycled Channel pointer.
+func TestConcurrentPublishDuringUnsubscribe(t *testing.T) {
+	const (
+		numPublishers = 8
+		iterations    = 5_000
+	)
+
+	e := New()
+	deliver := func(id SubscriberID, ch string, data []byte) bool { return true }
+
+	var wg sync.WaitGroup
+
+	// Publishers continuously publish to the channel.
+	for p := 0; p < numPublishers; p++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				e.Publish("race-channel", []byte("msg"), 0, deliver)
+			}
+		}()
+	}
+
+	// Concurrently subscribe and unsubscribe the sole subscriber,
+	// which triggers channel creation/recycling on each cycle.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			e.Subscribe(1, "race-channel")
+			e.Unsubscribe(1, "race-channel")
+		}
+	}()
+
+	wg.Wait()
+}
+
+// TestStopDuringPublish verifies that Engine.Stop() completes without
+// deadlocking when a publish with parallel fan-out is in progress.
+func TestStopDuringPublish(t *testing.T) {
+	e := New(WithFanoutThreshold(0), WithFanoutWorkers(4))
+
+	for i := 0; i < 100; i++ {
+		e.Subscribe(SubscriberID(i), "stop-channel")
+	}
+
+	var publishing atomic.Bool
+	publishing.Store(true)
+
+	// Slow delivery callback to keep the fan-out in progress.
+	deliver := func(id SubscriberID, ch string, data []byte) bool {
+		if publishing.Load() {
+			time.Sleep(time.Microsecond)
+		}
+		return true
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		e.Publish("stop-channel", []byte("msg"), 0, deliver)
+	}()
+
+	// Give the publish a moment to start fan-out, then stop.
+	time.Sleep(time.Millisecond)
+	publishing.Store(false)
+
+	done := make(chan struct{})
+	go func() {
+		e.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success — Stop() completed
+	case <-time.After(5 * time.Second):
+		t.Fatal("Engine.Stop() deadlocked")
+	}
+
+	wg.Wait()
 }
