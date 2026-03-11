@@ -163,6 +163,7 @@ func BenchmarkPublishParallelFanout(b *testing.B) {
 	for _, numSubs := range []int{1000, 5000, 10000} {
 		b.Run(fmt.Sprintf("subs=%d", numSubs), func(b *testing.B) {
 			e := New(WithFanoutThreshold(500), WithFanoutWorkers(4))
+			b.Cleanup(e.Stop)
 			for i := 0; i < numSubs; i++ {
 				e.Subscribe(SubscriberID(i), "bench-channel")
 			}
@@ -202,6 +203,7 @@ func BenchmarkPublishSequentialVsParallel(b *testing.B) {
 	for _, workers := range []int{2, 4, 8} {
 		b.Run(fmt.Sprintf("parallel/workers=%d", workers), func(b *testing.B) {
 			e := New(WithFanoutThreshold(0), WithFanoutWorkers(workers))
+			b.Cleanup(e.Stop)
 			for i := 0; i < numSubs; i++ {
 				e.Subscribe(SubscriberID(i), "bench-channel")
 			}
