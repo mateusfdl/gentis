@@ -45,7 +45,7 @@ type discardHandler struct{}
 func (discardHandler) Enabled(_ context.Context, _ slog.Level) bool  { return false }
 func (discardHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
 func (d discardHandler) WithAttrs(_ []slog.Attr) slog.Handler        { return d }
-func (d discardHandler) WithGroup(_ string) slog.Handler              { return d }
+func (d discardHandler) WithGroup(_ string) slog.Handler             { return d }
 
 func Nop() *slog.Logger {
 	return slog.New(discardHandler{})
