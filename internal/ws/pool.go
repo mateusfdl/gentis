@@ -21,6 +21,7 @@ func getWSMsg(channel string, data []byte) *ServerMessage {
 }
 
 func putWSMsg(msg *ServerMessage) {
+	msg.ChannelMessage.Channel = ""
 	msg.ChannelMessage.Data = nil
 	wsMsgPool.Put(msg)
 }

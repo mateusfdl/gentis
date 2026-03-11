@@ -26,6 +26,7 @@ func getServerMsg(channel string, data []byte) *gentisv1.ServerMessage {
 
 func putServerMsg(msg *gentisv1.ServerMessage) {
 	cm := msg.Message.(*gentisv1.ServerMessage_ChannelMessage)
+	cm.ChannelMessage.Channel = ""
 	cm.ChannelMessage.Data = nil
 	serverMsgPool.Put(msg)
 }
