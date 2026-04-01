@@ -1,13 +1,15 @@
 package engine
 
+import "runtime"
+
 type Option func(*config)
 
 type config struct {
 	numShards       int
 	enableMetrics   bool
 	observer        MetricsObserver
-	fanoutThreshold int 
-	fanoutWorkers   int 
+	fanoutThreshold int
+	fanoutWorkers   int
 	gcPacer         gcPacerConfig
 }
 
@@ -22,8 +24,13 @@ const (
 )
 
 func defaultConfig() *config {
+	numShards := nextPowerOf2(runtime.GOMAXPROCS(0) * 4)
+	if numShards < defaultNumShards {
+		numShards = defaultNumShards
+	}
+
 	return &config{
-		numShards:       defaultNumShards,
+		numShards:       numShards,
 		enableMetrics:   true,
 		fanoutThreshold: defaultFanoutThreshold,
 		fanoutWorkers:   defaultFanoutWorkers,
@@ -34,9 +41,26 @@ func defaultConfig() *config {
 func WithShards(n int) Option {
 	return func(c *config) {
 		if n > 0 {
-			c.numShards = n
+			c.numShards = nextPowerOf2(n)
 		}
 	}
+}
+
+// rounds n up to the nearest power of two.
+// This is required for bitmask-based shard selection (h & (n-1))
+// which avoids the cost of integer division/modulo.
+func nextPowerOf2(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	n--
+	n |= n >> 1
+	n |= n >> 2
+	n |= n >> 4
+	n |= n >> 8
+	n |= n >> 16
+	n++
+	return n
 }
 
 func WithMetrics(enabled bool) Option {

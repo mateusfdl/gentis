@@ -15,30 +15,35 @@ const defaultNumShards = 32
 const cacheLineSize = 64
 
 type Shard struct {
+	// These are accessed under RLock on every Publish. Isolated from
+	// write-only counters to prevent atomic writes from invalidating
+	// the cache line that concurrent readers share.
 	mu       sync.RWMutex
 	channels map[string]*Channel
 	peak     int
+	_        [cacheLineSize - 40]byte
 
 	// Per-shard counters avoid cross-core cache-line bouncing on publish.
 	// Engine.Stats() sums across all shards (infrequent, ~once per Prometheus scrape).
+	// Isolated on their own cache line so that atomic increments don't
+	// invalidate the read-path cache line above.
 	publishCount   atomic.Int64
 	deliveredCount atomic.Int64
 	droppedCount   atomic.Int64
 	messageBytes   atomic.Int64
+	_              [cacheLineSize - 32]byte
 
-	// Pad to a multiple of the cache line size to prevent false sharing
-	// between adjacent shards. Without this, two shards can share a cache
-	// line, causing expensive cross-core invalidation when concurrent
-	// goroutines access different shards.
+	// TAIL PAD: prevents false sharing with the next Shard in the slice.
 	_ [cacheLineSize]byte
 }
 
-// getShard returns the shard for a channel using maphash.String which
-// leverages AES-NI hardware acceleration on amd64 for fast, well-distributed
-// hashing. The seed is initialized once at engine creation.
+// returns the shard for a channel using Go's runtime AES hash.
+// On x86-64 and ARM64, maphash.String uses AES-NI hardware instructions
+// via the Go runtime's internal memhash/aeshashbody. The seed is randomized
+// at engine creation, protecting against hash-flooding DoS attacks.
 func (e *Engine) getShard(channel string) *Shard {
 	h := maphash.String(e.hashSeed, channel)
-	return &e.shards[h%uint64(len(e.shards))]
+	return &e.shards[h&uint64(len(e.shards)-1)]
 }
 
 // we try to reclaim memory when a shard’s channel map has

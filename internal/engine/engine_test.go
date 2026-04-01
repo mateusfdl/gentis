@@ -448,17 +448,19 @@ func TestConcurrentPublishMultipleChannels(t *testing.T) {
 
 func TestWithShardsZero(t *testing.T) {
 	e := New(WithShards(0))
+	expected := defaultConfig().numShards
 
-	if len(e.shards) != defaultNumShards {
-		t.Errorf("expected %d shards for zero value, got %d", defaultNumShards, len(e.shards))
+	if len(e.shards) != expected {
+		t.Errorf("expected %d shards for zero value, got %d", expected, len(e.shards))
 	}
 }
 
 func TestWithShardsNegative(t *testing.T) {
 	e := New(WithShards(-1))
+	expected := defaultConfig().numShards
 
-	if len(e.shards) != defaultNumShards {
-		t.Errorf("expected %d shards for negative value, got %d", defaultNumShards, len(e.shards))
+	if len(e.shards) != expected {
+		t.Errorf("expected %d shards for negative value, got %d", expected, len(e.shards))
 	}
 }
 
