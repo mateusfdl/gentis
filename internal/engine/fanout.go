@@ -3,6 +3,8 @@ package engine
 import (
 	"sync"
 	"sync/atomic"
+
+	"github.com/mateusfdl/gentis/internal/cacheline"
 )
 
 // fanoutResult holds per-chunk delivery counts, accumulated by parallel workers.
@@ -11,7 +13,7 @@ import (
 type fanoutResult struct {
 	delivered int
 	dropped   int
-	_         [cacheLineSize - 16]byte // pad to cache line
+	_         [cacheline.Size - 16]byte // pad to cache line
 }
 
 // fanoutJob describes a unit of work dispatched to the persistent worker pool.

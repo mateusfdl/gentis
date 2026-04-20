@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/mateusfdl/gentis/internal/cacheline"
 )
 
 const numDedupShards = 16
@@ -28,7 +30,7 @@ type dedupShard struct {
 	mu   sync.RWMutex
 	seen map[uint64]int64 // hash -> timestamp (UnixNano)
 	peak int
-	_    [64]byte // cache-line padding
+	_    [cacheline.Size]byte // tail pad: keeps this shard's mutex off the next shard's cache line
 }
 
 func (sh *dedupShard) maybeRebuild() {

@@ -4,6 +4,8 @@ import (
 	"maps"
 	"slices"
 	"sync"
+
+	"github.com/mateusfdl/gentis/internal/cacheline"
 )
 
 const numSubShards = 32
@@ -104,7 +106,7 @@ type subShard struct {
 	peak  int
 
 	// Pad to prevent false sharing between adjacent subShards (see Shard).
-	_ [cacheLineSize]byte
+	_ [cacheline.Size]byte
 }
 
 // recreates index map to release old buckets when the load

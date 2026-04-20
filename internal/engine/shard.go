@@ -5,14 +5,11 @@ import (
 	"maps"
 	"sync"
 	"sync/atomic"
+
+	"github.com/mateusfdl/gentis/internal/cacheline"
 )
 
 const defaultNumShards = 32
-
-// cacheLineSize is the typical CPU cache line size on modern x86-64 processors.
-// Padding shards to this boundary prevents false sharing when different goroutines
-// access adjacent shards in the slice.
-const cacheLineSize = 64
 
 type Shard struct {
 	// These are accessed under RLock on every Publish. Isolated from
@@ -21,7 +18,7 @@ type Shard struct {
 	mu       sync.RWMutex
 	channels map[string]*Channel
 	peak     int
-	_        [cacheLineSize - 40]byte
+	_        [cacheline.Size - 40]byte
 
 	// Per-shard counters avoid cross-core cache-line bouncing on publish.
 	// Engine.Stats() sums across all shards (infrequent, ~once per Prometheus scrape).
@@ -31,10 +28,10 @@ type Shard struct {
 	deliveredCount atomic.Int64
 	droppedCount   atomic.Int64
 	messageBytes   atomic.Int64
-	_              [cacheLineSize - 32]byte
+	_              [cacheline.Size - 32]byte
 
 	// TAIL PAD: prevents false sharing with the next Shard in the slice.
-	_ [cacheLineSize]byte
+	_ [cacheline.Size]byte
 }
 
 // returns the shard for a channel using Go's runtime AES hash.
