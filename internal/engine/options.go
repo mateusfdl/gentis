@@ -6,7 +6,6 @@ type Option func(*config)
 
 type config struct {
 	numShards       int
-	enableMetrics   bool
 	observer        MetricsObserver
 	fanoutThreshold int
 	fanoutWorkers   int
@@ -31,7 +30,6 @@ func defaultConfig() *config {
 
 	return &config{
 		numShards:       numShards,
-		enableMetrics:   true,
 		fanoutThreshold: defaultFanoutThreshold,
 		fanoutWorkers:   defaultFanoutWorkers,
 		gcPacer:         defaultGCPacerConfig(),
@@ -61,12 +59,6 @@ func nextPowerOf2(n int) int {
 	n |= n >> 16
 	n++
 	return n
-}
-
-func WithMetrics(enabled bool) Option {
-	return func(c *config) {
-		c.enableMetrics = enabled
-	}
 }
 
 func WithObserver(obs MetricsObserver) Option {

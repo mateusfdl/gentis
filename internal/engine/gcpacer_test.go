@@ -85,26 +85,6 @@ func TestGCPacerSpikeExitHysteresis(t *testing.T) {
 		t.Fatal("precondition: expected spike mode")
 	}
 
-	// Now feed ops at a rate that should yield a ratio between 1.4 and 2.0.
-	// After a large spike, the baseline is elevated. We need a delta/baseline
-	// in (1.4, 2.0). Feed a moderate amount — the baseline EMA smoothing means
-	// we just need to stay above the exit threshold.
-	// With the EMA at alpha=0.1, after the spike the baseline is much higher,
-	// so even returning to 100 ops/tick will have a low ratio.
-	// We need delta/baseline > 1.4. After the spike, baseline ≈ 0.1*10000 + 0.9*baseline.
-	// Let's just feed 200 ops/tick which will keep ratio moderate.
-	for i := 0; i < 5; i++ {
-		e.shards[0].publishCount.Add(200)
-		p.sample(&st)
-	}
-
-	// The key assertion: despite multiple ticks, we should still be in spike mode
-	// because the ratio never dropped below spikeExitRatio (1.4).
-	// With the old code (exit at < spikeMultiple), this would have exited.
-	// Note: if the EMA hasn't settled enough, we're testing the hysteresis band.
-	// Let's verify directly by checking a known ratio scenario.
-
-	// More deterministic test: manually set the state and check.
 	p2 := newTestPacer(e)
 	p2.inSpike.Store(true)
 	st2 := pacerState{
