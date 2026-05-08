@@ -7,10 +7,12 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"google.golang.org/grpc"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
+	"github.com/mateusfdl/gentis/internal/arena"
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/log"
 	"github.com/mateusfdl/gentis/internal/metrics"
@@ -20,13 +22,14 @@ import (
 type Server struct {
 	gentisv1.UnimplementedGentisServiceServer
 
-	config   *Config
-	listener net.Listener
-	grpcSrv  *grpc.Server
-	engine   *engine.Engine
-	store    *transport.SessionStore
-	sessions sync.Map
-	nextID   atomic.Int32
+	config    *Config
+	listener  net.Listener
+	grpcSrv   *grpc.Server
+	engine    *engine.Engine
+	store     *transport.SessionStore
+	sessArena *arena.Arena
+	sessions  sync.Map
+	nextID    atomic.Int32
 
 	logger              *slog.Logger
 	metrics             *metrics.Server
@@ -58,7 +61,7 @@ func New(address string, opts ...Option) *Server {
 	}
 	logger = logger.With("component", "grpc")
 
-	return &Server{
+	s := &Server{
 		config: cfg,
 		engine: eng,
 		store:  cfg.SessionStore,
@@ -66,6 +69,17 @@ func New(address string, opts ...Option) *Server {
 		ctx:    ctx,
 		cancel: cancel,
 	}
+	// When arena is on, counter-based IDs (arena-exhausted fallback)
+	// must start ABOVE the arena range so they never collide with
+	// arena-derived IDs (which occupy [1, MaxSessions]).
+	if cfg.UseArena {
+		maxSessions := cfg.MaxSessions
+		if maxSessions <= 0 {
+			maxSessions = 16384
+		}
+		s.nextID.Store(int32(maxSessions))
+	}
+	return s
 }
 
 func (s *Server) ConnectionCount() int64 {
@@ -89,6 +103,20 @@ func (s *Server) Start() error {
 	s.listener = listener
 	s.grpcSrv = grpc.NewServer()
 	gentisv1.RegisterGentisServiceServer(s.grpcSrv, s)
+
+	if s.config.UseArena {
+		maxSessions := s.config.MaxSessions
+		if maxSessions <= 0 {
+			maxSessions = 16384
+		}
+		slotSize := int(unsafe.Sizeof(arena.SessionSlot{}))
+		a, err := arena.New(slotSize, maxSessions)
+		if err != nil {
+			s.logger.Warn("grpc arena init failed, falling back to heap session state", "err", err)
+		} else {
+			s.sessArena = a
+		}
+	}
 
 	if s.config.MetricsEnabled {
 		collector := metrics.NewCollector(s.engine, s, "server")
@@ -125,6 +153,16 @@ func (s *Server) Stop() error {
 	}
 
 	s.wg.Wait()
+
+	// Close the arena after all session cleanups have run
+	// (GracefulStop drains in-flight streams
+	//  Stream() → cleanupSession
+	// → ArenaState.Close via the deferred path in Stream handler).
+	if s.sessArena != nil {
+		if err := s.sessArena.Close(); err != nil {
+			s.logger.Error("failed to close session arena", "error", err)
+		}
+	}
 	return nil
 }
 

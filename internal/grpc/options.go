@@ -16,6 +16,14 @@ type Config struct {
 	SessionStore   *transport.SessionStore
 	Observer       *metrics.Observer
 	Logger         *slog.Logger
+
+	// Arena-backed session state (linux only). Default off. When enabled,
+	// session state lives in an mmap arena slot instead of on the Go heap,
+	// removing per-session State objects from GC scanning and enabling a
+	// flat-array SessionStore lookup path. The session ID is derived from
+	// the slot index so IDs land densely in [1, MaxSessions].
+	UseArena    bool
+	MaxSessions int // 0 = 16384 when UseArena is set
 }
 
 type Option func(*Config)
@@ -48,6 +56,20 @@ func WithObserver(obs *metrics.Observer) Option {
 func WithLogger(l *slog.Logger) Option {
 	return func(c *Config) {
 		c.Logger = l
+	}
+}
+
+func WithArena() Option {
+	return func(c *Config) {
+		c.UseArena = true
+	}
+}
+
+// WithMaxSessions sets the arena session capacity. Only meaningful when
+// WithArena() is also set. Default 16384 (~70 MB mmap reserve).
+func WithMaxSessions(n int) Option {
+	return func(c *Config) {
+		c.MaxSessions = n
 	}
 }
 

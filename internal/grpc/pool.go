@@ -30,3 +30,9 @@ func putServerMsg(msg *gentisv1.ServerMessage) {
 	cm.ChannelMessage.Data = nil
 	serverMsgPool.Put(msg)
 }
+
+func putServerMsgIfPooled(msg *gentisv1.ServerMessage) {
+	if _, ok := msg.Message.(*gentisv1.ServerMessage_ChannelMessage); ok {
+		putServerMsg(msg)
+	}
+}

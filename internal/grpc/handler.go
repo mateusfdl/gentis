@@ -12,6 +12,9 @@ const maxChannelNameLen = 256
 
 func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
 	sess := s.createSession(stream.Context())
+	if sess == nil {
+		return fmt.Errorf("failed to create session")
+	}
 	defer s.cleanupSession(sess)
 
 	go sess.runSender(stream)
@@ -30,20 +33,36 @@ func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
 }
 
 func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
+	defer s.drainSendRing()
 	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case msg := <-s.sendCh:
-			err := stream.Send(msg)
-			if msg.GetChannelMessage() != nil {
-				putServerMsg(msg)
+		for {
+			msg, ok := s.sendRing.TryConsume()
+			if !ok {
+				break
 			}
-			if err != nil {
+			if err := stream.Send(msg); err != nil {
+				putServerMsgIfPooled(msg)
 				s.cancel()
 				return
 			}
+			putServerMsgIfPooled(msg)
+			s.signalDrain()
 		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.wakeCh:
+		}
+	}
+}
+
+func (s *Session) drainSendRing() {
+	for {
+		msg, ok := s.sendRing.TryConsume()
+		if !ok {
+			return
+		}
+		putServerMsgIfPooled(msg)
 	}
 }
 
@@ -95,7 +114,7 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 		return
 	}
 
-	if !s.engine.Subscribe(engine.SubscriberID(s.id), req.Channel) {
+	if !s.engine.Subscribe(s.subID, req.Channel) {
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel", reqID)
 		return
 	}
@@ -119,7 +138,7 @@ func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID stri
 		return
 	}
 
-	if !s.engine.Unsubscribe(engine.SubscriberID(s.id), req.Channel) {
+	if !s.engine.Unsubscribe(s.subID, req.Channel) {
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED, "Not subscribed to channel", reqID)
 		return
 	}
@@ -143,23 +162,16 @@ func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 	}
 
 	if s.server.store != nil {
-		s.engine.Publish(req.Channel, req.Data, engine.SubscriberID(s.id), s.server.store.Deliver)
+		s.engine.Publish(req.Channel, req.Data, s.subID, s.server.store.Deliver)
 		return
 	}
 
-	s.engine.Publish(req.Channel, req.Data, engine.SubscriberID(s.id), func(id engine.SubscriberID, ch string, d []byte) bool {
+	s.engine.Publish(req.Channel, req.Data, s.subID, func(id engine.SubscriberID, ch string, d []byte) bool {
 		other, ok := s.server.getSession(int(id))
 		if !ok {
 			return false
 		}
-		msg := getServerMsg(ch, d)
-		select {
-		case other.sendCh <- msg:
-			return true
-		default:
-			putServerMsg(msg)
-			return false
-		}
+		return other.DeliverMessage(ch, d)
 	})
 }
 
