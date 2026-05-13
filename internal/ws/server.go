@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gobwas/ws"
 
@@ -56,6 +57,8 @@ func New(address string, opts ...Option) *Server {
 		ctx:    ctx,
 		cancel: cancel,
 	}
+	// ws session IDs are offset above the gRPC counter range so the two
+	// transports never collide in a shared SessionStore.
 	s.nextID.Store(wsIDOffset)
 	return s
 }
@@ -93,7 +96,11 @@ func (s *Server) Stop() error {
 	s.cancel()
 
 	if s.httpSrv != nil {
-		if err := s.httpSrv.Shutdown(context.Background()); err != nil {
+		// Bounded shutdown timeout so a stuck hijacked connection cannot
+		// block the whole test suite / caller indefinitely.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.httpSrv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("failed to shutdown WebSocket server: %w", err)
 		}
 	}
