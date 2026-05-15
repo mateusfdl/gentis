@@ -20,6 +20,14 @@ type Config struct {
 	Engine             *engine.Engine
 	SessionStore       *transport.SessionStore
 	Observer           *metrics.Observer
+
+	// Arena-backed session state (linux only). Default off. When enabled,
+	// session state lives in an mmap arena slot instead of on the Go heap,
+	// removing per-session State objects from GC scanning and enabling a
+	// flat-array SessionStore lookup path. The session ID is derived from
+	// the slot index so IDs land densely in [1, MaxSessions].
+	UseArena    bool
+	MaxSessions int // 0 = 16384 when UseArena is set
 }
 
 type UpstreamConfig struct {
@@ -107,6 +115,23 @@ func WithIncomingBuffer(size int) Option {
 func WithFanoutWorkers(n int) Option {
 	return func(c *Config) {
 		c.FanoutWorkers = n
+	}
+}
+
+// WithArena enables mmap arena-backed session state (linux only). On non-
+// linux platforms or if arena creation fails, the relay silently falls
+// back to heap *client.State.
+func WithArena() Option {
+	return func(c *Config) {
+		c.UseArena = true
+	}
+}
+
+// WithMaxSessions sets the arena session capacity. Only meaningful when
+// WithArena() is also set. Default 16384 (~70 MB mmap reserve).
+func WithMaxSessions(n int) Option {
+	return func(c *Config) {
+		c.MaxSessions = n
 	}
 }
 
