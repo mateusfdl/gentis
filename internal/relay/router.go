@@ -116,9 +116,3 @@ func (r *Router) matches(pattern, channel string) bool {
 	matched, _ := path.Match(pattern, channel)
 	return matched
 }
-
-func (r *Router) ClearCache() {
-	r.mu.Lock()
-	r.cache = make(map[string]*RouteResult)
-	r.mu.Unlock()
-}

@@ -15,15 +15,6 @@ func TestRouterNoPatterns(t *testing.T) {
 	}
 }
 
-func TestRouterEmptyPatterns(t *testing.T) {
-	r := NewRouter([]ChannelPattern{})
-
-	result := r.Route("any-channel")
-	if result.Mode != RouteModeRelay {
-		t.Errorf("expected RouteModeRelay as default, got %d", result.Mode)
-	}
-}
-
 func TestRouterExactMatch(t *testing.T) {
 	r := NewRouter([]ChannelPattern{
 		{Pattern: "chat", Mode: RouteModeLocal},
@@ -138,31 +129,6 @@ func TestRouterCacheEviction(t *testing.T) {
 
 	if cacheLen > maxCacheSize {
 		t.Errorf("cache should not exceed maxCacheSize, got %d", cacheLen)
-	}
-}
-
-func TestRouterClearCache(t *testing.T) {
-	r := NewRouter(nil)
-
-	r.Route("ch1")
-	r.Route("ch2")
-
-	r.mu.RLock()
-	before := len(r.cache)
-	r.mu.RUnlock()
-
-	if before != 2 {
-		t.Errorf("expected 2 cached entries, got %d", before)
-	}
-
-	r.ClearCache()
-
-	r.mu.RLock()
-	after := len(r.cache)
-	r.mu.RUnlock()
-
-	if after != 0 {
-		t.Errorf("expected 0 cached entries after clear, got %d", after)
 	}
 }
 
