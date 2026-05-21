@@ -24,6 +24,23 @@ type Config struct {
 	// the slot index so IDs land densely in [1, MaxSessions].
 	UseArena    bool
 	MaxSessions int // 0 = 16384 when UseArena is set
+
+	// ExtraConnCounters are additional sources whose ConnectionCount() is
+	// folded into this server's `gentis_connections_active` gauge. Used
+	// to surface the WS server's session count alongside gRPC. Only the
+	// active gauge is summed — `gentis_connections_total` /
+	// `gentis_disconnections_total` continue to come from this server's
+	// own counters, so churn metrics remain consistent with their
+	// previous semantics.
+	ExtraConnCounters []ActiveConnCounter
+}
+
+// ActiveConnCounter is the minimal interface needed by
+// WithExtraConnectionCounter — just the live-session gauge. Implemented
+// trivially by the WebSocket server (and anything else that exposes a
+// ConnectionCount() method).
+type ActiveConnCounter interface {
+	ConnectionCount() int64
 }
 
 type Option func(*Config)
@@ -70,6 +87,17 @@ func WithArena() Option {
 func WithMaxSessions(n int) Option {
 	return func(c *Config) {
 		c.MaxSessions = n
+	}
+}
+
+// WithExtraConnectionCounter folds an additional ConnectionCount() source
+// (e.g. the websocket server's session counter) into the
+// `gentis_connections_active` gauge. multiple calls accumulate. without
+// this, a server only reports its own gRPC connection count, which reads
+// zero during ws-only traffic.
+func WithExtraConnectionCounter(c ActiveConnCounter) Option {
+	return func(cfg *Config) {
+		cfg.ExtraConnCounters = append(cfg.ExtraConnCounters, c)
 	}
 }
 

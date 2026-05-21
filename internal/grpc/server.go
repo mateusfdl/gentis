@@ -119,7 +119,15 @@ func (s *Server) Start() error {
 	}
 
 	if s.config.MetricsEnabled {
-		collector := metrics.NewCollector(s.engine, s, "server")
+		// Sum gRPC's own active count with any extras registered via
+		// WithExtraConnectionCounter (e.g. the WS server), so
+		// `gentis_connections_active` reflects all live transports. The
+		// total/disconnection counters stay tied to gRPC's own state.
+		var connSrc metrics.ConnectionCounter = s
+		if len(s.config.ExtraConnCounters) > 0 {
+			connSrc = sumConnCounter{ConnectionCounter: s, extras: s.config.ExtraConnCounters}
+		}
+		collector := metrics.NewCollector(s.engine, connSrc, "server")
 		if s.config.Observer != nil {
 			collector.SetObserver(s.config.Observer)
 		}
@@ -176,4 +184,26 @@ func (s *Server) getSession(id int) (*Session, bool) {
 		return nil, false
 	}
 	return val.(*Session), true
+}
+
+// sumConnCounter folds extra ConnectionCount() sources into the gauge
+// reported by the primary metrics.ConnectionCounter. ConnectionsTotal()
+// and DisconnectionsTotal() are inherited from the primary unchanged
+// only the active gauge is summed. Used so `gentis_connections_active`
+// reflects grpc + ws sessions while churn counters stay tied to grpc's
+// own state
+type sumConnCounter struct {
+	metrics.ConnectionCounter // primary; promotes ConnectionsTotal/DisconnectionsTotal
+	extras                    []ActiveConnCounter
+}
+
+func (s sumConnCounter) ConnectionCount() int64 {
+	n := s.ConnectionCounter.ConnectionCount()
+	for _, e := range s.extras {
+		if e == nil {
+			continue
+		}
+		n += e.ConnectionCount()
+	}
+	return n
 }
