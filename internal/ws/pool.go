@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"sync"
+	"time"
 )
 
 var wsMsgPool = sync.Pool{
@@ -23,5 +24,6 @@ func getWSMsg(channel string, data []byte) *ServerMessage {
 func putWSMsg(msg *ServerMessage) {
 	msg.ChannelMessage.Channel = ""
 	msg.ChannelMessage.Data = nil
+	msg.enqueuedAt = time.Time{}
 	wsMsgPool.Put(msg)
 }

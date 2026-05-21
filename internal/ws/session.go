@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"time"
 
 	"github.com/mateusfdl/gentis/internal/client"
 	"github.com/mateusfdl/gentis/internal/engine"
@@ -23,6 +24,9 @@ type Session struct {
 
 func (s *Session) DeliverMessage(channel string, data []byte) bool {
 	msg := getWSMsg(channel, data)
+	if s.server.config.OnDeliveryLatency != nil {
+		msg.enqueuedAt = time.Now()
+	}
 	select {
 	case s.sendCh <- msg:
 		return true

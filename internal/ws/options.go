@@ -14,6 +14,11 @@ type Config struct {
 	ReadLimit      int64
 	WriteTimeout   time.Duration
 	SendBufferSize int
+
+	// OnDeliveryLatency, when set, observes the server-side latency from
+	// message enqueue to socket write for delivered channel messages. nil
+	// disables the measurement.
+	OnDeliveryLatency func(time.Duration)
 }
 
 type Option func(*Config)
@@ -54,5 +59,14 @@ func WithWriteTimeout(d time.Duration) Option {
 func WithSendBufferSize(size int) Option {
 	return func(c *Config) {
 		c.SendBufferSize = size
+	}
+}
+
+// WithDeliveryLatencyObserver wires a callback that records the server-side
+// enqueue-to-socket-write latency for delivered channel messages. Used to
+// feed the gentis_delivery_latency_seconds histogram.
+func WithDeliveryLatencyObserver(fn func(time.Duration)) Option {
+	return func(c *Config) {
+		c.OnDeliveryLatency = fn
 	}
 }

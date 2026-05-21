@@ -1,6 +1,9 @@
 package ws
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	ErrorCodeUnknownMessage    = "UNKNOWN_MESSAGE"
@@ -46,6 +49,8 @@ type ServerMessage struct {
 	ChannelMessage *ChannelMessagePayload `json:"channel_message,omitempty"`
 	Pong           *PongResponse          `json:"pong,omitempty"`
 	Error          *ErrorResponse         `json:"error,omitempty"`
+
+	enqueuedAt time.Time
 }
 
 type ConnectedResponse struct {

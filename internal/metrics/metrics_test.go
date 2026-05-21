@@ -169,6 +169,50 @@ func TestMetricsEndpoint(t *testing.T) {
 	}
 }
 
+func TestDeliveryLatencyHistogram(t *testing.T) {
+	provider := &mockStatsProvider{}
+	connCounter := &mockConnectionCounter{count: 1}
+
+	obs := NewObserver("server")
+	obs.ObserveDeliveryLatency(0.003)
+	obs.ObserveDeliveryLatency(0.42)
+
+	collector := NewCollector(provider, connCounter, "server")
+	collector.SetObserver(obs)
+	server := NewServer("127.0.0.1:19092", collector)
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	time.Sleep(50 * time.Millisecond)
+
+	resp, err := http.Get("http://127.0.0.1:19092/metrics")
+	if err != nil {
+		t.Fatalf("failed to fetch metrics: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
+	content := string(body)
+
+	expected := []string{
+		`gentis_delivery_latency_seconds_count{mode="server"} 2`,
+		`gentis_delivery_latency_seconds_sum{mode="server"} 0.423`,
+		`gentis_delivery_latency_seconds_bucket{mode="server",le="0.5"} 2`,
+		`gentis_delivery_latency_seconds_bucket{mode="server",le="0.005"} 1`,
+	}
+	for _, want := range expected {
+		if !strings.Contains(content, want) {
+			t.Errorf("expected %q in metrics output", want)
+		}
+	}
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	provider := &mockStatsProvider{}
 	collector := NewCollector(provider, nil, "test")

@@ -39,6 +39,7 @@ type UpstreamStatus interface {
 type Observer struct {
 	publishDuration prometheus.Histogram
 	publishFanout   prometheus.Histogram
+	deliveryLatency prometheus.Histogram
 }
 
 func NewObserver(mode string) *Observer {
@@ -57,6 +58,13 @@ func NewObserver(mode string) *Observer {
 			ConstLabels: prometheus.Labels{"mode": mode},
 			Buckets:     []float64{0, 1, 5, 10, 25, 50, 100, 250, 500, 1000},
 		}),
+		deliveryLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace:   namespace,
+			Name:        "delivery_latency_seconds",
+			Help:        "Server-side latency from message enqueue to socket write (within-engine diagnostic)",
+			ConstLabels: prometheus.Labels{"mode": mode},
+			Buckets:     []float64{0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5},
+		}),
 	}
 }
 
@@ -66,6 +74,10 @@ func (o *Observer) ObservePublishDuration(seconds float64) {
 
 func (o *Observer) ObservePublishFanout(count float64) {
 	o.publishFanout.Observe(count)
+}
+
+func (o *Observer) ObserveDeliveryLatency(seconds float64) {
+	o.deliveryLatency.Observe(seconds)
 }
 
 type Collector struct {
@@ -209,6 +221,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	if c.observer != nil {
 		c.observer.publishDuration.Describe(ch)
 		c.observer.publishFanout.Describe(ch)
+		c.observer.deliveryLatency.Describe(ch)
 	}
 }
 
@@ -274,6 +287,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	if c.observer != nil {
 		c.observer.publishDuration.Collect(ch)
 		c.observer.publishFanout.Collect(ch)
+		c.observer.deliveryLatency.Collect(ch)
 	}
 }
 

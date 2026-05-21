@@ -66,7 +66,9 @@ func (s *Server) runWriter(sess *Session, conn net.Conn) {
 			return
 		case msg := <-sess.sendCh:
 			data, err := json.Marshal(msg)
-			if msg.ChannelMessage != nil {
+			isChannelMsg := msg.ChannelMessage != nil
+			enqueuedAt := msg.enqueuedAt
+			if isChannelMsg {
 				putWSMsg(msg)
 			}
 			if err != nil {
@@ -81,6 +83,10 @@ func (s *Server) runWriter(sess *Session, conn net.Conn) {
 			if err != nil {
 				sess.cancel()
 				return
+			}
+
+			if isChannelMsg && s.config.OnDeliveryLatency != nil && !enqueuedAt.IsZero() {
+				s.config.OnDeliveryLatency(time.Since(enqueuedAt))
 			}
 		}
 	}
