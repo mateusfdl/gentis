@@ -111,7 +111,7 @@ func buildEngineOpts(cmd *cobra.Command, obs *metrics.Observer) []engine.Option 
 	return opts
 }
 
-func buildWSServer(cmd *cobra.Command, eng *engine.Engine, store *transport.SessionStore) *wsserver.Server {
+func buildWSServer(cmd *cobra.Command, eng *engine.Engine, store *transport.SessionStore, obs *metrics.Observer) *wsserver.Server {
 	wsAddr, _ := cmd.Flags().GetString("ws-addr")
 	if wsAddr == "" {
 		return nil
@@ -121,13 +121,20 @@ func buildWSServer(cmd *cobra.Command, eng *engine.Engine, store *transport.Sess
 	writeTimeout, _ := cmd.Flags().GetDuration("ws-write-timeout")
 	sendBuffer, _ := cmd.Flags().GetInt("ws-send-buffer")
 
-	return wsserver.New(wsAddr,
+	opts := []wsserver.Option{
 		wsserver.WithEngine(eng),
 		wsserver.WithSessionStore(store),
 		wsserver.WithReadLimit(readLimit),
 		wsserver.WithWriteTimeout(writeTimeout),
 		wsserver.WithSendBufferSize(sendBuffer),
-	)
+	}
+	if obs != nil {
+		opts = append(opts, wsserver.WithDeliveryLatencyObserver(func(d time.Duration) {
+			obs.ObserveDeliveryLatency(d.Seconds())
+		}))
+	}
+
+	return wsserver.New(wsAddr, opts...)
 }
 
 func addWSFlags(cmd *cobra.Command) {

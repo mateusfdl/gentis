@@ -37,6 +37,9 @@ func init() {
 	f.Int("incoming-buffer", 4096, "incoming message buffer from upstream")
 	f.Int("relay-fanout-workers", 4, "relay-local parallel fanout goroutine count")
 
+	f.Bool("arena", false, "use mmap arena for session state (Linux only); applies to relay sessions")
+	f.Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
+
 	addWSFlags(relayCmd)
 
 	relayCmd.MarkFlagRequired("upstream")
@@ -71,7 +74,19 @@ func runRelay(cmd *cobra.Command, args []string) error {
 
 	engOpts := buildEngineOpts(cmd, obs)
 	eng := engine.New(engOpts...)
-	store := transport.NewSessionStore()
+
+	arenaEnabled, _ := cmd.Flags().GetBool("arena")
+	maxSessions, _ := cmd.Flags().GetInt("max-sessions")
+
+	// when arena is on, ids land densely in [1, maxSessions] so a flat-
+	// array store gives O(1) lookup with a single pointer-array gc scan.
+	// otherwise the legacy sync.Map is fine, counter ids aren't dense.
+	var store *transport.SessionStore
+	if arenaEnabled {
+		store = transport.NewFlatSessionStore(engine.SubscriberID(1), maxSessions)
+	} else {
+		store = transport.NewSessionStore()
+	}
 
 	opts := []relay.Option{
 		relay.WithListenAddr(addr),
@@ -83,6 +98,12 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		relay.WithFanoutWorkers(relayFanoutWorkers),
 		relay.WithEngine(eng),
 		relay.WithSessionStore(store),
+	}
+	if arenaEnabled {
+		opts = append(opts,
+			relay.WithArena(),
+			relay.WithMaxSessions(maxSessions),
+		)
 	}
 
 	if metricsEnabled {
@@ -99,7 +120,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	wsSrv := buildWSServer(cmd, eng, store)
+	wsSrv := buildWSServer(cmd, eng, store, obs)
 	if wsSrv != nil {
 		wsAddr, _ := cmd.Flags().GetString("ws-addr")
 		logger.Info("starting WebSocket server", "addr", wsAddr)

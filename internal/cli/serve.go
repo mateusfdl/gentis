@@ -20,6 +20,8 @@ served on a separate HTTP endpoint.`,
 func init() {
 	serveCmd.Flags().String("addr", "0.0.0.0:9000", "gRPC listen address (host:port)")
 	serveCmd.Flags().String("metrics-addr", ":8080", "metrics/health HTTP server address")
+	serveCmd.Flags().Bool("arena", false, "use mmap arena for session state (Linux only); applies to gRPC sessions")
+	serveCmd.Flags().Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
 	addWSFlags(serveCmd)
 	rootCmd.AddCommand(serveCmd)
 }
@@ -41,18 +43,45 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	engOpts := buildEngineOpts(cmd, obs)
 	eng := engine.New(engOpts...)
-	store := transport.NewSessionStore()
+
+	arenaEnabled, _ := cmd.Flags().GetBool("arena")
+	maxSessions, _ := cmd.Flags().GetInt("max-sessions")
+
+	// when arena is on, ids land densely in [1, maxSessions] so a flat-
+	// array store gives O(1) lookup with a single pointer-array gc scan.
+	// otherwise the legacy sync.Map is fine, counter ids aren't dense.
+	var store *transport.SessionStore
+	if arenaEnabled {
+		store = transport.NewFlatSessionStore(engine.SubscriberID(1), maxSessions)
+	} else {
+		store = transport.NewSessionStore()
+	}
+
+	// build (but don't start) the ws server first so we can hand its
+	// connection counter to the grpc metrics collector. without this,
+	// `gentis_connections_active` only reflects grpc sessions and reads
+	// zero during a ws-only run.
+	wsSrv := buildWSServer(cmd, eng, store, obs)
 
 	grpcOpts := []grpcserver.Option{
 		grpcserver.WithEngine(eng),
 		grpcserver.WithSessionStore(store),
 		grpcserver.WithLogger(logger),
 	}
+	if arenaEnabled {
+		grpcOpts = append(grpcOpts,
+			grpcserver.WithArena(),
+			grpcserver.WithMaxSessions(maxSessions),
+		)
+	}
 	if metricsEnabled {
 		grpcOpts = append(grpcOpts,
 			grpcserver.WithMetrics(metricsAddr),
 			grpcserver.WithObserver(obs),
 		)
+	}
+	if wsSrv != nil {
+		grpcOpts = append(grpcOpts, grpcserver.WithExtraConnectionCounter(wsSrv))
 	}
 
 	grpcSrv := grpcserver.New(addr, grpcOpts...)
@@ -62,7 +91,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	wsSrv := buildWSServer(cmd, eng, store)
 	if wsSrv != nil {
 		wsAddr, _ := cmd.Flags().GetString("ws-addr")
 		logger.Info("starting WebSocket server", "addr", wsAddr)
