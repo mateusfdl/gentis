@@ -569,29 +569,6 @@ func TestMultipleSubscribers(t *testing.T) {
 	}
 }
 
-func TestConnectionCount(t *testing.T) {
-	addr, cleanup := startTestServer(t)
-	defer cleanup()
-
-	s1, close1 := connectClient(t, addr)
-	defer close1()
-	authenticate(t, s1, "token")
-
-	s2, close2 := connectClient(t, addr)
-	defer close2()
-	authenticate(t, s2, "token")
-
-	s1.Send(&gentisv1.ClientMessage{
-		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
-	})
-	recvWithTimeout(t, s1, 2*time.Second)
-
-	s2.Send(&gentisv1.ClientMessage{
-		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
-	})
-	recvWithTimeout(t, s2, 2*time.Second)
-}
-
 func TestSubscribeMultipleChannels(t *testing.T) {
 	addr, cleanup := startTestServer(t)
 	defer cleanup()

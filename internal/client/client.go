@@ -15,7 +15,6 @@ type State struct {
 func NewState(id int) *State {
 	return &State{
 		id:            id,
-		authenticated: false,
 		subscriptions: make(map[string]struct{}),
 	}
 }

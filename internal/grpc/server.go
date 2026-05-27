@@ -174,10 +174,6 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func (s *Server) Wait() {
-	s.wg.Wait()
-}
-
 func (s *Server) getSession(id int) (*Session, bool) {
 	val, ok := s.sessions.Load(id)
 	if !ok {

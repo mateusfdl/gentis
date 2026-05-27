@@ -246,10 +246,6 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func (s *Server) Wait() {
-	s.wg.Wait()
-}
-
 func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
 	sess := s.createSession(stream.Context())
 	if sess == nil {

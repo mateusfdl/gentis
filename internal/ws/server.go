@@ -109,10 +109,6 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func (s *Server) Wait() {
-	s.wg.Wait()
-}
-
 func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	conn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
