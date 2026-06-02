@@ -1,9 +1,9 @@
 import { check } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
-import { PAYLOAD_SIZE } from './lib/config.js';
+import { PAYLOAD_SIZE, WS_AUTH_TOKEN } from './lib/config.js';
 import { stressStages } from './lib/scenarios.js';
 import { delay, generatePayload } from './lib/util.js';
-import { newClient, openStream, closeStream, subscribe, unsubscribe, publish, channelData } from './lib/grpc.js';
+import { openWS, subscribe, unsubscribe, publish, close, extractChannelData } from './lib/ws.js';
 
 const connectErrors = new Counter('connect_errors');
 const publishedCount = new Counter('published_messages');
@@ -11,9 +11,8 @@ const receivedCount = new Counter('received_messages');
 const deliveryLatency = new Trend('delivery_latency_ms', true);
 const deliveryRate = new Rate('delivery_rate');
 
-const client = newClient();
-
 export const options = {
+  tags: { transport: 'ws' },
   stages: stressStages,
   thresholds: {
     connect_errors: ['count<50'],
@@ -26,33 +25,31 @@ export default async function () {
   let received = 0;
   let sent = 0;
 
-  const conn = openStream(client, 'stress-test', {
-    onData(msg) {
-      if (msg.channelMessage) {
-        received++;
-        receivedCount.add(1);
-        const ts = parseInt((channelData(msg) || '').split('|')[0], 10);
-        if (ts > 0) deliveryLatency.add(Date.now() - ts);
-      }
-    },
-    onError(err) {
-      const s = String(err);
-      if (!s.includes('canceled') && !s.includes('CANCELLED')) {
+  let ws;
+  try {
+    ws = await openWS(WS_AUTH_TOKEN, {
+      onMessage(msg) {
+        if (msg.channel_message) {
+          received++;
+          receivedCount.add(1);
+          const ts = parseInt((extractChannelData(msg) || '').split('|')[0], 10);
+          if (ts > 0) deliveryLatency.add(Date.now() - ts);
+        }
+      },
+      onError() {
         connectErrors.add(1);
-      }
-    },
-  });
-
-  if (!conn) {
+      },
+    });
+  } catch (_) {
     connectErrors.add(1);
     check(null, { 'connected': () => false });
     return;
   }
 
   const extraChannels = __VU % 5 === 0 ? 2 : 0;
-  subscribe(conn.stream, channel);
+  subscribe(ws, channel, 'sub-primary');
   for (let i = 1; i <= extraChannels; i++) {
-    subscribe(conn.stream, `${channel}-extra-${i}`);
+    subscribe(ws, `${channel}-extra-${i}`, `sub-extra-${i}`);
   }
   await delay(300);
 
@@ -60,7 +57,7 @@ export default async function () {
   for (let i = 0; i < publishCount; i++) {
     const payload = `${Date.now()}|${generatePayload(PAYLOAD_SIZE)}`;
     try {
-      publish(conn.stream, channel, payload);
+      publish(ws, channel, payload, `pub-${i}`);
       publishedCount.add(1);
       sent++;
     } catch (_) {
@@ -78,11 +75,11 @@ export default async function () {
     'received at least one message': () => received > 0,
   });
 
-  unsubscribe(conn.stream, channel);
+  unsubscribe(ws, channel, 'unsub-primary');
   for (let i = 1; i <= extraChannels; i++) {
-    unsubscribe(conn.stream, `${channel}-extra-${i}`);
+    unsubscribe(ws, `${channel}-extra-${i}`, `unsub-extra-${i}`);
   }
   await delay(200);
 
-  closeStream(client, conn.stream);
+  close(ws);
 }

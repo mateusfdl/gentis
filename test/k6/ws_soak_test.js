@@ -1,7 +1,8 @@
 import { check } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
-import { newClient, openStream, closeStream, subscribe, unsubscribe, publish, ping } from './lib/grpc.js';
+import { WS_AUTH_TOKEN } from './lib/config.js';
 import { delay, durationToSeconds } from './lib/util.js';
+import { openWS, subscribe, unsubscribe, publish, ping, close } from './lib/ws.js';
 
 const connectionUptime = new Trend('connection_uptime_seconds', true);
 const reconnects = new Counter('reconnect_count');
@@ -12,9 +13,8 @@ const deliverySuccess = new Rate('delivery_success');
 const SOAK_DURATION = __ENV.SOAK_DURATION || '30m';
 const ACTIVITY_INTERVAL = parseInt(__ENV.SOAK_INTERVAL || '10', 10);
 
-const client = newClient();
-
 export const options = {
+  tags: { transport: 'ws' },
   scenarios: {
     soak: {
       executor: 'constant-vus',
@@ -34,23 +34,20 @@ export default async function () {
   let sent = 0;
   let received = 0;
 
-  const conn = openStream(client, 'soak-test', {
-    onData(msg) {
-      if (msg.channelMessage) received++;
-    },
-    onError() {
-      reconnects.add(1);
-    },
-  });
-
-  if (!conn) {
+  let ws;
+  try {
+    ws = await openWS(WS_AUTH_TOKEN, {
+      onMessage(msg) { if (msg.channel_message) received++; },
+      onError() { reconnects.add(1); },
+    });
+  } catch (_) {
     reconnects.add(1);
     check(null, { 'connected': () => false });
     await delay(5000);
     return;
   }
 
-  subscribe(conn.stream, channel);
+  subscribe(ws, channel, 'sub');
   await delay(500);
 
   const totalSec = durationToSeconds(SOAK_DURATION);
@@ -58,7 +55,7 @@ export default async function () {
 
   for (let i = 0; i < iterations; i++) {
     try {
-      publish(conn.stream, channel, `soak-${__VU}-${i}-${Date.now()}`);
+      publish(ws, channel, `soak-${__VU}-${i}-${Date.now()}`, `pub-${i}`);
       sent++;
       messagesSent.add(1);
     } catch (_) {
@@ -68,13 +65,13 @@ export default async function () {
 
     if (i % 30 === 0 && __VU % 3 === 0) {
       const tmp = `soak-tmp-${__VU}-${i}`;
-      subscribe(conn.stream, tmp);
+      subscribe(ws, tmp, `sub-tmp-${i}`);
       await delay(1000);
-      unsubscribe(conn.stream, tmp);
+      unsubscribe(ws, tmp, `unsub-tmp-${i}`);
     }
 
     if (i % 10 === 0) {
-      ping(conn.stream);
+      ping(ws, `ping-${i}`);
     }
 
     await delay(ACTIVITY_INTERVAL * 1000);
@@ -93,7 +90,7 @@ export default async function () {
     'received messages': () => received > 0,
   });
 
-  unsubscribe(conn.stream, channel);
+  unsubscribe(ws, channel, 'unsub');
   await delay(200);
-  closeStream(client, conn.stream);
+  close(ws);
 }

@@ -1,5 +1,5 @@
-import { sleep } from 'k6';
 import grpc from 'k6/net/grpc';
+import encoding from 'k6/encoding';
 import { ADDR, PROTO_DIR, PROTO_FILE, SERVICE_METHOD } from './config.js';
 
 export function newClient() {
@@ -28,7 +28,6 @@ export function openStream(client, authToken, { onError, onData, metadata } = {}
   if (onData) stream.on('data', onData);
 
   stream.write({ connect: { authToken } });
-  sleep(0.1);
 
   return { client, stream };
 }
@@ -38,14 +37,25 @@ export function closeStream(client, stream) {
   try { client.close(); } catch (_) {}
 }
 
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-export function generatePayload(size) {
-  const parts = [];
-  const chunkSize = ALPHABET.length;
-  while (size > 0) {
-    const take = Math.min(size, chunkSize);
-    parts.push(ALPHABET.substring(0, take));
-    size -= take;
-  }
-  return parts.join('');
+export function subscribe(stream, channel) {
+  stream.write({ subscribe: { channel } });
+}
+
+export function unsubscribe(stream, channel) {
+  stream.write({ unsubscribe: { channel } });
+}
+
+export function publish(stream, channel, body) {
+  stream.write({ publish: { channel, data: encoding.b64encode(String(body)) } });
+}
+
+export function ping(stream) {
+  stream.write({ ping: {} });
+}
+
+export function channelData(msg) {
+  if (!msg || !msg.channelMessage) return null;
+  const d = msg.channelMessage.data;
+  if (d == null) return null;
+  return encoding.b64decode(d, 'std', 's');
 }
