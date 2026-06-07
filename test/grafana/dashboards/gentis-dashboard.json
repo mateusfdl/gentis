@@ -21,6 +21,167 @@
   "liveNow": true,
   "panels": [
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Server-side latency from message enqueue to socket write, by mode. For true client round-trip latency use the k6 delivery_latency_ms metric.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "latency",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "scheme",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/p99/"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#F2495C",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/p90/"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FF9830",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/p50/"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#73BF69",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 105
+      },
+      "id": 56,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "histogram_quantile(0.50, sum(rate(gentis_delivery_latency_seconds_bucket{mode=~\"$mode\"}[30s])) by (le, mode))",
+          "interval": "2s",
+          "legendFormat": "p50 ({{mode}})",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "histogram_quantile(0.90, sum(rate(gentis_delivery_latency_seconds_bucket{mode=~\"$mode\"}[30s])) by (le, mode))",
+          "interval": "2s",
+          "legendFormat": "p90 ({{mode}})",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "histogram_quantile(0.99, sum(rate(gentis_delivery_latency_seconds_bucket{mode=~\"$mode\"}[30s])) by (le, mode))",
+          "interval": "2s",
+          "legendFormat": "p99 ({{mode}})",
+          "refId": "C"
+        }
+      ],
+      "title": "Server Delivery Latency (enqueue->write)",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
       "id": 100,
@@ -227,7 +388,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "(sum(gentis_messages_delivered_total{mode=~\"$mode\"}) / clamp_min(sum(gentis_messages_published_total{mode=~\"$mode\"}), 1)) * 100",
+          "expr": "(sum(gentis_messages_delivered_total{mode=~\"$mode\"}) / clamp_min(sum(gentis_messages_delivered_total{mode=~\"$mode\"}) + sum(gentis_messages_dropped_total{mode=~\"$mode\"}), 1)) * 100",
           "legendFormat": "",
           "refId": "A"
         }
@@ -772,7 +933,7 @@
       "id": 40,
       "options": { "legend": { "calcs": ["mean", "min", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "pluginVersion": "10.0.0",
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=~\"$mode\"} / clamp_min(gentis_messages_published_total{mode=~\"$mode\"}, 1)) * 100", "legendFormat": "Delivery Rate ({{mode}})", "refId": "A" }],
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=~\"$mode\"} / clamp_min(gentis_messages_delivered_total{mode=~\"$mode\"} + gentis_messages_dropped_total{mode=~\"$mode\"}, 1)) * 100", "legendFormat": "Delivery Rate ({{mode}})", "refId": "A" }],
       "title": "Message Delivery Rate (%)",
       "type": "timeseries"
     },
@@ -833,7 +994,7 @@
       "id": 43,
       "options": { "minVizHeight": 75, "minVizWidth": 75, "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showThresholdLabels": true, "showThresholdMarkers": true, "text": {} },
       "pluginVersion": "10.0.0",
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(sum(gentis_messages_delivered_total{mode=~\"$mode\"}) / clamp_min(sum(gentis_messages_published_total{mode=~\"$mode\"}), 1)) * 100", "instant": true, "legendFormat": "Health Score", "refId": "A" }],
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(sum(gentis_messages_delivered_total{mode=~\"$mode\"}) / clamp_min(sum(gentis_messages_delivered_total{mode=~\"$mode\"}) + sum(gentis_messages_dropped_total{mode=~\"$mode\"}), 1)) * 100", "instant": true, "legendFormat": "Health Score", "refId": "A" }],
       "title": "System Health Score",
       "type": "gauge"
     },
@@ -1230,8 +1391,8 @@
           "options": { "legend": { "calcs": ["mean", "min", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
           "pluginVersion": "10.0.0",
           "targets": [
-            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=\"server\"} / clamp_min(gentis_messages_published_total{mode=\"server\"}, 1)) * 100", "legendFormat": "Server Delivery %", "refId": "A" },
-            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=\"relay\"} / clamp_min(gentis_messages_published_total{mode=\"relay\"}, 1)) * 100", "legendFormat": "Relay Delivery %", "refId": "B" }
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=\"server\"} / clamp_min(gentis_messages_delivered_total{mode=\"server\"} + gentis_messages_dropped_total{mode=\"server\"}, 1)) * 100", "legendFormat": "Server Delivery %", "refId": "A" },
+            { "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "(gentis_messages_delivered_total{mode=\"relay\"} / clamp_min(gentis_messages_delivered_total{mode=\"relay\"} + gentis_messages_dropped_total{mode=\"relay\"}, 1)) * 100", "legendFormat": "Relay Delivery %", "refId": "B" }
           ],
           "title": "Server vs Relay: Delivery Rate",
           "type": "timeseries"

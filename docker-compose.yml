@@ -1,4 +1,58 @@
 services:
+  server:
+    image: alpine:3.20
+    container_name: server
+    profiles:
+      - gentis
+    entrypoint:
+      - /bin/sh
+      - -c
+      - exec /gentis serve --addr=0.0.0.0:9000 --ws-addr=0.0.0.0:9080 --metrics-addr=:8080 ${GENTIS_EXTRA_ARGS:-}
+    volumes:
+      - ./gentis:/gentis:ro
+    environment:
+      - GENTIS_EXTRA_ARGS=${GENTIS_EXTRA_ARGS:-}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9080:9080"
+      - "127.0.0.1:8080:8080"
+    networks:
+      - gentis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--timeout=2", "http://127.0.0.1:8080/metrics"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+      start_period: 1s
+
+  relay:
+    image: alpine:3.20
+    container_name: relay
+    profiles:
+      - gentis
+    entrypoint:
+      - /bin/sh
+      - -c
+      - exec /gentis relay --addr=0.0.0.0:9001 --upstream=server:9000 --auth-token=relay --metrics-addr=:8081 ${RELAY_EXTRA_ARGS:-}
+    volumes:
+      - ./gentis:/gentis:ro
+    environment:
+      - RELAY_EXTRA_ARGS=${RELAY_EXTRA_ARGS:-}
+    ports:
+      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - gentis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--timeout=2", "http://127.0.0.1:8081/metrics"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+      start_period: 1s
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -11,8 +65,6 @@ services:
       - "--storage.tsdb.retention.time=7d"
       - "--storage.tsdb.min-block-duration=2m"
       - "--query.lookback-delta=30s"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - gentis
 

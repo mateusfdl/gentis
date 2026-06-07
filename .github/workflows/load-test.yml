@@ -16,6 +16,14 @@ on:
           - stress
           - soak
           - spike
+      transport:
+        description: "Transport"
+        required: true
+        default: "grpc"
+        type: choice
+        options:
+          - grpc
+          - ws
       target:
         description: "Target"
         required: true
@@ -58,14 +66,15 @@ jobs:
       - name: Setup k6
         uses: grafana/setup-k6-action@v1
 
+      - name: Build gentis binary
+        run: CGO_ENABLED=0 go build -o gentis ./cmd/gentis
+
       - name: Start infrastructure
-        working-directory: ./test
-        run: docker compose up -d --build
+        run: docker compose --profile gentis up -d
 
       - name: Wait for healthy services
-        working-directory: ./test
         run: |
-          echo "Waiting for services to be healthy..."
+          echo "Waiting for server and relay to be healthy..."
           for i in $(seq 1 30); do
             HEALTHY=$(docker compose ps --format json | jq -r 'select(.Health == "healthy") | .Name' | wc -l)
             if [ "$HEALTHY" -ge 2 ]; then
@@ -73,14 +82,14 @@ jobs:
               break
             fi
             echo "Waiting... ($i/30)"
-            sleep 5
+            sleep 2
           done
 
       - name: Verify Prometheus targets
         run: |
           for i in $(seq 1 10); do
             TARGETS=$(curl -sf http://localhost:9090/api/v1/targets | jq '.data.activeTargets | map(select(.health == "up")) | length')
-            if [ "$TARGETS" -ge 2 ]; then
+            if [ "$TARGETS" -ge 1 ]; then
               echo "Prometheus has $TARGETS healthy targets"
               break
             fi
@@ -88,12 +97,11 @@ jobs:
             sleep 5
           done
 
-      - name: Run smoke test
+      - name: Run smoke tests
         working-directory: ./test
         run: |
-          k6 run \
-            -e TARGET=${{ inputs.target || 'server' }} \
-            k6/smoke_test.js
+          k6 run -e TARGET=${{ inputs.target }} k6/smoke_test.js
+          k6 run k6/ws_smoke_test.js
 
       - name: Collect baseline metrics
         run: |
@@ -105,13 +113,22 @@ jobs:
 
       - name: Run load test
         working-directory: ./test
+        env:
+          TRANSPORT: ${{ inputs.transport }}
+          TEST_TYPE: ${{ inputs.test_type }}
         run: |
-          TEST_TYPE="${{ inputs.test_type || 'pubsub' }}"
+          TEST_TYPE="${TEST_TYPE:-pubsub}"
+          if [ "$TRANSPORT" = "ws" ]; then
+            SCRIPT="k6/ws_${TEST_TYPE}_test.js"
+          else
+            SCRIPT="k6/${TEST_TYPE}_test.js"
+          fi
+          echo "Running ${SCRIPT}"
           k6 run \
-            -e TARGET=${{ inputs.target || 'server' }} \
+            -e TARGET=${{ inputs.target }} \
             -e STEADY_VUS=${{ inputs.vus || '100' }} \
             -e STEADY_DURATION=${{ inputs.duration || '60' }} \
-            "k6/${TEST_TYPE}_test.js"
+            "$SCRIPT"
 
       - name: Collect final metrics
         run: |
@@ -155,15 +172,7 @@ jobs:
 
       - name: Collect logs
         if: always()
-        run: |
-          echo "=== Server Logs ===" > logs.txt
-          docker logs gentis-server >> logs.txt 2>&1 || true
-          echo "" >> logs.txt
-          echo "=== Relay Logs ===" >> logs.txt
-          docker logs gentis-relay >> logs.txt 2>&1 || true
-          echo "" >> logs.txt
-          echo "=== Prometheus Logs ===" >> logs.txt
-          docker logs gentis-prometheus >> logs.txt 2>&1 || true
+        run: docker compose --profile gentis logs --no-color server relay prometheus > logs.txt 2>&1 || true
 
       - name: Upload logs
         if: always()
@@ -174,8 +183,7 @@ jobs:
 
       - name: Cleanup
         if: always()
-        working-directory: ./test
-        run: docker compose down -v
+        run: docker compose --profile gentis down -v
 
   benchmark:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -205,27 +213,33 @@ jobs:
       - name: Setup k6
         uses: grafana/setup-k6-action@v1
 
+      - name: Build gentis binary
+        run: CGO_ENABLED=0 go build -o gentis ./cmd/gentis
+
       - name: Start infrastructure
-        working-directory: ./test
-        run: docker compose up -d --build
+        run: docker compose --profile gentis up -d
 
       - name: Wait for healthy services
-        working-directory: ./test
         run: |
           for i in $(seq 1 30); do
             HEALTHY=$(docker compose ps --format json | jq -r 'select(.Health == "healthy") | .Name' | wc -l)
             if [ "$HEALTHY" -ge 2 ]; then
               break
             fi
-            sleep 5
+            sleep 2
           done
 
       - name: Run k6 benchmark suite
         working-directory: ./test
         run: |
           for test in smoke pubsub stress; do
-            echo "=== Running ${test} test ===" | tee -a benchmark_k6_results.txt
-            k6 run k6/${test}_test.js 2>&1 | tee -a benchmark_k6_results.txt
+            echo "=== Running gRPC ${test} test ===" | tee -a benchmark_k6_results.txt
+            k6 run "k6/${test}_test.js" 2>&1 | tee -a benchmark_k6_results.txt
+            echo "" >> benchmark_k6_results.txt
+          done
+          for test in ws_smoke ws_pubsub ws_stress; do
+            echo "=== Running ${test} ===" | tee -a benchmark_k6_results.txt
+            k6 run "k6/${test}_test.js" 2>&1 | tee -a benchmark_k6_results.txt
             echo "" >> benchmark_k6_results.txt
           done
 
@@ -249,5 +263,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        working-directory: ./test
-        run: docker compose down -v
+        run: docker compose --profile gentis down -v
