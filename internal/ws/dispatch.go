@@ -21,6 +21,10 @@ const (
 
 	// maxBatchSize caps how many deliveries one array frame packs.
 	maxBatchSize = 64
+
+	// maxBatchBytes caps the payload bytes one array frame accumulates,
+	// so a burst of large messages cannot balloon a single frame.
+	maxBatchBytes = 1 << 20
 )
 
 // MessageHandler is the minimal interface needed by DispatchMessage.

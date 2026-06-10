@@ -2036,3 +2036,82 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 		t.Fatalf("same-subject reconnect must stay idempotent, got %v", msg.Message)
 	}
 }
+
+type recordingStream struct {
+	gentisv1.GentisService_StreamServer
+	mu       sync.Mutex
+	frames   []int
+	messages int
+}
+
+func (r *recordingStream) Send(m *gentisv1.ServerMessage) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if b := m.GetBatch(); b != nil {
+		size := 0
+		for _, cm := range b.Messages {
+			size += len(cm.Data)
+		}
+		r.frames = append(r.frames, size)
+		r.messages += len(b.Messages)
+		return nil
+	}
+	r.frames = append(r.frames, len(m.GetChannelMessage().GetData()))
+	r.messages++
+	return nil
+}
+
+func (r *recordingStream) snapshot() (frames []int, messages int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]int(nil), r.frames...), r.messages
+}
+
+func TestBatchingCapsFrameBytes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ring, err := ringbuf.NewPointer[gentisv1.ServerMessage](sendRingCapacity)
+	if err != nil {
+		t.Fatalf("ring alloc: %v", err)
+	}
+	sess := &Session{
+		sendRing:   ring,
+		wakeCh:     make(chan struct{}, 1),
+		drainCh:    make(chan struct{}, 1),
+		senderDone: make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
+	}
+	sess.protoVersion.Store(2)
+
+	const total = 64
+	payload := make([]byte, 64*1024)
+	for i := range total {
+		if !ring.TryProduce(getServerMsg(engine.Delivery{Channel: "big", Data: payload, Offset: uint64(i + 1), Epoch: 7})) {
+			t.Fatalf("ring full at %d", i)
+		}
+	}
+
+	rec := &recordingStream{}
+	go sess.runSender(rec)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, n := rec.snapshot(); n == total {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-sess.senderDone
+
+	frames, n := rec.snapshot()
+	if n != total {
+		t.Fatalf("delivered %d messages, want %d", n, total)
+	}
+	for i, size := range frames {
+		if size > maxBatchBytes {
+			t.Fatalf("frame %d carries %d payload bytes, want <= %d (default grpc client recv limit is 4MiB)", i, size, maxBatchBytes)
+		}
+	}
+}

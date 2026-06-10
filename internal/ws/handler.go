@@ -103,13 +103,15 @@ func (s *Server) runReader(sess *Session, rawConn net.Conn) {
 // their own frame, in order.
 func drainBatch(sess *Session, first *ServerMessage) (batch []*ServerMessage, trailing *ServerMessage) {
 	batch = []*ServerMessage{first}
-	for len(batch) < maxBatchSize {
+	bytes := len(first.ChannelMessage.Data)
+	for len(batch) < maxBatchSize && bytes < maxBatchBytes {
 		select {
 		case next := <-sess.sendCh:
 			if next.ChannelMessage == nil || next.ID != "" {
 				return batch, next
 			}
 			batch = append(batch, next)
+			bytes += len(next.ChannelMessage.Data)
 		default:
 			return batch, nil
 		}

@@ -20,6 +20,11 @@ const (
 
 	// maxBatchSize caps how many deliveries one BatchMessage frame packs.
 	maxBatchSize = 64
+
+	// maxBatchBytes caps the payload bytes one BatchMessage accumulates:
+	// grpc-go clients reject frames above 4MiB by default, so the batch
+	// must stay well under it regardless of message count.
+	maxBatchBytes = 1 << 20
 )
 
 func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
@@ -95,6 +100,7 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 	defer close(s.senderDone)
 	defer s.drainSendRing()
 	var pending []*gentisv1.ServerMessage
+	var pendingBytes int
 	for {
 		batching := s.protoVersion.Load() >= 2
 		for {
@@ -103,11 +109,21 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 				break
 			}
 			if batching && msg.GetChannelMessage() != nil && msg.Id == "" {
+				size := len(msg.GetChannelMessage().Data)
+				if len(pending) > 0 && pendingBytes+size > maxBatchBytes {
+					if !s.flushPending(stream, &pending) {
+						putServerMsgIfPooled(msg)
+						return
+					}
+					pendingBytes = 0
+				}
 				pending = append(pending, msg)
-				if len(pending) >= maxBatchSize {
+				pendingBytes += size
+				if len(pending) >= maxBatchSize || pendingBytes >= maxBatchBytes {
 					if !s.flushPending(stream, &pending) {
 						return
 					}
+					pendingBytes = 0
 				}
 				continue
 			}
@@ -115,6 +131,7 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 				putServerMsgIfPooled(msg)
 				return
 			}
+			pendingBytes = 0
 			if err := stream.Send(msg); err != nil {
 				putServerMsgIfPooled(msg)
 				return
@@ -125,6 +142,7 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 		if !s.flushPending(stream, &pending) {
 			return
 		}
+		pendingBytes = 0
 		select {
 		case <-s.ctx.Done():
 			return

@@ -1401,3 +1401,26 @@ func TestWildcardSubscribeDeniedNamespace(t *testing.T) {
 		t.Fatalf("wildcard subscribe in denied namespace: got %+v, want PERMISSION_DENIED", resp)
 	}
 }
+
+func TestDrainBatchCapsFrameBytes(t *testing.T) {
+	sess := &Session{sendCh: make(chan *ServerMessage, maxBatchSize*2)}
+
+	payload := make([]byte, 256*1024)
+	first := getWSMsg(engine.Delivery{Channel: "big", Data: payload, Offset: 1, Epoch: 7})
+	for i := 2; i <= maxBatchSize; i++ {
+		sess.sendCh <- getWSMsg(engine.Delivery{Channel: "big", Data: payload, Offset: uint64(i), Epoch: 7})
+	}
+
+	batch, _ := drainBatch(sess, first)
+
+	size := 0
+	for _, m := range batch {
+		size += len(m.ChannelMessage.Data)
+	}
+	if size > maxBatchBytes {
+		t.Fatalf("batch carries %d payload bytes, want <= %d", size, maxBatchBytes)
+	}
+	if len(batch) >= maxBatchSize {
+		t.Fatalf("batch packed %d messages of 256KiB each; byte budget never applied", len(batch))
+	}
+}
