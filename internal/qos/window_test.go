@@ -91,7 +91,7 @@ func TestWindowConfirmFreesBudget(t *testing.T) {
 		t.Fatalf("Admit(3) with full window = %v, want Full", v)
 	}
 
-	w.Confirm(1)
+	w.Confirm(1, 0)
 	if v := w.Admit(3, 7, 10, 0, sendOK); v != Admitted {
 		t.Fatalf("Admit(3) after confirming 1 = %v, want Admitted", v)
 	}
@@ -101,7 +101,7 @@ func TestWindowCumulativeConfirm(t *testing.T) {
 	w := NewWindow(10, 1000, time.Second, 2)
 	admitN(t, w, 1, 5, 10, 0)
 
-	w.Confirm(4)
+	w.Confirm(4, 0)
 
 	count, bytes := w.Inflight()
 	if count != 1 || bytes != 10 {
@@ -152,7 +152,7 @@ func TestWindowConfirmResetsRedeliveryAttempts(t *testing.T) {
 	}
 	admitN(t, w, 1, 2, 10, int64(timeout)+1)
 
-	w.Confirm(1)
+	w.Confirm(1, 0)
 
 	a = w.CheckRedelivery(2*int64(timeout) + 2)
 	if a.Poisoned != 0 {
@@ -212,7 +212,7 @@ func TestWindowPumpPoint(t *testing.T) {
 		t.Fatalf("PumpPoint = (%d, %d, %d), want (6, 7, 1)", from, epoch, room)
 	}
 
-	w.Confirm(6)
+	w.Confirm(6, 0)
 	from, _, room = w.PumpPoint()
 	if from != 6 || room != 3 {
 		t.Fatalf("PumpPoint after confirm = (%d, _, %d), want (6, 3)", from, room)
@@ -245,5 +245,20 @@ func TestWindowBaselineIsFirstWriterWins(t *testing.T) {
 
 	if v := w.Admit(4, 7, 10, 0, sendOK); v != Admitted {
 		t.Fatalf("Admit(4) = %v, want Admitted (late Baseline must not move the cursor)", v)
+	}
+}
+
+func TestWindowConfirmRestampsRedeliveryClock(t *testing.T) {
+	timeout := time.Second
+	w := NewWindow(10, 1000, timeout, 2)
+	admitN(t, w, 1, 3, 10, 0)
+
+	w.Confirm(1, int64(timeout)-1)
+
+	if a := w.CheckRedelivery(int64(timeout) + 1); a.ResendFrom != 0 {
+		t.Fatalf("CheckRedelivery right after an active confirm = %+v, want none (pipelined consumer is healthy)", a)
+	}
+	if a := w.CheckRedelivery(2*int64(timeout) + 1); a.ResendFrom != 2 {
+		t.Fatalf("CheckRedelivery once the new head is overdue = %+v, want ResendFrom 2", a)
 	}
 }

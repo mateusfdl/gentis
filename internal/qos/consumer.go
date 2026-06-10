@@ -118,7 +118,7 @@ func (c *Consumer) Confirm(channel string, offset uint64) {
 	if w == nil {
 		return
 	}
-	w.Confirm(offset)
+	w.Confirm(offset, time.Now().UnixNano())
 	c.pump(channel, w)
 }
 

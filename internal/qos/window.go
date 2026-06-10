@@ -146,8 +146,10 @@ func (w *Window) Reset() {
 }
 
 // Confirm applies a cumulative confirm: everything up to and including
-// offset is acknowledged.
-func (w *Window) Confirm(offset uint64) {
+// offset is acknowledged. Trimming the head restamps the redelivery clock:
+// the remaining tail has only been the oldest unconfirmed work since now,
+// so a healthy pipelined consumer never trips the timeout.
+func (w *Window) Confirm(offset uint64, now int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -168,6 +170,9 @@ func (w *Window) Confirm(offset uint64) {
 		trimmed++
 	}
 	w.inflight = w.inflight[trimmed:]
+	if trimmed > 0 {
+		w.oldestAt = now
+	}
 }
 
 // CheckRedelivery inspects the oldest unconfirmed delivery. When it has
