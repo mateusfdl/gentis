@@ -566,11 +566,12 @@ func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 
 	route := sess.relay.router.Route(req.Channel)
 
+	var result engine.PublishResult
 	if route.Mode == RouteModeLocal || route.Mode == RouteModeBoth {
 		if sess.relay.store != nil {
-			sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, sess.relay.store.Deliver)
+			result = sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, sess.relay.store.Deliver)
 		} else {
-			sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, func(id engine.SubscriberID, d engine.Delivery) bool {
+			result = sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, func(id engine.SubscriberID, d engine.Delivery) bool {
 				other, ok := sess.relay.getSession(int(id))
 				if !ok {
 					return false
@@ -583,6 +584,24 @@ func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
 		sess.relay.upstream.Publish(req.Channel, req.Data)
 	}
+
+	// Acks are opt-in via the correlation id and describe the relay-local
+	// fanout only; upstream forwarding stays fire-and-forget.
+	if reqID == "" {
+		return
+	}
+	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Published{
+			Published: &gentisv1.PublishResponse{
+				Channel:   req.Channel,
+				Offset:    result.Offset,
+				Epoch:     result.Epoch,
+				Delivered: uint32(result.Delivered),
+				Dropped:   uint32(result.Dropped),
+			},
+		},
+	})
 }
 
 func (sess *Session) handlePing(reqID string) {

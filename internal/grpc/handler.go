@@ -161,17 +161,35 @@ func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 		return
 	}
 
+	var result engine.PublishResult
 	if s.server.store != nil {
-		s.engine.Publish(req.Channel, req.Data, s.subID, s.server.store.Deliver)
-		return
+		result = s.engine.Publish(req.Channel, req.Data, s.subID, s.server.store.Deliver)
+	} else {
+		result = s.engine.Publish(req.Channel, req.Data, s.subID, func(id engine.SubscriberID, d engine.Delivery) bool {
+			other, ok := s.server.getSession(int(id))
+			if !ok {
+				return false
+			}
+			return other.DeliverMessage(d)
+		})
 	}
 
-	s.engine.Publish(req.Channel, req.Data, s.subID, func(id engine.SubscriberID, d engine.Delivery) bool {
-		other, ok := s.server.getSession(int(id))
-		if !ok {
-			return false
-		}
-		return other.DeliverMessage(d)
+	// Acks are opt-in: only clients that correlate publishes with an id
+	// pay for the response message.
+	if reqID == "" {
+		return
+	}
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Published{
+			Published: &gentisv1.PublishResponse{
+				Channel:   req.Channel,
+				Offset:    result.Offset,
+				Epoch:     result.Epoch,
+				Delivered: uint32(result.Delivered),
+				Dropped:   uint32(result.Dropped),
+			},
+		},
 	})
 }
 

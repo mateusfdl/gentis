@@ -761,3 +761,116 @@ func TestServerWithMetrics(t *testing.T) {
 	}
 	defer srv.Stop()
 }
+
+func TestPublishAckCarriesOffsetAndFanout(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	sub, closeSub := connectClient(t, addr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "acked"},
+		},
+	})
+	recvWithTimeout(t, sub, 2*time.Second)
+
+	pub, closePub := connectClient(t, addr)
+	defer closePub()
+	authenticate(t, pub, "token")
+
+	for i := range 2 {
+		pub.Send(&gentisv1.ClientMessage{
+			Id: fmt.Sprintf("req-%d", i),
+			Message: &gentisv1.ClientMessage_Publish{
+				Publish: &gentisv1.PublishRequest{Channel: "acked", Data: []byte("payload")},
+			},
+		})
+
+		msg := recvWithTimeout(t, pub, 2*time.Second)
+		if msg.Id != fmt.Sprintf("req-%d", i) {
+			t.Errorf("publish %d: expected correlation id %q, got %q", i, fmt.Sprintf("req-%d", i), msg.Id)
+		}
+		ack := msg.GetPublished()
+		if ack == nil {
+			t.Fatalf("publish %d: expected PublishResponse, got %T", i, msg.Message)
+		}
+		if ack.Channel != "acked" {
+			t.Errorf("publish %d: expected channel 'acked', got %q", i, ack.Channel)
+		}
+		if ack.Offset != uint64(i+1) {
+			t.Errorf("publish %d: expected offset %d, got %d", i, i+1, ack.Offset)
+		}
+		if ack.Epoch == 0 {
+			t.Errorf("publish %d: expected non-zero epoch", i)
+		}
+		if ack.Delivered != 1 {
+			t.Errorf("publish %d: expected delivered 1, got %d", i, ack.Delivered)
+		}
+		if ack.Dropped != 0 {
+			t.Errorf("publish %d: expected dropped 0, got %d", i, ack.Dropped)
+		}
+	}
+
+	delivery := recvWithTimeout(t, sub, 2*time.Second)
+	chMsg := delivery.GetChannelMessage()
+	if chMsg == nil {
+		t.Fatalf("expected ChannelMessage, got %T", delivery.Message)
+	}
+	if chMsg.Offset != 1 {
+		t.Errorf("expected delivery offset 1, got %d", chMsg.Offset)
+	}
+	if chMsg.Epoch == 0 {
+		t.Error("expected non-zero delivery epoch")
+	}
+}
+
+func TestPublishWithoutCorrelationIDGetsNoAck(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "silent", Data: []byte("x")},
+		},
+	})
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
+	})
+
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetPong() == nil {
+		t.Fatalf("expected PongResponse (no ack without id), got %T", msg.Message)
+	}
+}
+
+func TestPublishAckToSubscriberlessChannel(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "lonely",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "nobody", Data: []byte("x")},
+		},
+	})
+
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	ack := msg.GetPublished()
+	if ack == nil {
+		t.Fatalf("expected PublishResponse, got %T", msg.Message)
+	}
+	if ack.Offset != 0 || ack.Epoch != 0 || ack.Delivered != 0 || ack.Dropped != 0 {
+		t.Errorf("expected zero-identity ack for subscriberless channel, got offset=%d epoch=%d delivered=%d dropped=%d",
+			ack.Offset, ack.Epoch, ack.Delivered, ack.Dropped)
+	}
+}

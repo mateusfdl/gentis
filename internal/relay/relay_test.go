@@ -655,3 +655,71 @@ func TestRelayMaxRetries(t *testing.T) {
 		t.Errorf("expected MaxRetries 3, got %d", r.config.ReconnectPolicy.MaxRetries)
 	}
 }
+
+func TestRelayLocalPublishAck(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithBufferSize(256),
+	)
+
+	r.router = NewRouter([]ChannelPattern{
+		{Pattern: "local-*", Mode: RouteModeLocal},
+	})
+
+	if err := r.Start(); err != nil {
+		t.Fatalf("failed to start relay: %v", err)
+	}
+	defer r.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	sub, closeSub := connectClient(t, relayAddr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "local-acked"},
+		},
+	})
+	recvWithTimeout(t, sub, 2*time.Second)
+
+	pub, closePub := connectClient(t, relayAddr)
+	defer closePub()
+	authenticate(t, pub, "token")
+
+	pub.Send(&gentisv1.ClientMessage{
+		Id: "rel-1",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "local-acked", Data: []byte("x")},
+		},
+	})
+
+	msg := recvWithTimeout(t, pub, 2*time.Second)
+	if msg.Id != "rel-1" {
+		t.Errorf("expected correlation id 'rel-1', got %q", msg.Id)
+	}
+	ack := msg.GetPublished()
+	if ack == nil {
+		t.Fatalf("expected PublishResponse, got %T", msg.Message)
+	}
+	if ack.Channel != "local-acked" {
+		t.Errorf("expected channel 'local-acked', got %q", ack.Channel)
+	}
+	if ack.Offset != 1 {
+		t.Errorf("expected offset 1, got %d", ack.Offset)
+	}
+	if ack.Epoch == 0 {
+		t.Error("expected non-zero epoch")
+	}
+	if ack.Delivered != 1 {
+		t.Errorf("expected delivered 1, got %d", ack.Delivered)
+	}
+	if ack.Dropped != 0 {
+		t.Errorf("expected dropped 0, got %d", ack.Dropped)
+	}
+}
