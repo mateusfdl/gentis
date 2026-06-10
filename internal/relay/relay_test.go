@@ -8,9 +8,11 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/auth"
+	"github.com/mateusfdl/gentis/internal/engine"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/testcert"
+	"github.com/mateusfdl/gentis/internal/transport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -841,6 +843,77 @@ func TestUpstreamTLSWithoutCAFailsClosed(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 		if r.IsUpstreamConnected() {
 			t.Fatal("plaintext relay should not connect to TLS upstream")
+		}
+	}
+}
+
+func TestUpstreamReconnectRecoversGap(t *testing.T) {
+	upstreamAddr := freeAddr(t)
+	upstreamEng := engine.New(engine.WithHistory(64, 0))
+	defer upstreamEng.Stop()
+	upstreamStore := transport.NewSessionStore()
+
+	upstream := grpcserver.New(upstreamAddr,
+		grpcserver.WithEngine(upstreamEng),
+		grpcserver.WithSessionStore(upstreamStore),
+	)
+	if err := upstream.Start(); err != nil {
+		t.Fatalf("start upstream: %v", err)
+	}
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithBufferSize(256),
+		WithReconnectPolicy(50*time.Millisecond, 200*time.Millisecond, 2.0),
+		WithFanoutWorkers(1),
+	)
+	r.router = NewRouter([]ChannelPattern{
+		{Pattern: "up-*", Mode: RouteModeRelay},
+	})
+	if err := r.Start(); err != nil {
+		t.Fatalf("start relay: %v", err)
+	}
+	defer r.Stop()
+
+	client, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+	authenticate(t, client, "token")
+	client.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "up-rec"},
+		},
+	})
+	recvWithTimeout(t, client, 2*time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	upstreamEng.Publish("up-rec", []byte("m-1"), 0, upstreamStore.Deliver)
+
+	msg := recvWithTimeout(t, client, 3*time.Second)
+	cm := msg.GetChannelMessage()
+	if cm == nil || string(cm.Data) != "m-1" {
+		t.Fatalf("expected live m-1 through relay, got %v", msg.Message)
+	}
+
+	upstream.Stop()
+	upstreamEng.Publish("up-rec", []byte("m-2"), 0, upstreamStore.Deliver)
+	upstreamEng.Publish("up-rec", []byte("m-3"), 0, upstreamStore.Deliver)
+
+	upstream2 := grpcserver.New(upstreamAddr,
+		grpcserver.WithEngine(upstreamEng),
+		grpcserver.WithSessionStore(upstreamStore),
+	)
+	if err := upstream2.Start(); err != nil {
+		t.Fatalf("restart upstream: %v", err)
+	}
+	defer upstream2.Stop()
+
+	for _, want := range []string{"m-2", "m-3"} {
+		msg := recvWithTimeout(t, client, 5*time.Second)
+		cm := msg.GetChannelMessage()
+		if cm == nil || string(cm.Data) != want {
+			t.Fatalf("expected recovered %q through relay, got %v", want, msg.Message)
 		}
 	}
 }

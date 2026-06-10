@@ -3,7 +3,6 @@ package relay
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -30,6 +29,11 @@ type Upstream struct {
 	subscriptions sync.Map
 	subsMu        sync.Mutex
 
+	// lastSeen tracks the newest {offset, epoch} observed per channel so
+	// a reconnect can ask the upstream to replay exactly the gap instead
+	// of silently losing it.
+	lastSeen sync.Map
+
 	sendCh chan *gentisv1.ClientMessage
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -41,6 +45,11 @@ type Upstream struct {
 
 type subscriptionRef struct {
 	count int
+}
+
+type recoverPoint struct {
+	offset uint64
+	epoch  uint64
 }
 
 func NewUpstream(config UpstreamConfig, policy ReconnectPolicy, handler MessageHandler, logger *slog.Logger) *Upstream {
@@ -113,6 +122,7 @@ func (u *Upstream) Unsubscribe(channel string) error {
 
 	if ref.count <= 0 {
 		u.subscriptions.Delete(channel)
+		u.lastSeen.Delete(channel)
 		if u.connected.Load() {
 			u.sendCh <- &gentisv1.ClientMessage{
 				Message: &gentisv1.ClientMessage_Unsubscribe{
@@ -204,9 +214,14 @@ func (u *Upstream) establishStream() error {
 
 	u.subscriptions.Range(func(key, _ any) bool {
 		channel := key.(string)
+		sub := &gentisv1.SubscribeRequest{Channel: channel}
+		if val, ok := u.lastSeen.Load(channel); ok {
+			rp := val.(recoverPoint)
+			sub.Recover = &gentisv1.RecoverPoint{Offset: rp.offset, Epoch: rp.epoch}
+		}
 		u.sendCh <- &gentisv1.ClientMessage{
 			Message: &gentisv1.ClientMessage_Subscribe{
-				Subscribe: &gentisv1.SubscribeRequest{Channel: channel},
+				Subscribe: sub,
 			},
 		}
 		return true
@@ -237,9 +252,11 @@ func (u *Upstream) receiveLoop() {
 
 		msg, err := stream.Recv()
 		if err != nil {
-			if err == io.EOF || u.ctx.Err() != nil {
+			if u.ctx.Err() != nil {
 				return
 			}
+			// EOF included: a server-side close is a disconnect to
+			// recover from, not a reason to stop receiving forever.
 			u.logger.Warn("upstream receive error, reconnecting", "err", err)
 			u.handleDisconnect()
 			continue
@@ -276,8 +293,16 @@ func (u *Upstream) sendLoop() {
 func (u *Upstream) handleMessage(msg *gentisv1.ServerMessage) {
 	switch m := msg.Message.(type) {
 	case *gentisv1.ServerMessage_ChannelMessage:
+		cm := m.ChannelMessage
+		if cm.Offset != 0 {
+			u.lastSeen.Store(cm.Channel, recoverPoint{offset: cm.Offset, epoch: cm.Epoch})
+		}
 		if u.handler != nil {
-			u.handler(m.ChannelMessage.Channel, m.ChannelMessage.Data)
+			u.handler(cm.Channel, cm.Data)
+		}
+	case *gentisv1.ServerMessage_Subscribed:
+		if m.Subscribed.Recovered {
+			u.logger.Info("upstream gap recovered", "channel", m.Subscribed.Channel)
 		}
 	case *gentisv1.ServerMessage_Connected:
 		u.logger.Info("connected to upstream", "connection_id", m.Connected.ConnectionId)
