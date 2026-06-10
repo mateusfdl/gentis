@@ -126,7 +126,23 @@ func handlePublish(h MessageHandler, req *PublishRequest, reqID string) {
 		return
 	}
 
-	h.Engine().Publish(req.Channel, []byte(req.Data), engine.SubscriberID(h.ID()), h.Store().Deliver)
+	result := h.Engine().Publish(req.Channel, []byte(req.Data), engine.SubscriberID(h.ID()), h.Store().Deliver)
+
+	// Acks are opt-in: only clients that correlate publishes with an id
+	// pay for the response message.
+	if reqID == "" {
+		return
+	}
+	h.Send(&ServerMessage{
+		ID: reqID,
+		Published: &PublishResponse{
+			Channel:   req.Channel,
+			Offset:    result.Offset,
+			Epoch:     result.Epoch,
+			Delivered: uint32(result.Delivered),
+			Dropped:   uint32(result.Dropped),
+		},
+	})
 }
 
 func validateChannel(name string) bool {

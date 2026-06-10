@@ -370,3 +370,84 @@ func TestUnknownMessage(t *testing.T) {
 		t.Fatalf("expected UNKNOWN_MESSAGE error, got %+v", resp)
 	}
 }
+
+func TestPublishAck(t *testing.T) {
+	addr, stop := startTestServer(t)
+	defer stop()
+
+	sub := dialWS(t, addr)
+	defer sub.Close()
+	authenticate(t, sub)
+	subscribe(t, sub, "acked")
+
+	pub := dialWS(t, addr)
+	defer pub.Close()
+	authenticate(t, pub)
+
+	for i := range 2 {
+		sendJSON(t, pub, map[string]any{
+			"id":      fmt.Sprintf("pub-%d", i),
+			"publish": map[string]any{"channel": "acked", "data": "x"},
+		})
+
+		var msg ServerMessage
+		readJSON(t, pub, &msg)
+
+		if msg.ID != fmt.Sprintf("pub-%d", i) {
+			t.Errorf("publish %d: id = %q, want %q", i, msg.ID, fmt.Sprintf("pub-%d", i))
+		}
+		if msg.Published == nil {
+			t.Fatalf("publish %d: expected Published, got %+v", i, msg)
+		}
+		if msg.Published.Channel != "acked" {
+			t.Errorf("publish %d: channel = %q, want %q", i, msg.Published.Channel, "acked")
+		}
+		if msg.Published.Offset != uint64(i+1) {
+			t.Errorf("publish %d: offset = %d, want %d", i, msg.Published.Offset, i+1)
+		}
+		if msg.Published.Epoch == 0 {
+			t.Errorf("publish %d: expected non-zero epoch", i)
+		}
+		if msg.Published.Delivered != 1 {
+			t.Errorf("publish %d: delivered = %d, want 1", i, msg.Published.Delivered)
+		}
+		if msg.Published.Dropped != 0 {
+			t.Errorf("publish %d: dropped = %d, want 0", i, msg.Published.Dropped)
+		}
+	}
+
+	var delivery ServerMessage
+	readJSON(t, sub, &delivery)
+	if delivery.ChannelMessage == nil {
+		t.Fatalf("expected ChannelMessage, got %+v", delivery)
+	}
+	if delivery.ChannelMessage.Offset != 1 {
+		t.Errorf("delivery offset = %d, want 1", delivery.ChannelMessage.Offset)
+	}
+	if delivery.ChannelMessage.Epoch == 0 {
+		t.Error("expected non-zero delivery epoch")
+	}
+}
+
+func TestPublishWithoutIDGetsNoAck(t *testing.T) {
+	addr, stop := startTestServer(t)
+	defer stop()
+
+	conn := dialWS(t, addr)
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{
+		"publish": map[string]any{"channel": "silent", "data": "x"},
+	})
+	sendJSON(t, conn, map[string]any{
+		"id":   "ping-1",
+		"ping": map[string]any{},
+	})
+
+	var msg ServerMessage
+	readJSON(t, conn, &msg)
+	if msg.Pong == nil {
+		t.Fatalf("expected Pong (no ack without id), got %+v", msg)
+	}
+}

@@ -49,6 +49,7 @@ type ServerMessage struct {
 	ChannelMessage *ChannelMessagePayload `json:"channel_message,omitempty"`
 	Pong           *PongResponse          `json:"pong,omitempty"`
 	Error          *ErrorResponse         `json:"error,omitempty"`
+	Published      *PublishResponse       `json:"published,omitempty"`
 
 	enqueuedAt time.Time
 }
@@ -63,6 +64,14 @@ type SubscribedResponse struct {
 
 type UnsubscribedResponse struct {
 	Channel string `json:"channel"`
+}
+
+type PublishResponse struct {
+	Channel   string `json:"channel"`
+	Offset    uint64 `json:"offset"`
+	Epoch     uint64 `json:"epoch,string"`
+	Delivered uint32 `json:"delivered"`
+	Dropped   uint32 `json:"dropped"`
 }
 
 type ChannelMessagePayload struct {
