@@ -98,3 +98,17 @@ func TestCacheClear(t *testing.T) {
 		t.Fatal("Get after Clear returned ok")
 	}
 }
+
+func TestCacheTinyMaxSizeStillEvicts(t *testing.T) {
+	c := NewCache[int](2)
+	c.Set("a", 1)
+	c.Set("b", 2)
+	c.Set("c", 3)
+
+	if got := c.Len(); got > 2 {
+		t.Fatalf("Len = %d, want <= 2 (eviction must fire even when len/4 truncates to 0)", got)
+	}
+	if _, ok := c.Get("c"); !ok {
+		t.Fatal("newest entry must survive the eviction")
+	}
+}

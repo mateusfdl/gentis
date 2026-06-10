@@ -55,7 +55,7 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 func (c *Cache[V]) Set(key string, v V) {
 	c.mu.Lock()
 	if len(c.entries) >= c.maxSize {
-		toEvict := len(c.entries) / evictRatio
+		toEvict := max(len(c.entries)/evictRatio, 1)
 		evicted := 0
 		for k := range c.entries {
 			if evicted >= toEvict {

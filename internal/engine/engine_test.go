@@ -1226,3 +1226,30 @@ func TestPriorityHigherJoinerTakesOver(t *testing.T) {
 		t.Fatalf("counts = %v, want only the higher-priority joiner", counts)
 	}
 }
+
+func TestHistorySweepIntervalIgnoresEngineHistoryUnderNamespaces(t *testing.T) {
+	reg := namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+	})
+	cfg := defaultConfig()
+	WithHistory(8, 10*time.Millisecond)(cfg)
+	WithNamespaces(reg)(cfg)
+
+	if got := historySweepInterval(cfg); got != 0 {
+		t.Fatalf("historySweepInterval = %v, want 0 (namespaces own settings; no channel can have this history)", got)
+	}
+}
+
+func TestStopConcurrent(t *testing.T) {
+	e := New(WithHistory(8, time.Minute))
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e.Stop()
+		}()
+	}
+	wg.Wait()
+}

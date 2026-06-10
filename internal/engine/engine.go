@@ -5,6 +5,7 @@ import (
 	"hash/maphash"
 	"log/slog"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -72,6 +73,7 @@ type Engine struct {
 
 	sweepStop chan struct{}
 	sweepDone chan struct{}
+	stopOnce  sync.Once
 
 	channelCount      atomic.Int64
 	subscriptionCount atomic.Int64
@@ -151,17 +153,7 @@ func (e *Engine) SubscribePriority(id SubscriberID, channelName string, prio int
 			s.mu.Unlock()
 			return ErrUnknownNamespace
 		}
-		ch = NewChannel(channelName)
-		if settings.HistorySize > 0 {
-			ch.hist = newHistory(settings.HistorySize, settings.HistoryTTL)
-		}
-		ch.maxSubs = settings.MaxSubscribers
-		ch.fanout = settings.Fanout
-		s.channels[channelName] = ch
-		if len(s.channels) > s.peak {
-			s.peak = len(s.channels)
-		}
-		e.channelCount.Add(1)
+		ch = e.createChannelLocked(s, channelName, settings)
 	}
 
 	if ch.maxSubs > 0 && ch.SubscriberCount() >= ch.maxSubs {
@@ -243,6 +235,23 @@ func (e *Engine) reapEmptyChannels() {
 	}
 }
 
+// createChannelLocked builds a channel from its namespace settings and
+// inserts it into the shard. The caller must hold the shard write lock.
+func (e *Engine) createChannelLocked(s *Shard, name string, settings namespace.Settings) *Channel {
+	ch := NewChannel(name)
+	if settings.HistorySize > 0 {
+		ch.hist = newHistory(settings.HistorySize, settings.HistoryTTL)
+	}
+	ch.maxSubs = settings.MaxSubscribers
+	ch.fanout = settings.Fanout
+	s.channels[name] = ch
+	if len(s.channels) > s.peak {
+		s.peak = len(s.channels)
+	}
+	e.channelCount.Add(1)
+	return ch
+}
+
 // materializeChannel creates the channel a pattern-matched publish needs
 // so offsets, epoch, and history behave exactly as if an exact subscriber
 // existed. Returns nil when the namespace is unknown under strict mode.
@@ -256,17 +265,7 @@ func (e *Engine) materializeChannel(channel string) *Channel {
 	s.mu.Lock()
 	ch, ok := s.channels[channel]
 	if !ok {
-		ch = NewChannel(channel)
-		if settings.HistorySize > 0 {
-			ch.hist = newHistory(settings.HistorySize, settings.HistoryTTL)
-		}
-		ch.maxSubs = settings.MaxSubscribers
-		ch.fanout = settings.Fanout
-		s.channels[channel] = ch
-		if len(s.channels) > s.peak {
-			s.peak = len(s.channels)
-		}
-		e.channelCount.Add(1)
+		ch = e.createChannelLocked(s, channel, settings)
 	}
 	ch.Acquire()
 	s.mu.Unlock()
@@ -275,17 +274,26 @@ func (e *Engine) materializeChannel(channel string) *Channel {
 
 // deliverPatterns fans the publication out to wildcard subscribers whose
 // patterns match the channel, skipping anyone the exact fan-out already
-// reached. Returns counts instead of mutating the result so Publish never
+// reached. exact must be the same snapshot the exact fan-out used, so a
+// subscriber churning between the two passes is never double-delivered or
+// skipped. Returns counts instead of mutating the result so Publish never
 // takes the result's address: that would demote the exact fan-out loop's
 // counter increments from registers to memory.
-func (e *Engine) deliverPatterns(ch *Channel, d Delivery, exclude SubscriberID, deliver DeliveryFunc) (delivered, dropped int) {
+func (e *Engine) deliverPatterns(exact []SubscriberID, d Delivery, exclude SubscriberID, deliver DeliveryFunc) (delivered, dropped int) {
 	patternIDs := e.patterns.subscribersFor(d.Channel)
 	if len(patternIDs) == 0 {
 		return 0, 0
 	}
-	exact := ch.Subscribers()
+	reached := func(id SubscriberID) bool { return slices.Contains(exact, id) }
+	if len(exact) > 32 && len(patternIDs) > 1 {
+		set := make(map[SubscriberID]struct{}, len(exact))
+		for _, id := range exact {
+			set[id] = struct{}{}
+		}
+		reached = func(id SubscriberID) bool { _, ok := set[id]; return ok }
+	}
 	for _, id := range patternIDs {
-		if id == exclude || slices.Contains(exact, id) {
+		if id == exclude || reached(id) {
 			continue
 		}
 		if deliver(id, d) {
@@ -461,6 +469,12 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 
 	if ch == nil && e.patternSubs.Load() != 0 && len(e.patterns.subscribersFor(channel)) != 0 {
 		ch = e.materializeChannel(channel)
+		// The last pattern unsubscribe may have reaped between the load
+		// above and the materialization; without this re-check the fresh
+		// channel would leak until the next reap cycle.
+		if ch != nil && e.patternSubs.Load() == 0 {
+			e.reapEmptyChannels()
+		}
 	}
 	if ch == nil {
 		if observed {
@@ -517,7 +531,7 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	}
 
 	if e.patternSubs.Load() != 0 {
-		pd, pdrop := e.deliverPatterns(ch, d, exclude, deliver)
+		pd, pdrop := e.deliverPatterns(subscribers, d, exclude, deliver)
 		result.Delivered += pd
 		result.Dropped += pdrop
 	}
@@ -602,17 +616,18 @@ func (e *Engine) Stats() EngineStats {
 // Stop shuts down background goroutines (GC pacer, fanout workers).
 // Safe to call even if no background tasks are running.
 func (e *Engine) Stop() {
-	if e.sweepStop != nil {
-		close(e.sweepStop)
-		<-e.sweepDone
-		e.sweepStop = nil
-	}
-	if e.pacer != nil {
-		e.pacer.Stop()
-	}
-	if e.fanoutPool != nil {
-		e.fanoutPool.stop()
-	}
+	e.stopOnce.Do(func() {
+		if e.sweepStop != nil {
+			close(e.sweepStop)
+			<-e.sweepDone
+		}
+		if e.pacer != nil {
+			e.pacer.Stop()
+		}
+		if e.fanoutPool != nil {
+			e.fanoutPool.stop()
+		}
+	})
 }
 
 // Recover returns the publications a client missed since fromOffset on the
@@ -671,11 +686,14 @@ func historySweepInterval(cfg *config) time.Duration {
 			minTTL = ttl
 		}
 	}
-	consider(cfg.history.size, cfg.history.ttl)
 	if cfg.namespaces != nil {
+		// Namespaces own channel settings; the engine-wide history config
+		// is ignored by channelSettings and must not spawn a sweeper.
 		for _, s := range cfg.namespaces.All() {
 			consider(s.HistorySize, s.HistoryTTL)
 		}
+	} else {
+		consider(cfg.history.size, cfg.history.ttl)
 	}
 	if minTTL == 0 {
 		return 0

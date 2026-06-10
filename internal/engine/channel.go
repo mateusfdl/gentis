@@ -32,8 +32,14 @@ type Channel struct {
 	topCohort atomic.Pointer[[]SubscriberID]
 }
 
+// newEpoch never returns zero: zero is the "no identity" sentinel in
+// PublishResult and the pooled-channel state.
 func newEpoch() uint64 {
-	return rand.Uint64()
+	for {
+		if e := rand.Uint64(); e != 0 {
+			return e
+		}
+	}
 }
 
 var channelPool = sync.Pool{
@@ -219,12 +225,12 @@ func (c *Channel) rebuildTopCohortLocked() {
 		c.topCohort.Store(&empty)
 		return
 	}
-	max := false
+	found := false
 	best := 0
 	for _, p := range c.prios {
-		if !max || p > best {
+		if !found || p > best {
 			best = p
-			max = true
+			found = true
 		}
 	}
 	cohort := make([]SubscriberID, 0, len(c.prios))
