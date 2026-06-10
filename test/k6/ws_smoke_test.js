@@ -1,6 +1,6 @@
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
-import { WS_AUTH_TOKEN } from './lib/config.js';
+import { authToken } from './lib/auth.js';
 import { delay } from './lib/util.js';
 import { openWS, subscribe, unsubscribe, publish, close } from './lib/ws.js';
 
@@ -25,7 +25,7 @@ export default async function () {
 
   let ws;
   try {
-    ws = await openWS(WS_AUTH_TOKEN, {
+    ws = await openWS(authToken(), {
       onMessage(msg) {
         if (msg.subscribed) subscribedOk = true;
         if (msg.unsubscribed) unsubscribedOk = true;

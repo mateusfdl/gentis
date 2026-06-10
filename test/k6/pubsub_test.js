@@ -1,3 +1,4 @@
+import { authToken } from './lib/auth.js';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
 import { CHANNEL_PREFIX, PAYLOAD_SIZE } from './lib/config.js';
@@ -30,7 +31,7 @@ export default async function () {
   let subscribeStart = 0;
   let subscribedOk = false;
 
-  const conn = openStream(client, 'test-token', {
+  const conn = openStream(client, authToken(), {
     onData(msg) {
       if (msg.subscribed && msg.subscribed.channel === channel) {
         subscribedOk = true;

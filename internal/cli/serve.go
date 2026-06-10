@@ -22,6 +22,7 @@ func init() {
 	serveCmd.Flags().String("metrics-addr", ":8080", "metrics/health HTTP server address")
 	serveCmd.Flags().Bool("arena", false, "use mmap arena for session state (Linux only); applies to gRPC sessions")
 	serveCmd.Flags().Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
+	addAuthFlags(serveCmd)
 	addWSFlags(serveCmd)
 	rootCmd.AddCommand(serveCmd)
 }
@@ -35,6 +36,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	addr, _ := cmd.Flags().GetString("addr")
 	metricsAddr, _ := cmd.Flags().GetString("metrics-addr")
 	metricsEnabled, _ := cmd.Flags().GetBool("metrics")
+
+	verifier, err := buildVerifier(cmd, logger)
+	if err != nil {
+		return err
+	}
 
 	var obs *metrics.Observer
 	if metricsEnabled {
@@ -61,12 +67,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// connection counter to the grpc metrics collector. without this,
 	// `gentis_connections_active` only reflects grpc sessions and reads
 	// zero during a ws-only run.
-	wsSrv := buildWSServer(cmd, logger, eng, store, obs)
+	wsSrv := buildWSServer(cmd, logger, eng, store, obs, verifier)
 
 	grpcOpts := []grpcserver.Option{
 		grpcserver.WithEngine(eng),
 		grpcserver.WithSessionStore(store),
 		grpcserver.WithLogger(logger),
+		grpcserver.WithVerifier(verifier),
 	}
 	if arenaEnabled {
 		grpcOpts = append(grpcOpts,

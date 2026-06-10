@@ -40,6 +40,7 @@ func init() {
 	f.Bool("arena", false, "use mmap arena for session state (Linux only); applies to relay sessions")
 	f.Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
 
+	addAuthFlags(relayCmd)
 	addWSFlags(relayCmd)
 
 	relayCmd.MarkFlagRequired("upstream")
@@ -57,6 +58,11 @@ func runRelay(cmd *cobra.Command, args []string) error {
 	authToken, _ := cmd.Flags().GetString("auth-token")
 	metricsAddr, _ := cmd.Flags().GetString("metrics-addr")
 	metricsEnabled, _ := cmd.Flags().GetBool("metrics")
+
+	verifier, err := buildVerifier(cmd, logger)
+	if err != nil {
+		return err
+	}
 
 	reconnectInitial, _ := cmd.Flags().GetDuration("reconnect-initial")
 	reconnectMax, _ := cmd.Flags().GetDuration("reconnect-max")
@@ -99,6 +105,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		relay.WithEngine(eng),
 		relay.WithSessionStore(store),
 		relay.WithLogger(logger),
+		relay.WithVerifier(verifier),
 	}
 	if arenaEnabled {
 		opts = append(opts,
@@ -121,7 +128,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	wsSrv := buildWSServer(cmd, logger, eng, store, obs)
+	wsSrv := buildWSServer(cmd, logger, eng, store, obs, verifier)
 	if wsSrv != nil {
 		wsAddr, _ := cmd.Flags().GetString("ws-addr")
 		logger.Info("starting WebSocket server", "addr", wsAddr)

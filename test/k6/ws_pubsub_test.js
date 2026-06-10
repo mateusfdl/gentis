@@ -1,6 +1,7 @@
+import { authToken } from './lib/auth.js';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
-import { CHANNEL_PREFIX, PAYLOAD_SIZE, WS_AUTH_TOKEN } from './lib/config.js';
+import { CHANNEL_PREFIX, PAYLOAD_SIZE } from './lib/config.js';
 import { pubsubScenarios } from './lib/scenarios.js';
 import { delay, generatePayload } from './lib/util.js';
 import { openWS, subscribe, unsubscribe, publish, close, extractChannelData } from './lib/ws.js';
@@ -31,7 +32,7 @@ export default async function () {
 
   let ws;
   try {
-    ws = await openWS(WS_AUTH_TOKEN, {
+    ws = await openWS(authToken(), {
       onMessage(msg) {
         if (msg.subscribed && msg.subscribed.channel === channel) {
           subscribedOk = true;

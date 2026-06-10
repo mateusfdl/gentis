@@ -1,5 +1,6 @@
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
+import { authToken } from './lib/auth.js';
 import { delay } from './lib/util.js';
 import { newClient, openStream, closeStream, subscribe, unsubscribe, publish } from './lib/grpc.js';
 
@@ -23,7 +24,7 @@ export default async function () {
   let selfEchoes = 0;
   const acks = [];
 
-  const conn = openStream(client, 'smoke-test', {
+  const conn = openStream(client, authToken(), {
     onData(msg) {
       if (msg.subscribed) subscribedOk = true;
       if (msg.unsubscribed) unsubscribedOk = true;

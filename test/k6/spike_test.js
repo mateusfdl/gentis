@@ -1,5 +1,6 @@
 import { check } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { authToken } from './lib/auth.js';
 import grpc from 'k6/net/grpc';
 import {
   HOT_CHANNELS,
@@ -77,7 +78,7 @@ export async function subscriber() {
   let firstMsgRecorded = false;
   const subscribeTime = Date.now();
 
-  const conn = connect(subscriberClient, RELAY_ADDR, 'spike-sub', (msg) => {
+  const conn = connect(subscriberClient, RELAY_ADDR, authToken(), (msg) => {
     if (msg.channelMessage) {
       if (!firstMsgRecorded) {
         firstMsgRecorded = true;
@@ -123,7 +124,7 @@ export async function subscriber() {
 }
 
 export async function publisher() {
-  const conn = connect(publisherClient, SERVER_ADDR, 'spike-pub', () => {});
+  const conn = connect(publisherClient, SERVER_ADDR, authToken(), () => {});
   if (!conn) {
     check(null, { 'publisher connected to server': () => false });
     await delay(2000);

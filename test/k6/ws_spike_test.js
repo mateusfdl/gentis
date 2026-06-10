@@ -1,5 +1,6 @@
 import { check } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { authToken as signedToken } from './lib/auth.js';
 import { HOT_CHANNELS, PAYLOAD_SIZE, WS_URL } from './lib/config.js';
 import { spikeScenarios } from './lib/scenarios.js';
 import { delay, generatePayload } from './lib/util.js';
@@ -50,7 +51,7 @@ export async function subscriber() {
   let firstMsgRecorded = false;
   const subscribeTime = Date.now();
 
-  const ws = await connect('spike-sub', (msg) => {
+  const ws = await connect(signedToken(), (msg) => {
     if (msg.channel_message) {
       if (!firstMsgRecorded) {
         firstMsgRecorded = true;
@@ -96,7 +97,7 @@ export async function subscriber() {
 }
 
 export async function publisher() {
-  const ws = await connect('spike-pub', () => {});
+  const ws = await connect(signedToken(), () => {});
   if (!ws) {
     check(null, { 'publisher connected': () => false });
     await delay(2000);

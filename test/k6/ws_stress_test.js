@@ -1,6 +1,7 @@
+import { authToken } from './lib/auth.js';
 import { check } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
-import { PAYLOAD_SIZE, WS_AUTH_TOKEN } from './lib/config.js';
+import { PAYLOAD_SIZE } from './lib/config.js';
 import { stressStages } from './lib/scenarios.js';
 import { delay, generatePayload } from './lib/util.js';
 import { openWS, subscribe, unsubscribe, publish, close, extractChannelData } from './lib/ws.js';
@@ -27,7 +28,7 @@ export default async function () {
 
   let ws;
   try {
-    ws = await openWS(WS_AUTH_TOKEN, {
+    ws = await openWS(authToken(), {
       onMessage(msg) {
         if (msg.channel_message) {
           received++;

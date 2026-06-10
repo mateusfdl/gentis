@@ -1,3 +1,4 @@
+import { authToken } from './lib/auth.js';
 import { check } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { PAYLOAD_SIZE } from './lib/config.js';
@@ -26,7 +27,7 @@ export default async function () {
   let received = 0;
   let sent = 0;
 
-  const conn = openStream(client, 'stress-test', {
+  const conn = openStream(client, authToken(), {
     onData(msg) {
       if (msg.channelMessage) {
         received++;

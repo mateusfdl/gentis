@@ -7,10 +7,11 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - exec /gentis serve --addr=0.0.0.0:9000 --ws-addr=0.0.0.0:9080 --metrics-addr=:8080 ${GENTIS_EXTRA_ARGS:-}
+      - exec /gentis serve --addr=0.0.0.0:9000 --ws-addr=0.0.0.0:9080 --metrics-addr=:8080 ${GENTIS_AUTH_ARGS:---auth-disabled} ${GENTIS_EXTRA_ARGS:-}
     volumes:
       - ./gentis:/gentis:ro
     environment:
+      - GENTIS_AUTH_ARGS=${GENTIS_AUTH_ARGS:---auth-disabled}
       - GENTIS_EXTRA_ARGS=${GENTIS_EXTRA_ARGS:-}
     ports:
       - "127.0.0.1:9000:9000"
@@ -33,7 +34,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - exec /gentis relay --addr=0.0.0.0:9001 --upstream=server:9000 --auth-token=relay --metrics-addr=:8081 ${RELAY_EXTRA_ARGS:-}
+      - exec /gentis relay --addr=0.0.0.0:9001 --upstream=server:9000 --auth-token=relay --metrics-addr=:8081 ${GENTIS_AUTH_ARGS:---auth-disabled} ${RELAY_EXTRA_ARGS:-}
     volumes:
       - ./gentis:/gentis:ro
     environment:

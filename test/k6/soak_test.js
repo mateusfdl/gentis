@@ -1,3 +1,4 @@
+import { authToken } from './lib/auth.js';
 import { check } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { newClient, openStream, closeStream, subscribe, unsubscribe, publish, ping } from './lib/grpc.js';
@@ -34,7 +35,7 @@ export default async function () {
   let sent = 0;
   let received = 0;
 
-  const conn = openStream(client, 'soak-test', {
+  const conn = openStream(client, authToken(), {
     onData(msg) {
       if (msg.channelMessage) received++;
     },

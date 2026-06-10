@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
@@ -113,7 +114,7 @@ func buildEngineOpts(cmd *cobra.Command, logger *slog.Logger, obs *metrics.Obser
 	return opts
 }
 
-func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, store *transport.SessionStore, obs *metrics.Observer) *wsserver.Server {
+func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, store *transport.SessionStore, obs *metrics.Observer, verifier auth.Verifier) *wsserver.Server {
 	wsAddr, _ := cmd.Flags().GetString("ws-addr")
 	if wsAddr == "" {
 		return nil
@@ -127,6 +128,7 @@ func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, 
 		wsserver.WithEngine(eng),
 		wsserver.WithSessionStore(store),
 		wsserver.WithLogger(logger),
+		wsserver.WithVerifier(verifier),
 		wsserver.WithReadLimit(readLimit),
 		wsserver.WithWriteTimeout(writeTimeout),
 		wsserver.WithSendBufferSize(sendBuffer),
