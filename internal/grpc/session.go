@@ -64,9 +64,9 @@ func (s *Session) produce(d engine.Delivery) bool {
 		return false
 	}
 	s.wake()
-	if s.logger.Enabled(s.ctx, slog.LevelDebug) {
-		s.logger.Debug("ring produce", "channel", d.Channel, "ring_len", s.sendRing.Len(), "ring_cap", s.sendRing.Cap())
-	}
+	// No ring occupancy in this log: Len reads the consumer-owned tail
+	// and would race from the producer side.
+	s.logger.Debug("ring produce", "channel", d.Channel)
 	return true
 }
 

@@ -34,6 +34,8 @@ type Consumer struct {
 	lostGaps atomic.Int64
 
 	startOnce sync.Once
+	stopOnce  sync.Once
+	started   atomic.Bool
 	stop      chan struct{}
 	done      chan struct{}
 }
@@ -51,6 +53,7 @@ func NewConsumer(rec Recoverer, deliver func(engine.Delivery) bool, interval tim
 		interval: interval,
 		logger:   logger,
 		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -66,7 +69,7 @@ func (c *Consumer) Subscribe(channel string, w *Window) {
 	c.active.Store(true)
 
 	c.startOnce.Do(func() {
-		c.done = make(chan struct{})
+		c.started.Store(true)
 		go c.run()
 	})
 }
@@ -80,15 +83,11 @@ func (c *Consumer) Unsubscribe(channel string) {
 	c.mu.Unlock()
 }
 
-// Stop terminates the redelivery loop. Idempotent.
+// Stop terminates the redelivery loop. Safe to call concurrently and
+// more than once.
 func (c *Consumer) Stop() {
-	select {
-	case <-c.stop:
-		return
-	default:
-	}
-	close(c.stop)
-	if c.done != nil {
+	c.stopOnce.Do(func() { close(c.stop) })
+	if c.started.Load() {
 		<-c.done
 	}
 }

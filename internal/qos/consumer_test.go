@@ -282,3 +282,19 @@ func TestLostGapResetsWindowAndKeepsFlowing(t *testing.T) {
 	}
 	t.Fatalf("offsets = %v, want [1 7]: window never re-baselined after lost gap", s.offsets())
 }
+
+func TestConsumerStopConcurrent(t *testing.T) {
+	e := newQoSEngine(t)
+	c := NewConsumer(e, func(engine.Delivery) bool { return true }, time.Hour, nil)
+	c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.Stop()
+		}()
+	}
+	wg.Wait()
+}
