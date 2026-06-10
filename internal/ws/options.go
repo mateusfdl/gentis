@@ -28,6 +28,11 @@ type Config struct {
 	// publishes are rejected with MESSAGE_TOO_LARGE.
 	MaxMessageSize int
 
+	// MaxSubscriptions caps per-session channel subscriptions; the
+	// excess subscribe is rejected with SUBSCRIPTION_LIMIT. Zero means
+	// unlimited.
+	MaxSubscriptions int
+
 	// PingInterval is the cadence of server-initiated protocol pings. A
 	// session is reaped when nothing arrives from the client for three
 	// consecutive intervals (two unanswered pings). Zero disables
@@ -44,13 +49,20 @@ type Option func(*Config)
 
 func defaultConfig(address string) *Config {
 	return &Config{
-		Address:        address,
-		ReadLimit:      65536,
-		WriteTimeout:   10 * time.Second,
-		SendBufferSize: 256,
-		Verifier:       auth.InsecureVerifier{},
-		PingInterval:   25 * time.Second,
-		MaxMessageSize: 65536,
+		Address:          address,
+		ReadLimit:        65536,
+		WriteTimeout:     10 * time.Second,
+		SendBufferSize:   256,
+		Verifier:         auth.InsecureVerifier{},
+		PingInterval:     25 * time.Second,
+		MaxMessageSize:   65536,
+		MaxSubscriptions: 16,
+	}
+}
+
+func WithMaxSubscriptions(n int) Option {
+	return func(c *Config) {
+		c.MaxSubscriptions = n
 	}
 }
 

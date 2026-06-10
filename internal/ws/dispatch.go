@@ -22,6 +22,7 @@ type MessageHandler interface {
 	Subject() string
 	ScheduleExpiry(exp time.Time)
 	MaxMessageSize() int
+	MaxSubscriptions() int
 	Send(msg *ServerMessage)
 	SendError(code string, message string, reqID string)
 }
@@ -125,6 +126,11 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 
 	if !h.State().CanSubscribe(req.Channel) {
 		h.SendError(ErrorCodePermissionDenied, "subscribe not allowed on channel", reqID)
+		return
+	}
+
+	if max := h.MaxSubscriptions(); max > 0 && h.State().SubscriptionCount() >= max {
+		h.SendError(ErrorCodeSubscriptionLimit, "subscription limit reached", reqID)
 		return
 	}
 

@@ -23,6 +23,7 @@ type SessionState interface {
 	CanPublish(channel string) bool
 	AddSubscription(channel string)
 	RemoveSubscription(channel string)
+	SubscriptionCount() int
 }
 
 // SessionStore maps SubscriberIDs to Sender implementations. It operates in

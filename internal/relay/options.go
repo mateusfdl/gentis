@@ -29,6 +29,11 @@ type Config struct {
 	// publishes are rejected with MESSAGE_TOO_LARGE.
 	MaxMessageSize int
 
+	// MaxSubscriptions caps per-session channel subscriptions; the
+	// excess subscribe is rejected with SUBSCRIPTION_LIMIT. Zero means
+	// unlimited.
+	MaxSubscriptions int
+
 	// PingInterval drives HTTP/2 transport keepalive on the downstream
 	// listener: ping idle connections every interval, close after the ack
 	// misses two more. Zero disables keepalive.
@@ -103,6 +108,12 @@ func WithMetrics(addr string) Option {
 	return func(c *Config) {
 		c.MetricsAddr = addr
 		c.MetricsEnabled = true
+	}
+}
+
+func WithMaxSubscriptions(n int) Option {
+	return func(c *Config) {
+		c.MaxSubscriptions = n
 	}
 }
 
@@ -191,6 +202,7 @@ func defaultConfig() *Config {
 		Verifier:           auth.InsecureVerifier{},
 		PingInterval:       25 * time.Second,
 		MaxMessageSize:     65536,
+		MaxSubscriptions:   16,
 		ListenAddr:         "127.0.0.1:9001",
 		BufferSize:         256,
 		IncomingBufferSize: 4096,

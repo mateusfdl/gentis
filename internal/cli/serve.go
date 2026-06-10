@@ -28,6 +28,7 @@ func init() {
 	serveCmd.Flags().String("tls-cert", "", "TLS certificate file for gRPC and WebSocket listeners")
 	serveCmd.Flags().String("tls-key", "", "TLS private key file for gRPC and WebSocket listeners")
 	serveCmd.Flags().Int("max-message-size", 65536, "maximum publish payload size in bytes")
+	serveCmd.Flags().Int("max-subscriptions", 16, "maximum subscriptions per session, 0 for unlimited")
 	addAuthFlags(serveCmd)
 	addWSFlags(serveCmd)
 	rootCmd.AddCommand(serveCmd)
@@ -77,6 +78,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
 	maxMessageSize, _ := cmd.Flags().GetInt("max-message-size")
+	maxSubscriptions, _ := cmd.Flags().GetInt("max-subscriptions")
 	tlsCert, _ := cmd.Flags().GetString("tls-cert")
 	tlsKey, _ := cmd.Flags().GetString("tls-key")
 	if (tlsCert == "") != (tlsKey == "") {
@@ -90,6 +92,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		grpcserver.WithVerifier(verifier),
 		grpcserver.WithPingInterval(pingInterval),
 		grpcserver.WithMaxMessageSize(maxMessageSize),
+		grpcserver.WithMaxSubscriptions(maxSubscriptions),
 	}
 	if tlsCert != "" {
 		grpcOpts = append(grpcOpts, grpcserver.WithTLS(tlsCert, tlsKey))

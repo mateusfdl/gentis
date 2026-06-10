@@ -1305,3 +1305,66 @@ func TestPublishMessageTooLarge(t *testing.T) {
 		t.Fatalf("max-size publish: got %v, want PublishResponse", msg.Message)
 	}
 }
+
+func TestSubscriptionLimit(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithMaxSubscriptions(2))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer srv.Stop()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+
+	for i := range 2 {
+		stream.Send(&gentisv1.ClientMessage{
+			Message: &gentisv1.ClientMessage_Subscribe{
+				Subscribe: &gentisv1.SubscribeRequest{Channel: fmt.Sprintf("ch-%d", i)},
+			},
+		})
+		msg := recvWithTimeout(t, stream, 2*time.Second)
+		if msg.GetSubscribed() == nil {
+			t.Fatalf("subscribe %d: got %v, want Subscribed", i, msg.Message)
+		}
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "over",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch-2"},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT {
+		t.Fatalf("subscribe over limit: got %v, want SUBSCRIPTION_LIMIT", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Unsubscribe{
+			Unsubscribe: &gentisv1.UnsubscribeRequest{Channel: "ch-0"},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetUnsubscribed() == nil {
+		t.Fatalf("unsubscribe: got %v", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch-2"},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetSubscribed() == nil {
+		t.Fatalf("subscribe after freeing slot: got %v, want Subscribed", msg.Message)
+	}
+}

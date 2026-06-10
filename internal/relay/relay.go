@@ -112,6 +112,13 @@ func New(opts ...Option) *Server {
 		opt(config)
 	}
 
+	// Arena slots physically hold at most arena.MaxSubscriptions entries;
+	// anything past that would be dropped silently, so clamp the limit to
+	// keep SUBSCRIPTION_LIMIT the single source of truth.
+	if config.UseArena && (config.MaxSubscriptions <= 0 || config.MaxSubscriptions > arena.MaxSubscriptions) {
+		config.MaxSubscriptions = arena.MaxSubscriptions
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	eng := config.Engine
@@ -604,6 +611,11 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 
 	if !sess.state.CanSubscribe(req.Channel) {
 		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "subscribe not allowed on channel", reqID)
+		return
+	}
+
+	if max := sess.relay.config.MaxSubscriptions; max > 0 && sess.state.SubscriptionCount() >= max {
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT, "subscription limit reached", reqID)
 		return
 	}
 

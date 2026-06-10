@@ -29,6 +29,11 @@ type Config struct {
 	// publishes are rejected with MESSAGE_TOO_LARGE.
 	MaxMessageSize int
 
+	// MaxSubscriptions caps per-session channel subscriptions; the
+	// excess subscribe is rejected with SUBSCRIPTION_LIMIT. Zero means
+	// unlimited (clamped to the arena slot capacity when arena is on).
+	MaxSubscriptions int
+
 	// PingInterval drives HTTP/2 transport keepalive: the server pings an
 	// idle connection every interval and closes it when the ack doesn't
 	// arrive within two more. Zero disables keepalive.
@@ -78,6 +83,12 @@ func WithEngine(e *engine.Engine) Option {
 func WithSessionStore(store *transport.SessionStore) Option {
 	return func(c *Config) {
 		c.SessionStore = store
+	}
+}
+
+func WithMaxSubscriptions(n int) Option {
+	return func(c *Config) {
+		c.MaxSubscriptions = n
 	}
 }
 
@@ -145,10 +156,11 @@ func WithExtraConnectionCounter(c ActiveConnCounter) Option {
 
 func defaultConfig(address string) *Config {
 	return &Config{
-		Address:        address,
-		MetricsEnabled: false,
-		Verifier:       auth.InsecureVerifier{},
-		PingInterval:   25 * time.Second,
-		MaxMessageSize: 65536,
+		Address:          address,
+		MetricsEnabled:   false,
+		Verifier:         auth.InsecureVerifier{},
+		PingInterval:     25 * time.Second,
+		MaxMessageSize:   65536,
+		MaxSubscriptions: 16,
 	}
 }

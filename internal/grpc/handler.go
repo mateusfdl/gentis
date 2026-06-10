@@ -199,6 +199,11 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 		return
 	}
 
+	if max := s.server.config.MaxSubscriptions; max > 0 && s.state.SubscriptionCount() >= max {
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT, "subscription limit reached", reqID)
+		return
+	}
+
 	if !s.engine.Subscribe(s.subID, req.Channel) {
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel", reqID)
 		return

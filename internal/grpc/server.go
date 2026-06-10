@@ -51,6 +51,13 @@ func New(address string, opts ...Option) *Server {
 		opt(cfg)
 	}
 
+	// Arena slots physically hold at most arena.MaxSubscriptions entries;
+	// anything past that would be dropped silently, so clamp the limit to
+	// keep SUBSCRIPTION_LIMIT the single source of truth.
+	if cfg.UseArena && (cfg.MaxSubscriptions <= 0 || cfg.MaxSubscriptions > arena.MaxSubscriptions) {
+		cfg.MaxSubscriptions = arena.MaxSubscriptions
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	eng := cfg.Engine

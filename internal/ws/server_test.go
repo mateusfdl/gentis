@@ -833,3 +833,37 @@ func TestPublishMessageTooLarge(t *testing.T) {
 		t.Fatalf("session should survive oversized publish, got %+v", resp)
 	}
 }
+
+func TestSubscriptionLimit(t *testing.T) {
+	eng := engine.New()
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0",
+		WithEngine(eng),
+		WithSessionStore(store),
+		WithMaxSubscriptions(1),
+	)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{"id": "s0", "subscribe": map[string]any{"channel": "ch-0"}})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("first subscribe: got %+v", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{"id": "s1", "subscribe": map[string]any{"channel": "ch-1"}})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeSubscriptionLimit {
+		t.Fatalf("over-limit subscribe: got %+v, want SUBSCRIPTION_LIMIT", resp)
+	}
+}
