@@ -42,6 +42,11 @@ type Config struct {
 type UpstreamConfig struct {
 	Address   string
 	AuthToken string
+
+	// TLS dials the upstream with transport security. CAFile pins a PEM
+	// bundle; empty falls back to the system roots.
+	TLS    bool
+	CAFile string
 }
 
 type ReconnectPolicy struct {
@@ -94,6 +99,15 @@ func WithMetrics(addr string) Option {
 	return func(c *Config) {
 		c.MetricsAddr = addr
 		c.MetricsEnabled = true
+	}
+}
+
+// WithUpstreamTLS dials the upstream over TLS, trusting the given CA
+// bundle (empty means system roots).
+func WithUpstreamTLS(caFile string) Option {
+	return func(c *Config) {
+		c.Upstream.TLS = true
+		c.Upstream.CAFile = caFile
 	}
 }
 

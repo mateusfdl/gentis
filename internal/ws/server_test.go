@@ -2,9 +2,12 @@ package ws
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/testcert"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
@@ -736,5 +740,55 @@ func TestKeepaliveKeepsResponsiveClientAlive(t *testing.T) {
 	var resp ServerMessage
 	for resp.Pong == nil {
 		readJSON(t, conn, &resp)
+	}
+}
+
+func TestTLSServer(t *testing.T) {
+	certFile, keyFile := testcert.Generate(t)
+
+	eng := engine.New()
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0",
+		WithEngine(eng),
+		WithSessionStore(store),
+		WithTLS(certFile, keyFile),
+	)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+	addr := srv.listener.Addr().String()
+
+	pemBytes, err := os.ReadFile(certFile)
+	if err != nil {
+		t.Fatalf("read cert: %v", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(pemBytes) {
+		t.Fatal("bad cert pem")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	dialer := ws.Dialer{
+		TLSConfig: &tls.Config{RootCAs: roots},
+	}
+	conn, _, _, err := dialer.Dial(ctx, "wss://"+addr+"/ws")
+	if err != nil {
+		t.Fatalf("wss dial: %v", err)
+	}
+	defer conn.Close()
+
+	sendJSON(t, conn, map[string]any{
+		"id":      "c1",
+		"connect": map[string]any{"auth_token": "t"},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("expected Connected over TLS, got %+v", resp)
 	}
 }

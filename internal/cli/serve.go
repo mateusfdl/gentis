@@ -25,6 +25,8 @@ func init() {
 	serveCmd.Flags().Bool("arena", false, "use mmap arena for session state (Linux only); applies to gRPC sessions")
 	serveCmd.Flags().Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
 	serveCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
+	serveCmd.Flags().String("tls-cert", "", "TLS certificate file for gRPC and WebSocket listeners")
+	serveCmd.Flags().String("tls-key", "", "TLS private key file for gRPC and WebSocket listeners")
 	addAuthFlags(serveCmd)
 	addWSFlags(serveCmd)
 	rootCmd.AddCommand(serveCmd)
@@ -73,6 +75,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	wsSrv := buildWSServer(cmd, logger, eng, store, obs, verifier)
 
 	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
+	tlsCert, _ := cmd.Flags().GetString("tls-cert")
+	tlsKey, _ := cmd.Flags().GetString("tls-key")
+	if (tlsCert == "") != (tlsKey == "") {
+		return errTLSIncomplete
+	}
 
 	grpcOpts := []grpcserver.Option{
 		grpcserver.WithEngine(eng),
@@ -80,6 +87,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		grpcserver.WithLogger(logger),
 		grpcserver.WithVerifier(verifier),
 		grpcserver.WithPingInterval(pingInterval),
+	}
+	if tlsCert != "" {
+		grpcOpts = append(grpcOpts, grpcserver.WithTLS(tlsCert, tlsKey))
 	}
 	if arenaEnabled {
 		grpcOpts = append(grpcOpts,

@@ -19,6 +19,11 @@ type Config struct {
 	WriteTimeout   time.Duration
 	SendBufferSize int
 
+	// TLSCertFile/TLSKeyFile enable TLS on the listener when both are
+	// set.
+	TLSCertFile string
+	TLSKeyFile  string
+
 	// PingInterval is the cadence of server-initiated protocol pings. A
 	// session is reaped when nothing arrives from the client for three
 	// consecutive intervals (two unanswered pings). Zero disables
@@ -41,6 +46,13 @@ func defaultConfig(address string) *Config {
 		SendBufferSize: 256,
 		Verifier:       auth.InsecureVerifier{},
 		PingInterval:   25 * time.Second,
+	}
+}
+
+func WithTLS(certFile, keyFile string) Option {
+	return func(c *Config) {
+		c.TLSCertFile = certFile
+		c.TLSKeyFile = keyFile
 	}
 }
 

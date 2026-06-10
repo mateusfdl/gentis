@@ -10,7 +10,9 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/auth"
+	"github.com/mateusfdl/gentis/internal/testcert"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -1183,5 +1185,81 @@ func TestRefreshRejectsSubjectChange(t *testing.T) {
 	errResp := msg.GetError()
 	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED {
 		t.Fatalf("expected NOT_AUTHENTICATED on subject change, got %v", msg.Message)
+	}
+}
+
+func TestTLSServer(t *testing.T) {
+	certFile, keyFile := testcert.Generate(t)
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithTLS(certFile, keyFile))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer srv.Stop()
+
+	creds, err := credentials.NewClientTLSFromFile(certFile, "")
+	if err != nil {
+		t.Fatalf("client creds: %v", err)
+	}
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := gentisv1.NewGentisServiceClient(conn).Stream(ctx)
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetPong() == nil {
+		t.Fatalf("expected Pong over TLS, got %T", msg.Message)
+	}
+}
+
+func TestTLSServerRejectsPlaintext(t *testing.T) {
+	certFile, keyFile := testcert.Generate(t)
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithTLS(certFile, keyFile))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer srv.Stop()
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	stream, err := gentisv1.NewGentisServiceClient(conn).Stream(ctx)
+	if err == nil {
+		if _, err = stream.Recv(); err == nil {
+			t.Fatal("expected plaintext client to fail against TLS server")
+		}
 	}
 }

@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
@@ -80,6 +81,14 @@ func (s *Server) Start() error {
 	listener, err := net.Listen("tcp", s.config.Address)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", s.config.Address, err)
+	}
+	if s.config.TLSCertFile != "" && s.config.TLSKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(s.config.TLSCertFile, s.config.TLSKeyFile)
+		if err != nil {
+			listener.Close()
+			return fmt.Errorf("failed to load TLS key pair: %w", err)
+		}
+		listener = tls.NewListener(listener, &tls.Config{Certificates: []tls.Certificate{cert}})
 	}
 	s.listener = listener
 

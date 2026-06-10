@@ -125,6 +125,8 @@ func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, 
 	sendBuffer, _ := cmd.Flags().GetInt("ws-send-buffer")
 
 	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
+	tlsCert, _ := cmd.Flags().GetString("tls-cert")
+	tlsKey, _ := cmd.Flags().GetString("tls-key")
 
 	opts := []wsserver.Option{
 		wsserver.WithEngine(eng),
@@ -135,6 +137,9 @@ func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, 
 		wsserver.WithReadLimit(readLimit),
 		wsserver.WithWriteTimeout(writeTimeout),
 		wsserver.WithSendBufferSize(sendBuffer),
+	}
+	if tlsCert != "" && tlsKey != "" {
+		opts = append(opts, wsserver.WithTLS(tlsCert, tlsKey))
 	}
 	if obs != nil {
 		opts = append(opts, wsserver.WithDeliveryLatencyObserver(func(d time.Duration) {

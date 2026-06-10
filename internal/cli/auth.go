@@ -11,6 +11,7 @@ import (
 var (
 	errAuthNotConfigured = errors.New("authentication not configured: set --auth-hmac-secret or explicitly disable with --auth-disabled")
 	errAuthConflict      = errors.New("--auth-hmac-secret and --auth-disabled are mutually exclusive")
+	errTLSIncomplete     = errors.New("--tls-cert and --tls-key must be set together")
 )
 
 func addAuthFlags(cmd *cobra.Command) {

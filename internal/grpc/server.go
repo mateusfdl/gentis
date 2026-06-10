@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
@@ -103,7 +104,15 @@ func (s *Server) Start() error {
 	}
 
 	s.listener = listener
-	s.grpcSrv = grpc.NewServer(s.keepaliveOptions()...)
+	serverOpts := s.keepaliveOptions()
+	if s.config.TLSCertFile != "" && s.config.TLSKeyFile != "" {
+		creds, err := credentials.NewServerTLSFromFile(s.config.TLSCertFile, s.config.TLSKeyFile)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS credentials: %w", err)
+		}
+		serverOpts = append(serverOpts, grpc.Creds(creds))
+	}
+	s.grpcSrv = grpc.NewServer(serverOpts...)
 	gentisv1.RegisterGentisServiceServer(s.grpcSrv, s)
 
 	if s.config.UseArena {

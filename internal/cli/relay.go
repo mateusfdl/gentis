@@ -41,6 +41,8 @@ func init() {
 	f.Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
 
 	relayCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
+	f.Bool("upstream-tls", false, "dial the upstream over TLS")
+	f.String("upstream-ca", "", "CA bundle for upstream TLS verification (empty = system roots)")
 	addAuthFlags(relayCmd)
 	addWSFlags(relayCmd)
 
@@ -109,6 +111,11 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		relay.WithLogger(logger),
 		relay.WithVerifier(verifier),
 		relay.WithPingInterval(pingInterval),
+	}
+	upstreamTLS, _ := cmd.Flags().GetBool("upstream-tls")
+	upstreamCA, _ := cmd.Flags().GetString("upstream-ca")
+	if upstreamTLS {
+		opts = append(opts, relay.WithUpstreamTLS(upstreamCA))
 	}
 	if arenaEnabled {
 		opts = append(opts,

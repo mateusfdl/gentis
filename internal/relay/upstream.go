@@ -11,6 +11,7 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -148,10 +149,24 @@ func (u *Upstream) IsConnected() bool {
 	return u.connected.Load()
 }
 
+func (u *Upstream) transportCredentials() (credentials.TransportCredentials, error) {
+	if !u.config.TLS {
+		return insecure.NewCredentials(), nil
+	}
+	if u.config.CAFile == "" {
+		return credentials.NewClientTLSFromCert(nil, ""), nil
+	}
+	return credentials.NewClientTLSFromFile(u.config.CAFile, "")
+}
+
 func (u *Upstream) connect() error {
+	creds, err := u.transportCredentials()
+	if err != nil {
+		return fmt.Errorf("failed to load upstream TLS credentials: %w", err)
+	}
 	conn, err := grpc.NewClient(
 		u.config.Address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to connect to upstream: %w", err)

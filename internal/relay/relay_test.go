@@ -10,6 +10,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/auth"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
+	"github.com/mateusfdl/gentis/internal/testcert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -782,5 +783,64 @@ func TestRelayPermissionChecks(t *testing.T) {
 	errResp = msg.GetError()
 	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED {
 		t.Fatalf("publish with empty pub allowlist: got %v, want PERMISSION_DENIED", msg.Message)
+	}
+}
+
+func TestUpstreamTLS(t *testing.T) {
+	certFile, keyFile := testcert.Generate(t)
+	upstreamAddr := freeAddr(t)
+	upstream := grpcserver.New(upstreamAddr, grpcserver.WithTLS(certFile, keyFile))
+	if err := upstream.Start(); err != nil {
+		t.Fatalf("start upstream: %v", err)
+	}
+	defer upstream.Stop()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithUpstreamTLS(certFile),
+		WithBufferSize(256),
+		WithReconnectPolicy(50*time.Millisecond, 1*time.Second, 2.0),
+	)
+	if err := r.Start(); err != nil {
+		t.Fatalf("start relay: %v", err)
+	}
+	defer r.Stop()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if r.IsUpstreamConnected() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("relay never connected to TLS upstream")
+}
+
+func TestUpstreamTLSWithoutCAFailsClosed(t *testing.T) {
+	certFile, keyFile := testcert.Generate(t)
+	upstreamAddr := freeAddr(t)
+	upstream := grpcserver.New(upstreamAddr, grpcserver.WithTLS(certFile, keyFile))
+	if err := upstream.Start(); err != nil {
+		t.Fatalf("start upstream: %v", err)
+	}
+	defer upstream.Stop()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithBufferSize(256),
+		WithReconnectPolicy(50*time.Millisecond, 200*time.Millisecond, 2.0),
+		WithMaxRetries(3),
+	)
+	err := r.Start()
+	if err == nil {
+		defer r.Stop()
+		time.Sleep(500 * time.Millisecond)
+		if r.IsUpstreamConnected() {
+			t.Fatal("plaintext relay should not connect to TLS upstream")
+		}
 	}
 }

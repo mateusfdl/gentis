@@ -20,6 +20,11 @@ type Config struct {
 	Logger         *slog.Logger
 	Verifier       auth.Verifier
 
+	// TLSCertFile/TLSKeyFile enable TLS on the listener when both are
+	// set.
+	TLSCertFile string
+	TLSKeyFile  string
+
 	// PingInterval drives HTTP/2 transport keepalive: the server pings an
 	// idle connection every interval and closes it when the ack doesn't
 	// arrive within two more. Zero disables keepalive.
@@ -69,6 +74,13 @@ func WithEngine(e *engine.Engine) Option {
 func WithSessionStore(store *transport.SessionStore) Option {
 	return func(c *Config) {
 		c.SessionStore = store
+	}
+}
+
+func WithTLS(certFile, keyFile string) Option {
+	return func(c *Config) {
+		c.TLSCertFile = certFile
+		c.TLSKeyFile = keyFile
 	}
 }
 
