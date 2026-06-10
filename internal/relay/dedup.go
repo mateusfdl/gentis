@@ -13,14 +13,16 @@ import (
 
 const numDedupShards = 16
 
-// Deduplicator detects duplicate messages using time-windowed hashing.
+// Deduplicator suppresses upstream replay overlap by message identity:
+// the (channel, epoch, offset) triple names exactly one publication, so a
+// reconnect replay that overlaps live traffic is dropped without ever
+// looking at payload content (identical payloads are distinct messages).
 // It uses a sharded map (instead of sync.Map) for better write performance
 // and memory reclamation via maybeRebuild.
 type Deduplicator struct {
 	shards [numDedupShards]dedupShard
 	seed   maphash.Seed
 	ttl    time.Duration
-	window time.Duration
 	done   chan struct{}
 	hits   atomic.Int64
 	misses atomic.Int64
@@ -46,7 +48,6 @@ func NewDeduplicator(ttl time.Duration) *Deduplicator {
 	d := &Deduplicator{
 		seed:   maphash.MakeSeed(),
 		ttl:    ttl,
-		window: ttl / 2,
 		done:   make(chan struct{}),
 	}
 	for i := range d.shards {
@@ -56,10 +57,10 @@ func NewDeduplicator(ttl time.Duration) *Deduplicator {
 	return d
 }
 
-// Check returns true if the message is unique (not a duplicate).
+// Check returns true if the message identity is unique (not a duplicate).
 // Uses a Load-first pattern to avoid allocating on the common (duplicate) path.
-func (d *Deduplicator) Check(channel string, data []byte) bool {
-	key := d.createKey(channel, data)
+func (d *Deduplicator) Check(channel string, epoch, offset uint64) bool {
+	key := d.createKey(channel, epoch, offset)
 	now := time.Now().UnixNano()
 
 	sh := &d.shards[key%numDedupShards]
@@ -130,25 +131,14 @@ func (d *Deduplicator) Len() int {
 
 // createKey uses maphash (hardware-accelerated on amd64) instead of fnv.New64a().
 // No allocations: maphash.Bytes and maphash.String are single function calls.
-func (d *Deduplicator) createKey(channel string, data []byte) uint64 {
-	// Combine channel + data + time window into a single hash.
-	// We use a two-step hash: hash(channel+data) mixed with the time window.
+func (d *Deduplicator) createKey(channel string, epoch, offset uint64) uint64 {
 	var h maphash.Hash
 	h.SetSeed(d.seed)
 	h.WriteString(channel)
-	h.Write(data)
-
-	// Include time window to allow same message after TTL.
-	// Guard against zero window (when TTL < 2s).
-	windowSecs := int64(d.window.Seconds())
-	if windowSecs == 0 {
-		windowSecs = 1
-	}
-	window := time.Now().Unix() / windowSecs
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], uint64(window))
+	var buf [16]byte
+	binary.LittleEndian.PutUint64(buf[:8], epoch)
+	binary.LittleEndian.PutUint64(buf[8:], offset)
 	h.Write(buf[:])
-
 	return h.Sum64()
 }
 

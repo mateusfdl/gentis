@@ -12,9 +12,18 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
-type MessageHandler func(channel string, data []byte)
+const (
+	// upstreamKeepaliveTime/Timeout bound how long a black-holed upstream
+	// TCP connection can wedge sendLoop in Send before it errors out and
+	// the reconnect loop takes over.
+	upstreamKeepaliveTime    = 30 * time.Second
+	upstreamKeepaliveTimeout = 10 * time.Second
+)
+
+type MessageHandler func(channel string, data []byte, offset, epoch uint64)
 
 type Upstream struct {
 	config   UpstreamConfig
@@ -98,11 +107,11 @@ func (u *Upstream) Subscribe(channel string) error {
 	u.subscriptions.Store(channel, &subscriptionRef{count: 1})
 
 	if u.connected.Load() {
-		u.sendCh <- &gentisv1.ClientMessage{
+		u.enqueue(&gentisv1.ClientMessage{
 			Message: &gentisv1.ClientMessage_Subscribe{
 				Subscribe: &gentisv1.SubscribeRequest{Channel: channel},
 			},
-		}
+		})
 	}
 
 	return nil
@@ -124,11 +133,11 @@ func (u *Upstream) Unsubscribe(channel string) error {
 		u.subscriptions.Delete(channel)
 		u.lastSeen.Delete(channel)
 		if u.connected.Load() {
-			u.sendCh <- &gentisv1.ClientMessage{
+			u.enqueue(&gentisv1.ClientMessage{
 				Message: &gentisv1.ClientMessage_Unsubscribe{
 					Unsubscribe: &gentisv1.UnsubscribeRequest{Channel: channel},
 				},
-			}
+			})
 		}
 	}
 
@@ -159,6 +168,16 @@ func (u *Upstream) IsConnected() bool {
 	return u.connected.Load()
 }
 
+// enqueue queues a control message without ever wedging the caller: a full
+// send buffer with a stuck upstream must not block dispatch loops holding
+// subsMu.
+func (u *Upstream) enqueue(msg *gentisv1.ClientMessage) {
+	select {
+	case u.sendCh <- msg:
+	case <-u.ctx.Done():
+	}
+}
+
 func (u *Upstream) transportCredentials() (credentials.TransportCredentials, error) {
 	if !u.config.TLS {
 		return insecure.NewCredentials(), nil
@@ -177,6 +196,11 @@ func (u *Upstream) connect() error {
 	conn, err := grpc.NewClient(
 		u.config.Address,
 		grpc.WithTransportCredentials(creds),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                upstreamKeepaliveTime,
+			Timeout:             upstreamKeepaliveTimeout,
+			PermitWithoutStream: true,
+		}),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to connect to upstream: %w", err)
@@ -212,6 +236,10 @@ func (u *Upstream) establishStream() error {
 		}
 	}
 
+	// subsMu serializes the resubscribe sweep against Subscribe: a
+	// subscription registered mid-sweep would see connected=false and
+	// never reach the upstream until the next reconnect.
+	u.subsMu.Lock()
 	u.subscriptions.Range(func(key, _ any) bool {
 		channel := key.(string)
 		sub := &gentisv1.SubscribeRequest{Channel: channel}
@@ -219,15 +247,16 @@ func (u *Upstream) establishStream() error {
 			rp := val.(recoverPoint)
 			sub.Recover = &gentisv1.RecoverPoint{Offset: rp.offset, Epoch: rp.epoch}
 		}
-		u.sendCh <- &gentisv1.ClientMessage{
+		u.enqueue(&gentisv1.ClientMessage{
 			Message: &gentisv1.ClientMessage_Subscribe{
 				Subscribe: sub,
 			},
-		}
+		})
 		return true
 	})
-
 	u.connected.Store(true)
+	u.subsMu.Unlock()
+
 	return nil
 }
 
@@ -294,11 +323,16 @@ func (u *Upstream) handleMessage(msg *gentisv1.ServerMessage) {
 	switch m := msg.Message.(type) {
 	case *gentisv1.ServerMessage_ChannelMessage:
 		cm := m.ChannelMessage
+		// Track recover points only for channels with an exact upstream
+		// subscription: channels observed through a pattern are replayless
+		// and would otherwise accumulate entries forever.
 		if cm.Offset != 0 {
-			u.lastSeen.Store(cm.Channel, recoverPoint{offset: cm.Offset, epoch: cm.Epoch})
+			if _, subscribed := u.subscriptions.Load(cm.Channel); subscribed {
+				u.lastSeen.Store(cm.Channel, recoverPoint{offset: cm.Offset, epoch: cm.Epoch})
+			}
 		}
 		if u.handler != nil {
-			u.handler(cm.Channel, cm.Data)
+			u.handler(cm.Channel, cm.Data, cm.Offset, cm.Epoch)
 		}
 	case *gentisv1.ServerMessage_Subscribed:
 		if m.Subscribed.Recovered {

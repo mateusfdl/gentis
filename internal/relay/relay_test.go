@@ -512,7 +512,7 @@ func TestRelayConnectionCount(t *testing.T) {
 }
 
 func TestUpstreamSubscriptionRefCounting(t *testing.T) {
-	handler := func(channel string, data []byte) {}
+	handler := func(channel string, data []byte, offset, epoch uint64) {}
 	u := NewUpstream(
 		UpstreamConfig{Address: "127.0.0.1:0"},
 		ReconnectPolicy{InitialDelay: 100 * time.Millisecond, MaxDelay: 1 * time.Second, Multiplier: 2.0},
@@ -548,7 +548,7 @@ func TestUpstreamSubscriptionRefCounting(t *testing.T) {
 }
 
 func TestUpstreamUnsubscribeNonexistent(t *testing.T) {
-	handler := func(channel string, data []byte) {}
+	handler := func(channel string, data []byte, offset, epoch uint64) {}
 	u := NewUpstream(
 		UpstreamConfig{Address: "127.0.0.1:0"},
 		ReconnectPolicy{},
@@ -563,7 +563,7 @@ func TestUpstreamUnsubscribeNonexistent(t *testing.T) {
 }
 
 func TestUpstreamPublishNotConnected(t *testing.T) {
-	handler := func(channel string, data []byte) {}
+	handler := func(channel string, data []byte, offset, epoch uint64) {}
 	u := NewUpstream(
 		UpstreamConfig{Address: "127.0.0.1:0"},
 		ReconnectPolicy{},
@@ -578,7 +578,7 @@ func TestUpstreamPublishNotConnected(t *testing.T) {
 }
 
 func TestUpstreamIsConnected(t *testing.T) {
-	handler := func(channel string, data []byte) {}
+	handler := func(channel string, data []byte, offset, epoch uint64) {}
 	u := NewUpstream(
 		UpstreamConfig{Address: "127.0.0.1:0"},
 		ReconnectPolicy{},
@@ -595,18 +595,18 @@ func TestDedupIntegration(t *testing.T) {
 	d := NewDeduplicator(5 * time.Second)
 	defer d.Stop()
 
-	if !d.Check("ch1", []byte("msg1")) {
+	if !d.Check("ch1", 7, 1) {
 		t.Error("first message should pass")
 	}
-	if !d.Check("ch1", []byte("msg2")) {
-		t.Error("different data should pass")
+	if !d.Check("ch1", 7, 2) {
+		t.Error("different offset should pass")
 	}
-	if !d.Check("ch2", []byte("msg1")) {
+	if !d.Check("ch2", 7, 1) {
 		t.Error("different channel should pass")
 	}
 
-	if d.Check("ch1", []byte("msg1")) {
-		t.Error("duplicate should be blocked")
+	if d.Check("ch1", 7, 1) {
+		t.Error("duplicate identity should be blocked")
 	}
 }
 
@@ -1083,5 +1083,74 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 	errResp := msg.GetError()
 	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED {
 		t.Fatalf("expected NOT_AUTHENTICATED on connect subject change, got %v", msg.Message)
+	}
+}
+
+func TestUpstreamRecoveryDeliversRepeatedPayloads(t *testing.T) {
+	upstreamAddr := freeAddr(t)
+	upstreamEng := engine.New(engine.WithHistory(64, 0))
+	defer upstreamEng.Stop()
+	upstreamStore := transport.NewSessionStore()
+
+	upstream := grpcserver.New(upstreamAddr,
+		grpcserver.WithEngine(upstreamEng),
+		grpcserver.WithSessionStore(upstreamStore),
+	)
+	if err := upstream.Start(); err != nil {
+		t.Fatalf("start upstream: %v", err)
+	}
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithBufferSize(256),
+		WithReconnectPolicy(50*time.Millisecond, 200*time.Millisecond, 2.0),
+		WithFanoutWorkers(1),
+	)
+	r.router = NewRouter([]ChannelPattern{
+		{Pattern: "up-*", Mode: RouteModeRelay},
+	})
+	if err := r.Start(); err != nil {
+		t.Fatalf("start relay: %v", err)
+	}
+	defer r.Stop()
+
+	client, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+	authenticate(t, client, "token")
+	client.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "up-dup"},
+		},
+	})
+	recvWithTimeout(t, client, 2*time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	upstreamEng.Publish("up-dup", []byte("tick"), 0, upstreamStore.Deliver)
+	msg := recvWithTimeout(t, client, 3*time.Second)
+	if cm := msg.GetChannelMessage(); cm == nil || string(cm.Data) != "tick" {
+		t.Fatalf("expected live tick through relay, got %v", msg.Message)
+	}
+
+	upstream.Stop()
+	upstreamEng.Publish("up-dup", []byte("tick"), 0, upstreamStore.Deliver)
+	upstreamEng.Publish("up-dup", []byte("tick"), 0, upstreamStore.Deliver)
+
+	upstream2 := grpcserver.New(upstreamAddr,
+		grpcserver.WithEngine(upstreamEng),
+		grpcserver.WithSessionStore(upstreamStore),
+	)
+	if err := upstream2.Start(); err != nil {
+		t.Fatalf("restart upstream: %v", err)
+	}
+	defer upstream2.Stop()
+
+	for i := range 2 {
+		msg := recvWithTimeout(t, client, 5*time.Second)
+		cm := msg.GetChannelMessage()
+		if cm == nil || string(cm.Data) != "tick" {
+			t.Fatalf("recovered message %d: got %v, want repeated payload %q", i, msg.Message, "tick")
+		}
 	}
 }

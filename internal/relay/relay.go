@@ -40,6 +40,8 @@ func sendRingCap(bufferSize int) int {
 type incomingMsg struct {
 	channel string
 	data    []byte
+	offset  uint64
+	epoch   uint64
 }
 
 type Server struct {
@@ -459,21 +461,22 @@ func (s *Server) getSession(id int) (*Session, bool) {
 	return val.(*Session), true
 }
 
-func (s *Server) enqueueUpstreamMessage(channel string, data []byte) {
+func (s *Server) enqueueUpstreamMessage(channel string, data []byte, offset, epoch uint64) {
 	select {
-	case s.incomingCh <- incomingMsg{channel: channel, data: data}:
+	case s.incomingCh <- incomingMsg{channel: channel, data: data, offset: offset, epoch: epoch}:
 	case <-s.ctx.Done():
 	}
 }
 
 func (s *Server) fanoutWorker() {
 	for msg := range s.incomingCh {
-		s.onUpstreamMessage(msg.channel, msg.data)
+		s.onUpstreamMessage(msg)
 	}
 }
 
-func (s *Server) onUpstreamMessage(channel string, data []byte) {
-	if !s.dedup.Check(channel, data) {
+func (s *Server) onUpstreamMessage(msg incomingMsg) {
+	channel, data := msg.channel, msg.data
+	if msg.offset != 0 && !s.dedup.Check(channel, msg.epoch, msg.offset) {
 		return
 	}
 
