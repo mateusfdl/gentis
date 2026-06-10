@@ -531,3 +531,62 @@ func TestConnectAcceptsSignedToken(t *testing.T) {
 		t.Fatalf("expected Subscribed, got %+v", resp)
 	}
 }
+
+func TestPermissionChecks(t *testing.T) {
+	secret := []byte("ws-secret")
+	addr := startVerifierTestServer(t, secret)
+	conn := dialWS(t, addr)
+	defer conn.Close()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+		Channels:  []string{"allowed-*"},
+		Pub:       []string{"allowed-pub"},
+	})
+	sendJSON(t, conn, map[string]any{
+		"id":      "c1",
+		"connect": map[string]any{"auth_token": token},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("expected Connected, got %+v", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":        "s1",
+		"subscribe": map[string]any{"channel": "forbidden"},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodePermissionDenied {
+		t.Fatalf("subscribe outside allowlist: got %+v, want PERMISSION_DENIED", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":        "s2",
+		"subscribe": map[string]any{"channel": "allowed-1"},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("subscribe inside allowlist: got %+v, want Subscribed", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":      "p1",
+		"publish": map[string]any{"channel": "allowed-1", "data": json.RawMessage(`"x"`)},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodePermissionDenied {
+		t.Fatalf("publish outside pub allowlist: got %+v, want PERMISSION_DENIED", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":      "p2",
+		"publish": map[string]any{"channel": "allowed-pub", "data": json.RawMessage(`"x"`)},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Published == nil {
+		t.Fatalf("publish inside pub allowlist: got %+v, want Published ack", resp)
+	}
+}

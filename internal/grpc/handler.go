@@ -120,6 +120,11 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 		return
 	}
 
+	if !s.state.CanSubscribe(req.Channel) {
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "subscribe not allowed on channel", reqID)
+		return
+	}
+
 	if !s.engine.Subscribe(s.subID, req.Channel) {
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel", reqID)
 		return
@@ -164,6 +169,11 @@ func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID stri
 func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 	if !validateChannel(req.Channel) {
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
+		return
+	}
+
+	if !s.state.CanPublish(req.Channel) {
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "publish not allowed on channel", reqID)
 		return
 	}
 

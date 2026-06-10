@@ -228,3 +228,29 @@ func TestCanPublish(t *testing.T) {
 		})
 	}
 }
+
+func TestSignRoundTripsEmptyAllowlists(t *testing.T) {
+	token := SignHS256(testSecret, Claims{
+		Subject:   "user-1",
+		ExpiresAt: testNow.Add(time.Hour),
+		Channels:  []string{},
+		Pub:       []string{},
+	})
+
+	got, err := newTestVerifier().Verify(token)
+	if err != nil {
+		t.Fatalf("Verify() error = %v, want nil", err)
+	}
+	if got.Channels == nil || len(got.Channels) != 0 {
+		t.Errorf("Channels = %v, want non-nil empty", got.Channels)
+	}
+	if got.Pub == nil || len(got.Pub) != 0 {
+		t.Errorf("Pub = %v, want non-nil empty", got.Pub)
+	}
+	if got.CanSubscribe("anything") {
+		t.Error("CanSubscribe with empty allowlist: want false")
+	}
+	if got.CanPublish("anything") {
+		t.Error("CanPublish with empty allowlist: want false")
+	}
+}

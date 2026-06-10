@@ -7,6 +7,7 @@ import (
 	"time"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
+	"github.com/mateusfdl/gentis/internal/auth"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"google.golang.org/grpc"
@@ -721,5 +722,65 @@ func TestRelayLocalPublishAck(t *testing.T) {
 	}
 	if ack.Dropped != 0 {
 		t.Errorf("expected dropped 0, got %d", ack.Dropped)
+	}
+}
+
+func TestRelayPermissionChecks(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	secret := []byte("relay-secret")
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithBufferSize(256),
+		WithVerifier(auth.NewHMACVerifier(secret)),
+	)
+
+	r.router = NewRouter([]ChannelPattern{
+		{Pattern: "local-*", Mode: RouteModeLocal},
+	})
+
+	if err := r.Start(); err != nil {
+		t.Fatalf("failed to start relay: %v", err)
+	}
+	defer r.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	stream, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+		Channels:  []string{"local-allowed"},
+		Pub:       []string{},
+	})
+	authenticate(t, stream, token)
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "local-forbidden"},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED {
+		t.Fatalf("subscribe outside allowlist: got %v, want PERMISSION_DENIED", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "p1",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "local-allowed", Data: []byte("x")},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	errResp = msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED {
+		t.Fatalf("publish with empty pub allowlist: got %v, want PERMISSION_DENIED", msg.Message)
 	}
 }

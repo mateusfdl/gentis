@@ -505,6 +505,11 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 		return
 	}
 
+	if !sess.state.CanSubscribe(req.Channel) {
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "subscribe not allowed on channel", reqID)
+		return
+	}
+
 	route := sess.relay.router.Route(req.Channel)
 
 	if !sess.relay.engine.Subscribe(sess.subID, req.Channel) {
@@ -567,6 +572,11 @@ func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID s
 func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 	if !validateChannel(req.Channel) {
 		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
+		return
+	}
+
+	if !sess.state.CanPublish(req.Channel) {
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "publish not allowed on channel", reqID)
 		return
 	}
 

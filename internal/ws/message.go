@@ -11,6 +11,7 @@ const (
 	ErrorCodeNotAuthenticated  = "NOT_AUTHENTICATED"
 	ErrorCodeAlreadySubscribed = "ALREADY_SUBSCRIBED"
 	ErrorCodeNotSubscribed     = "NOT_SUBSCRIBED"
+	ErrorCodePermissionDenied  = "PERMISSION_DENIED"
 )
 
 type ClientMessage struct {

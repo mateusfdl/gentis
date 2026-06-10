@@ -93,6 +93,11 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 		return
 	}
 
+	if !h.State().CanSubscribe(req.Channel) {
+		h.SendError(ErrorCodePermissionDenied, "subscribe not allowed on channel", reqID)
+		return
+	}
+
 	if !h.Engine().Subscribe(engine.SubscriberID(h.ID()), req.Channel) {
 		h.SendError(ErrorCodeAlreadySubscribed, "already subscribed to channel", reqID)
 		return
@@ -130,6 +135,11 @@ func handleUnsubscribe(h MessageHandler, req *UnsubscribeRequest, reqID string) 
 func handlePublish(h MessageHandler, req *PublishRequest, reqID string) {
 	if !validateChannel(req.Channel) {
 		h.SendError(ErrorCodeInvalidPayload, "invalid channel name", reqID)
+		return
+	}
+
+	if !h.State().CanPublish(req.Channel) {
+		h.SendError(ErrorCodePermissionDenied, "publish not allowed on channel", reqID)
 		return
 	}
 

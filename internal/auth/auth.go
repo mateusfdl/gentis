@@ -75,11 +75,14 @@ type headerJSON struct {
 	Alg string `json:"alg"`
 }
 
+// claimsJSON deliberately avoids omitempty on the allowlists: an explicit
+// empty list means deny-all and must survive the wire round-trip, while
+// absent (null) means allow-all.
 type claimsJSON struct {
 	Sub      string   `json:"sub"`
 	Exp      int64    `json:"exp"`
-	Channels []string `json:"channels,omitempty"`
-	Pub      []string `json:"pub,omitempty"`
+	Channels []string `json:"channels"`
+	Pub      []string `json:"pub"`
 }
 
 type HMACVerifier struct {

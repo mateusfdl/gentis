@@ -980,3 +980,66 @@ func TestConnectRejectsExpiredToken(t *testing.T) {
 		t.Fatalf("expected NOT_AUTHENTICATED error, got %v", msg.Message)
 	}
 }
+
+func TestPermissionChecks(t *testing.T) {
+	secret := []byte("grpc-secret")
+	addr, cleanup := startVerifierServer(t, secret)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+		Channels:  []string{"allowed-*"},
+		Pub:       []string{"allowed-pub"},
+	})
+	authenticate(t, stream, token)
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "forbidden"},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED {
+		t.Fatalf("subscribe outside allowlist: got %v, want PERMISSION_DENIED", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s2",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "allowed-1"},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetSubscribed() == nil {
+		t.Fatalf("subscribe inside allowlist: got %v, want Subscribed", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "p1",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "allowed-1", Data: []byte("x")},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	errResp = msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED {
+		t.Fatalf("publish outside pub allowlist: got %v, want PERMISSION_DENIED", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "p2",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "allowed-pub", Data: []byte("x")},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetPublished() == nil {
+		t.Fatalf("publish inside pub allowlist: got %v, want PublishResponse", msg.Message)
+	}
+}
