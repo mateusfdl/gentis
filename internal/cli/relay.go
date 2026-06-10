@@ -41,6 +41,8 @@ func init() {
 	f.Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
 
 	relayCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
+	f.String("tls-cert", "", "TLS certificate file for the relay gRPC and WebSocket listeners")
+	f.String("tls-key", "", "TLS private key file for the relay gRPC and WebSocket listeners")
 	f.Bool("upstream-tls", false, "dial the upstream over TLS")
 	f.String("upstream-ca", "", "CA bundle for upstream TLS verification (empty = system roots)")
 	f.Int("max-message-size", 65536, "maximum publish payload size in bytes")
@@ -80,6 +82,11 @@ func runRelay(cmd *cobra.Command, args []string) error {
 	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
 	maxMessageSize, _ := cmd.Flags().GetInt("max-message-size")
 	maxSubscriptions, _ := cmd.Flags().GetInt("max-subscriptions")
+	tlsCert, _ := cmd.Flags().GetString("tls-cert")
+	tlsKey, _ := cmd.Flags().GetString("tls-key")
+	if (tlsCert == "") != (tlsKey == "") {
+		return errTLSIncomplete
+	}
 
 	var obs *metrics.Observer
 	if metricsEnabled {
@@ -120,6 +127,9 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		relay.WithPingInterval(pingInterval),
 		relay.WithMaxMessageSize(maxMessageSize),
 		relay.WithMaxSubscriptions(maxSubscriptions),
+	}
+	if tlsCert != "" {
+		opts = append(opts, relay.WithTLS(tlsCert, tlsKey))
 	}
 	upstreamTLS, _ := cmd.Flags().GetBool("upstream-tls")
 	upstreamCA, _ := cmd.Flags().GetString("upstream-ca")

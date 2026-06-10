@@ -39,6 +39,11 @@ type Config struct {
 	// misses two more. Zero disables keepalive.
 	PingInterval time.Duration
 
+	// TLSCertFile/TLSKeyFile serve the relay's own gRPC listener over TLS
+	// when both are set.
+	TLSCertFile string
+	TLSKeyFile  string
+
 	// Arena-backed session state (linux only). Default off. When enabled,
 	// session state lives in an mmap arena slot instead of on the Go heap,
 	// removing per-session State objects from GC scanning and enabling a
@@ -75,10 +80,8 @@ func WithListenAddr(addr string) Option {
 
 func WithUpstream(addr, authToken string) Option {
 	return func(c *Config) {
-		c.Upstream = UpstreamConfig{
-			Address:   addr,
-			AuthToken: authToken,
-		}
+		c.Upstream.Address = addr
+		c.Upstream.AuthToken = authToken
 	}
 }
 
@@ -120,6 +123,13 @@ func WithMaxSubscriptions(n int) Option {
 func WithMaxMessageSize(n int) Option {
 	return func(c *Config) {
 		c.MaxMessageSize = n
+	}
+}
+
+func WithTLS(certFile, keyFile string) Option {
+	return func(c *Config) {
+		c.TLSCertFile = certFile
+		c.TLSKeyFile = keyFile
 	}
 }
 
@@ -202,7 +212,6 @@ func defaultConfig() *Config {
 		Verifier:           auth.InsecureVerifier{},
 		PingInterval:       25 * time.Second,
 		MaxMessageSize:     65536,
-		MaxSubscriptions:   16,
 		ListenAddr:         "127.0.0.1:9001",
 		BufferSize:         256,
 		IncomingBufferSize: 4096,

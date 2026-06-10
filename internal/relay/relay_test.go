@@ -17,6 +17,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"github.com/mateusfdl/gentis/internal/transport"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -1152,5 +1153,49 @@ func TestUpstreamRecoveryDeliversRepeatedPayloads(t *testing.T) {
 		if cm == nil || string(cm.Data) != "tick" {
 			t.Fatalf("recovered message %d: got %v, want repeated payload %q", i, msg.Message, "tick")
 		}
+	}
+}
+
+func TestRelayTLSListener(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	certFile, keyFile := testcert.Generate(t)
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithBufferSize(256),
+		WithTLS(certFile, keyFile),
+	)
+	if err := r.Start(); err != nil {
+		t.Fatalf("start relay: %v", err)
+	}
+	defer r.Stop()
+
+	creds, err := credentials.NewClientTLSFromFile(certFile, "")
+	if err != nil {
+		t.Fatalf("client creds: %v", err)
+	}
+	conn, err := grpc.NewClient(relayAddr, grpc.WithTransportCredentials(creds))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := gentisv1.NewGentisServiceClient(conn).Stream(ctx)
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetPong() == nil {
+		t.Fatalf("expected Pong over TLS relay listener, got %T", msg.Message)
 	}
 }

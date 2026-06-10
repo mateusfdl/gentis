@@ -23,6 +23,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/transport"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -203,7 +204,16 @@ func (s *Server) Start() error {
 	}
 	s.listener = listener
 
-	s.grpcSrv = grpc.NewServer(s.keepaliveOptions()...)
+	serverOpts := s.keepaliveOptions()
+	if s.config.TLSCertFile != "" && s.config.TLSKeyFile != "" {
+		creds, err := credentials.NewServerTLSFromFile(s.config.TLSCertFile, s.config.TLSKeyFile)
+		if err != nil {
+			listener.Close()
+			return fmt.Errorf("failed to load relay TLS credentials: %w", err)
+		}
+		serverOpts = append(serverOpts, grpc.Creds(creds))
+	}
+	s.grpcSrv = grpc.NewServer(serverOpts...)
 	gentisv1.RegisterGentisServiceServer(s.grpcSrv, s)
 
 	if s.config.UseArena {
