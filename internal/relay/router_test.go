@@ -105,10 +105,7 @@ func TestRouterCacheHit(t *testing.T) {
 		t.Errorf("expected RouteModeLocal from cache, got %d", result.Mode)
 	}
 
-	r.mu.RLock()
-	_, exists := r.cache["chat-room"]
-	r.mu.RUnlock()
-	if !exists {
+	if _, exists := r.cache.Get("chat-room"); !exists {
 		t.Error("expected chat-room to be cached")
 	}
 }
@@ -123,11 +120,7 @@ func TestRouterCacheEviction(t *testing.T) {
 		r.Route(fmt.Sprintf("channel-%d", i))
 	}
 
-	r.mu.RLock()
-	cacheLen := len(r.cache)
-	r.mu.RUnlock()
-
-	if cacheLen > maxCacheSize {
+	if cacheLen := r.cache.Len(); cacheLen > maxCacheSize {
 		t.Errorf("cache should not exceed maxCacheSize, got %d", cacheLen)
 	}
 }
