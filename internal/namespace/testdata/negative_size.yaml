@@ -1,0 +1,5 @@
+default:
+  allow_publish: true
+namespaces:
+  chat:
+    history_size: -5

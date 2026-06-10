@@ -1,0 +1,5 @@
+default:
+  allow_publish: true
+namespaces:
+  chat:
+    histroy_size: 10

@@ -1,0 +1,12 @@
+strict: true
+default:
+  history_size: 16
+  allow_publish: true
+namespaces:
+  chat:
+    history_size: 256
+    history_ttl: 10m
+    allow_publish: true
+    max_subscribers: 5000
+  feed:
+    allow_publish: false
