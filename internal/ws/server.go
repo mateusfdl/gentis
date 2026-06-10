@@ -3,7 +3,7 @@ package ws
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -13,6 +13,7 @@ import (
 	"github.com/gobwas/ws"
 
 	"github.com/mateusfdl/gentis/internal/engine"
+	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
@@ -22,6 +23,7 @@ type Server struct {
 	httpSrv  *http.Server
 	engine   *engine.Engine
 	store    *transport.SessionStore
+	logger   *slog.Logger
 	sessions sync.Map
 	nextID   atomic.Int64
 
@@ -50,10 +52,17 @@ func New(address string, opts ...Option) *Server {
 		store = transport.NewSessionStore()
 	}
 
+	logger := cfg.Logger
+	if logger == nil {
+		logger = gentislog.Nop()
+	}
+	logger = logger.With("component", "ws")
+
 	s := &Server{
 		config: cfg,
 		engine: eng,
 		store:  store,
+		logger: logger,
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -85,7 +94,7 @@ func (s *Server) Start() error {
 	go func() {
 		defer s.wg.Done()
 		if err := s.httpSrv.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("WebSocket server error: %v", err)
+			s.logger.Error("websocket serve error", "err", err)
 		}
 	}()
 
@@ -112,7 +121,7 @@ func (s *Server) Stop() error {
 func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	conn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
+		s.logger.Warn("websocket upgrade failed", "remote_addr", r.RemoteAddr, "err", err)
 		return
 	}
 

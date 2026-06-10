@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/mateusfdl/gentis/internal/engine"
@@ -20,6 +21,7 @@ type Config struct {
 	Engine             *engine.Engine
 	SessionStore       *transport.SessionStore
 	Observer           *metrics.Observer
+	Logger             *slog.Logger
 
 	// Arena-backed session state (linux only). Default off. When enabled,
 	// session state lives in an mmap arena slot instead of on the Go heap,
@@ -103,6 +105,12 @@ func WithSessionStore(store *transport.SessionStore) Option {
 func WithObserver(obs *metrics.Observer) Option {
 	return func(c *Config) {
 		c.Observer = obs
+	}
+}
+
+func WithLogger(l *slog.Logger) Option {
+	return func(c *Config) {
+		c.Logger = l
 	}
 }
 

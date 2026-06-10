@@ -14,7 +14,7 @@ import (
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/arena"
 	"github.com/mateusfdl/gentis/internal/engine"
-	gentislog "github.com/mateusfdl/gentis/internal/log"
+	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
 	"github.com/mateusfdl/gentis/internal/transport"
 )

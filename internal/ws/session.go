@@ -32,6 +32,7 @@ func (s *Session) DeliverMessage(channel string, data []byte) bool {
 		return true
 	default:
 		putWSMsg(msg)
+		s.server.logger.Warn("message dropped, send buffer full", "channel", channel, "session_id", s.id)
 		return false
 	}
 }
@@ -56,6 +57,7 @@ func (s *Server) createSession() *Session {
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)
 	s.store.Register(engine.SubscriberID(id), sess)
+	s.logger.Debug("session created", "session_id", id)
 	return sess
 }
 
@@ -65,6 +67,7 @@ func (s *Server) cleanupSession(sess *Session) {
 	s.connectionCount.Add(-1)
 	s.store.Unregister(engine.SubscriberID(sess.id))
 	s.engine.UnsubscribeAll(engine.SubscriberID(sess.id))
+	s.logger.Debug("session closed", "session_id", sess.id)
 }
 
 func (s *Session) send(msg *ServerMessage) {

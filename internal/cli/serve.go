@@ -41,7 +41,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		obs = metrics.NewObserver("server")
 	}
 
-	engOpts := buildEngineOpts(cmd, obs)
+	engOpts := buildEngineOpts(cmd, logger, obs)
 	eng := engine.New(engOpts...)
 
 	arenaEnabled, _ := cmd.Flags().GetBool("arena")
@@ -61,7 +61,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// connection counter to the grpc metrics collector. without this,
 	// `gentis_connections_active` only reflects grpc sessions and reads
 	// zero during a ws-only run.
-	wsSrv := buildWSServer(cmd, eng, store, obs)
+	wsSrv := buildWSServer(cmd, logger, eng, store, obs)
 
 	grpcOpts := []grpcserver.Option{
 		grpcserver.WithEngine(eng),
@@ -103,7 +103,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	waitForShutdown(logger, func() error {
 		var firstErr error
 		if wsSrv != nil {
-			if err := wsSrv.Stop(); err != nil && firstErr == nil {
+			if err := wsSrv.Stop(); err != nil {
 				firstErr = err
 			}
 		}

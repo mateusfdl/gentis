@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/mateusfdl/gentis/internal/engine"
-	gentislog "github.com/mateusfdl/gentis/internal/log"
+	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
 	"github.com/mateusfdl/gentis/internal/transport"
 	wsserver "github.com/mateusfdl/gentis/internal/ws"
@@ -78,8 +78,10 @@ func buildLogger(cmd *cobra.Command) (*slog.Logger, error) {
 	}), nil
 }
 
-func buildEngineOpts(cmd *cobra.Command, obs *metrics.Observer) []engine.Option {
+func buildEngineOpts(cmd *cobra.Command, logger *slog.Logger, obs *metrics.Observer) []engine.Option {
 	var opts []engine.Option
+
+	opts = append(opts, engine.WithLogger(logger))
 
 	shards, _ := cmd.Flags().GetInt("shards")
 	if shards > 0 {
@@ -111,7 +113,7 @@ func buildEngineOpts(cmd *cobra.Command, obs *metrics.Observer) []engine.Option 
 	return opts
 }
 
-func buildWSServer(cmd *cobra.Command, eng *engine.Engine, store *transport.SessionStore, obs *metrics.Observer) *wsserver.Server {
+func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, store *transport.SessionStore, obs *metrics.Observer) *wsserver.Server {
 	wsAddr, _ := cmd.Flags().GetString("ws-addr")
 	if wsAddr == "" {
 		return nil
@@ -124,6 +126,7 @@ func buildWSServer(cmd *cobra.Command, eng *engine.Engine, store *transport.Sess
 	opts := []wsserver.Option{
 		wsserver.WithEngine(eng),
 		wsserver.WithSessionStore(store),
+		wsserver.WithLogger(logger),
 		wsserver.WithReadLimit(readLimit),
 		wsserver.WithWriteTimeout(writeTimeout),
 		wsserver.WithSendBufferSize(sendBuffer),

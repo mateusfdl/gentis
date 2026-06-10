@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +20,7 @@ type Upstream struct {
 	config   UpstreamConfig
 	policy   ReconnectPolicy
 	handler  MessageHandler
+	logger   *slog.Logger
 	conn     *grpc.ClientConn
 	client   gentisv1.GentisServiceClient
 	stream   gentisv1.GentisService_StreamClient
@@ -41,12 +42,13 @@ type subscriptionRef struct {
 	count int
 }
 
-func NewUpstream(config UpstreamConfig, policy ReconnectPolicy, handler MessageHandler) *Upstream {
+func NewUpstream(config UpstreamConfig, policy ReconnectPolicy, handler MessageHandler, logger *slog.Logger) *Upstream {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Upstream{
 		config:  config,
 		policy:  policy,
 		handler: handler,
+		logger:  logger.With("upstream", config.Address),
 		sendCh:  make(chan *gentisv1.ClientMessage, 256),
 		ctx:     ctx,
 		cancel:  cancel,
@@ -223,7 +225,7 @@ func (u *Upstream) receiveLoop() {
 			if err == io.EOF || u.ctx.Err() != nil {
 				return
 			}
-			log.Printf("upstream receive error: %v", err)
+			u.logger.Warn("upstream receive error, reconnecting", "err", err)
 			u.handleDisconnect()
 			continue
 		}
@@ -249,7 +251,7 @@ func (u *Upstream) sendLoop() {
 			}
 
 			if err := stream.Send(msg); err != nil {
-				log.Printf("upstream send error: %v", err)
+				u.logger.Warn("upstream send error, reconnecting", "err", err)
 				u.handleDisconnect()
 			}
 		}
@@ -263,9 +265,9 @@ func (u *Upstream) handleMessage(msg *gentisv1.ServerMessage) {
 			u.handler(m.ChannelMessage.Channel, m.ChannelMessage.Data)
 		}
 	case *gentisv1.ServerMessage_Connected:
-		log.Printf("connected to upstream: %s", m.Connected.ConnectionId)
+		u.logger.Info("connected to upstream", "connection_id", m.Connected.ConnectionId)
 	case *gentisv1.ServerMessage_Error:
-		log.Printf("upstream error: %s (%v)", m.Error.Message, m.Error.Code)
+		u.logger.Warn("upstream returned error", "message", m.Error.Message, "code", m.Error.Code)
 	}
 }
 
@@ -296,19 +298,19 @@ func (u *Upstream) reconnect() {
 
 		attempts++
 		if u.policy.MaxRetries > 0 && attempts > u.policy.MaxRetries {
-			log.Printf("max reconnect attempts reached")
+			u.logger.Error("upstream reconnect giving up, max attempts reached", "attempts", attempts-1)
 			return
 		}
 
-		log.Printf("reconnecting to upstream (attempt %d)", attempts)
+		u.logger.Info("reconnecting to upstream", "attempt", attempts)
 
 		if err := u.establishStream(); err != nil {
-			log.Printf("reconnect failed: %v", err)
+			u.logger.Warn("upstream reconnect failed", "attempt", attempts, "err", err)
 			delay = min(time.Duration(float64(delay)*u.policy.Multiplier), u.policy.MaxDelay)
 			continue
 		}
 
-		log.Printf("reconnected to upstream")
+		u.logger.Info("reconnected to upstream", "attempts", attempts)
 		return
 	}
 }

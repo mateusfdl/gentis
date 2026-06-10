@@ -4,6 +4,8 @@ import (
 	"runtime/debug"
 	"testing"
 	"time"
+
+	gentislog "github.com/mateusfdl/gentis/internal/logs"
 )
 
 // newTestEngine creates a minimal Engine with controllable shard counters
@@ -15,6 +17,7 @@ func newTestEngine() *Engine {
 		config:        defaultConfig(),
 		shards:        shards,
 		subscriptions: newSubscriptions(),
+		logger:        gentislog.Nop(),
 	}
 }
 

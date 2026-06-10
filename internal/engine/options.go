@@ -1,6 +1,9 @@
 package engine
 
-import "runtime"
+import (
+	"log/slog"
+	"runtime"
+)
 
 type Option func(*config)
 
@@ -10,6 +13,7 @@ type config struct {
 	fanoutThreshold int
 	fanoutWorkers   int
 	gcPacer         gcPacerConfig
+	logger          *slog.Logger
 }
 
 const (
@@ -64,6 +68,12 @@ func nextPowerOf2(n int) int {
 func WithObserver(obs MetricsObserver) Option {
 	return func(c *config) {
 		c.observer = obs
+	}
+}
+
+func WithLogger(l *slog.Logger) Option {
+	return func(c *config) {
+		c.logger = l
 	}
 }
 

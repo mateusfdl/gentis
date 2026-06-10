@@ -72,7 +72,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		obs = metrics.NewObserver("relay")
 	}
 
-	engOpts := buildEngineOpts(cmd, obs)
+	engOpts := buildEngineOpts(cmd, logger, obs)
 	eng := engine.New(engOpts...)
 
 	arenaEnabled, _ := cmd.Flags().GetBool("arena")
@@ -98,6 +98,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		relay.WithFanoutWorkers(relayFanoutWorkers),
 		relay.WithEngine(eng),
 		relay.WithSessionStore(store),
+		relay.WithLogger(logger),
 	}
 	if arenaEnabled {
 		opts = append(opts,
@@ -120,7 +121,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	wsSrv := buildWSServer(cmd, eng, store, obs)
+	wsSrv := buildWSServer(cmd, logger, eng, store, obs)
 	if wsSrv != nil {
 		wsAddr, _ := cmd.Flags().GetString("ws-addr")
 		logger.Info("starting WebSocket server", "addr", wsAddr)
@@ -133,7 +134,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 	waitForShutdown(logger, func() error {
 		var firstErr error
 		if wsSrv != nil {
-			if err := wsSrv.Stop(); err != nil && firstErr == nil {
+			if err := wsSrv.Stop(); err != nil {
 				firstErr = err
 			}
 		}

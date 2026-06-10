@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"log/slog"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -74,9 +73,9 @@ const spikeExitFactor = 0.7
 
 func newGCPacer(e *Engine, cfg gcPacerConfig) *gcPacer {
 	if !gcPacerActive.CompareAndSwap(false, true) {
-		slog.Warn("gcPacer: another instance is already active; " +
+		e.logger.Warn("gc pacer already active, returning no-op pacer; " +
 			"SetGCPercent/SetMemoryLimit are process-global so only one " +
-			"pacer should run per process. Returning a no-op pacer.")
+			"pacer should run per process")
 		return &gcPacer{done: make(chan struct{})}
 	}
 

@@ -36,6 +36,9 @@ func (s *Session) DeliverMessage(channel string, data []byte) bool {
 		return false
 	}
 	s.wake()
+	if s.logger.Enabled(s.ctx, slog.LevelDebug) {
+		s.logger.Debug("ring produce", "channel", channel, "ring_len", s.sendRing.Len(), "ring_cap", s.sendRing.Cap())
+	}
 	return true
 }
 
@@ -104,7 +107,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 	if s.store != nil {
 		s.store.Register(subID, sess)
 	}
-	sess.logger.Info("session created")
+	sess.logger.Debug("session created")
 	return sess
 }
 
@@ -122,7 +125,7 @@ func (s *Server) cleanupSession(sess *Session) {
 	if as, ok := sess.state.(*arena.ArenaState); ok {
 		as.Close()
 	}
-	sess.logger.Info("session closed")
+	sess.logger.Debug("session closed")
 }
 
 func (s *Session) send(msg *gentisv1.ServerMessage) {

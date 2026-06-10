@@ -2,8 +2,11 @@ package engine
 
 import (
 	"hash/maphash"
+	"log/slog"
 	"sync/atomic"
 	"time"
+
+	gentislog "github.com/mateusfdl/gentis/internal/logs"
 )
 
 type SubscriberID uint64
@@ -40,6 +43,7 @@ type Engine struct {
 	pacer         *gcPacer
 	fanoutPool    *fanoutPool
 	hashSeed      maphash.Seed
+	logger        *slog.Logger
 
 	channelCount      atomic.Int64
 	subscriptionCount atomic.Int64
@@ -58,12 +62,19 @@ func New(opts ...Option) *Engine {
 		shards[i].channels = make(map[string]*Channel)
 	}
 
+	logger := cfg.logger
+	if logger == nil {
+		logger = gentislog.Nop()
+	}
+	logger = logger.With("component", "engine")
+
 	e := &Engine{
 		config:        cfg,
 		shards:        shards,
 		subscriptions: newSubscriptions(),
 		observer:      cfg.observer,
 		hashSeed:      maphash.MakeSeed(),
+		logger:        logger,
 	}
 
 	if cfg.gcPacer.enabled {
@@ -73,6 +84,13 @@ func New(opts ...Option) *Engine {
 	if cfg.fanoutWorkers > 1 {
 		e.fanoutPool = newFanoutPool(cfg.fanoutWorkers)
 	}
+
+	logger.Info("engine initialized",
+		"shards", cfg.numShards,
+		"fanout_threshold", cfg.fanoutThreshold,
+		"fanout_workers", cfg.fanoutWorkers,
+		"gc_pacer", cfg.gcPacer.enabled,
+	)
 
 	return e
 }

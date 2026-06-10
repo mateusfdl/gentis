@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -15,6 +15,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/arena"
 	"github.com/mateusfdl/gentis/internal/client"
 	"github.com/mateusfdl/gentis/internal/engine"
+	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/transport"
@@ -54,6 +55,7 @@ type Server struct {
 	grpcSrv             *grpc.Server
 	sessions            sync.Map
 	nextID              atomic.Int32
+	logger              *slog.Logger
 	metrics             *metrics.Server
 	connectionCount     atomic.Int64
 	connectionsTotal    atomic.Int64
@@ -85,6 +87,7 @@ func (sess *Session) DeliverMessage(channel string, data []byte) bool {
 	if !sess.sendRing.TryProduce(msg) {
 		putServerMsg(msg)
 		sess.dropsFull.Add(1)
+		sess.relay.logger.Warn("message dropped, send buffer full", "channel", channel, "session_id", sess.id)
 		return false
 	}
 	sess.wake()
@@ -113,6 +116,12 @@ func New(opts ...Option) *Server {
 		eng = engine.New()
 	}
 
+	logger := config.Logger
+	if logger == nil {
+		logger = gentislog.Nop()
+	}
+	logger = logger.With("component", "relay")
+
 	s := &Server{
 		config:     config,
 		engine:     eng,
@@ -120,6 +129,7 @@ func New(opts ...Option) *Server {
 		router:     NewRouter(nil),
 		dedup:      NewDeduplicator(5 * time.Second),
 		incomingCh: make(chan incomingMsg, config.IncomingBufferSize),
+		logger:     logger,
 		ctx:        ctx,
 		cancel:     cancel,
 	}
@@ -135,7 +145,7 @@ func New(opts ...Option) *Server {
 		s.nextID.Store(int32(maxSessions))
 	}
 
-	s.upstream = NewUpstream(config.Upstream, config.ReconnectPolicy, s.enqueueUpstreamMessage)
+	s.upstream = NewUpstream(config.Upstream, config.ReconnectPolicy, s.enqueueUpstreamMessage, logger)
 
 	return s
 }
@@ -174,7 +184,7 @@ func (s *Server) Start() error {
 		slotSize := int(unsafe.Sizeof(arena.SessionSlot{}))
 		a, err := arena.New(slotSize, maxSessions)
 		if err != nil {
-			log.Printf("relay arena init failed (%v), falling back to heap session state", err)
+			s.logger.Warn("relay arena init failed, falling back to heap session state", "err", err)
 		} else {
 			s.sessArena = a
 		}
@@ -201,7 +211,7 @@ func (s *Server) Start() error {
 			s.upstream.Stop()
 			return fmt.Errorf("failed to start metrics server: %w", err)
 		}
-		log.Printf("Metrics server listening on %s", s.config.MetricsAddr)
+		s.logger.Info("metrics server started", "addr", s.config.MetricsAddr)
 	}
 
 	for range s.config.FanoutWorkers {
@@ -212,11 +222,10 @@ func (s *Server) Start() error {
 
 	s.wg.Go(func() {
 		if err := s.grpcSrv.Serve(listener); err != nil {
-			log.Printf("grpc server error: %v", err)
+			s.logger.Error("grpc serve error", "err", err)
 		}
 	})
 
-	log.Printf("relay server listening on %s, upstream: %s", s.config.ListenAddr, s.config.Upstream.Address)
 	return nil
 }
 
@@ -229,7 +238,7 @@ func (s *Server) Stop() error {
 
 	if s.metrics != nil {
 		if err := s.metrics.Stop(); err != nil {
-			log.Printf("Error stopping metrics server: %v", err)
+			s.logger.Error("failed to stop metrics server", "err", err)
 		}
 	}
 
@@ -240,7 +249,7 @@ func (s *Server) Stop() error {
 	// → ArenaState.Close via the deferred path in Stream handler).
 	if s.sessArena != nil {
 		if err := s.sessArena.Close(); err != nil {
-			log.Printf("failed to close session arena: %v", err)
+			s.logger.Error("failed to close session arena", "err", err)
 		}
 	}
 	return nil
@@ -287,7 +296,8 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 			// to MaxSessions). The session still works; it just won't
 			// benefit from arena state or flat-store lookup.
 			id = int(s.nextID.Add(1))
-			log.Printf("relay arena alloc failed (%v), falling back to heap for session %d", err, id)
+			s.logger.Warn("relay arena alloc failed, falling back to heap",
+				"err", err, "session_id", id)
 			state = client.NewState(id)
 		}
 	} else {
@@ -297,7 +307,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 
 	ring, err := ringbuf.NewPointer[gentisv1.ServerMessage](sendRingCap(s.config.BufferSize))
 	if err != nil {
-		log.Printf("relay ringbuf alloc failed: %v", err)
+		s.logger.Error("relay send ring alloc failed", "err", err)
 		cancel()
 		if as, ok := state.(*arena.ArenaState); ok {
 			as.Close()
@@ -329,6 +339,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 	if s.store != nil {
 		s.store.Register(subID, sess)
 	}
+	s.logger.Debug("session created", "session_id", id)
 	return sess
 }
 
@@ -352,7 +363,7 @@ func (s *Server) cleanupSession(sess *Session) {
 	for _, ch := range channels {
 		err := s.upstream.Unsubscribe(ch)
 		if err != nil {
-			log.Printf("failed to delete the following channel: %v", ch)
+			s.logger.Warn("upstream unsubscribe failed during session cleanup", "channel", ch, "err", err)
 		}
 	}
 
@@ -360,6 +371,7 @@ func (s *Server) cleanupSession(sess *Session) {
 	if as, ok := sess.state.(*arena.ArenaState); ok {
 		as.Close()
 	}
+	s.logger.Debug("session closed", "session_id", sess.id)
 }
 
 func (s *Server) getSession(id int) (*Session, bool) {

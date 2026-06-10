@@ -3,7 +3,6 @@ package ws
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
 	"time"
 
@@ -47,7 +46,7 @@ func (s *Server) runReader(sess *Session, conn net.Conn) {
 				}
 			}
 
-			log.Printf("ws read error (session %d): %v", sess.id, err)
+			s.logger.Debug("websocket read error", "session_id", sess.id, "err", err)
 			return
 		}
 
@@ -72,7 +71,7 @@ func (s *Server) runWriter(sess *Session, conn net.Conn) {
 				putWSMsg(msg)
 			}
 			if err != nil {
-				log.Printf("ws marshal error (session %d): %v", sess.id, err)
+				s.logger.Error("websocket marshal error", "session_id", sess.id, "err", err)
 				continue
 			}
 

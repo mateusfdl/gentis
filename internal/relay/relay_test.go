@@ -8,6 +8,7 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
+	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -509,6 +510,7 @@ func TestUpstreamSubscriptionRefCounting(t *testing.T) {
 		UpstreamConfig{Address: "127.0.0.1:0"},
 		ReconnectPolicy{InitialDelay: 100 * time.Millisecond, MaxDelay: 1 * time.Second, Multiplier: 2.0},
 		handler,
+		gentislog.Nop(),
 	)
 
 	u.Subscribe("ch1")
@@ -544,6 +546,7 @@ func TestUpstreamUnsubscribeNonexistent(t *testing.T) {
 		UpstreamConfig{Address: "127.0.0.1:0"},
 		ReconnectPolicy{},
 		handler,
+		gentislog.Nop(),
 	)
 
 	err := u.Unsubscribe("nonexistent")
@@ -558,6 +561,7 @@ func TestUpstreamPublishNotConnected(t *testing.T) {
 		UpstreamConfig{Address: "127.0.0.1:0"},
 		ReconnectPolicy{},
 		handler,
+		gentislog.Nop(),
 	)
 
 	err := u.Publish("ch", []byte("data"))
@@ -572,6 +576,7 @@ func TestUpstreamIsConnected(t *testing.T) {
 		UpstreamConfig{Address: "127.0.0.1:0"},
 		ReconnectPolicy{},
 		handler,
+		gentislog.Nop(),
 	)
 
 	if u.IsConnected() {

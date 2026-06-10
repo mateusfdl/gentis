@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/mateusfdl/gentis/internal/engine"
@@ -11,6 +12,7 @@ type Config struct {
 	Address        string
 	Engine         *engine.Engine
 	SessionStore   *transport.SessionStore
+	Logger         *slog.Logger
 	ReadLimit      int64
 	WriteTimeout   time.Duration
 	SendBufferSize int
@@ -41,6 +43,12 @@ func WithEngine(e *engine.Engine) Option {
 func WithSessionStore(store *transport.SessionStore) Option {
 	return func(c *Config) {
 		c.SessionStore = store
+	}
+}
+
+func WithLogger(l *slog.Logger) Option {
+	return func(c *Config) {
+		c.Logger = l
 	}
 }
 
