@@ -54,6 +54,12 @@ export default async function () {
   await delay(300);
 
   const pubConn = openStream(client, authToken(), {});
+  if (!pubConn) {
+    connectionFailures.add(1);
+    check(null, { 'publisher connection established': () => false });
+    closeStream(client, conn.stream);
+    return;
+  }
   for (let i = 1; i <= total; i++) {
     pubConn.stream.write({
       publish: { channel, data: encoding.b64encode(`job-${i}`) },

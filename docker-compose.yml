@@ -10,6 +10,9 @@ services:
       - exec /gentis serve --addr=0.0.0.0:9000 --ws-addr=0.0.0.0:9080 --metrics-addr=:8080 ${GENTIS_AUTH_ARGS:---auth-disabled} ${GENTIS_EXTRA_ARGS:-}
     volumes:
       - ./gentis:/gentis:ro
+      # qos_test.js needs the server started with the at-least-once
+      # namespace config: GENTIS_EXTRA_ARGS=--config=/gentis-qos.yaml
+      - ./test/k6/gentis-qos.yaml:/gentis-qos.yaml:ro
     environment:
       - GENTIS_AUTH_ARGS=${GENTIS_AUTH_ARGS:---auth-disabled}
       - GENTIS_EXTRA_ARGS=${GENTIS_EXTRA_ARGS:-}
