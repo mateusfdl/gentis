@@ -4,11 +4,13 @@ import (
 	"errors"
 	"hash/maphash"
 	"log/slog"
+	"slices"
 	"sync/atomic"
 	"time"
 
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/namespace"
+	"github.com/mateusfdl/gentis/internal/pattern"
 )
 
 type SubscriberID uint64
@@ -54,12 +56,14 @@ var (
 	ErrUnknownNamespace  = errors.New("engine: unknown channel namespace")
 	ErrChannelFull       = errors.New("engine: channel subscriber limit reached")
 	ErrPublishDenied     = errors.New("engine: publish not allowed in namespace")
+	ErrWildcardDenied    = errors.New("engine: wildcard subscriptions not allowed in namespace")
 )
 
 type Engine struct {
 	config        *config
 	shards        []Shard
 	subscriptions *subscriptions
+	patterns      *patternRegistry
 	observer      MetricsObserver
 	pacer         *gcPacer
 	fanoutPool    *fanoutPool
@@ -71,6 +75,7 @@ type Engine struct {
 
 	channelCount      atomic.Int64
 	subscriptionCount atomic.Int64
+	patternSubs       atomic.Int64
 	subscribeOps      atomic.Int64
 	unsubscribeOps    atomic.Int64
 }
@@ -96,6 +101,7 @@ func New(opts ...Option) *Engine {
 		config:        cfg,
 		shards:        shards,
 		subscriptions: newSubscriptions(),
+		patterns:      newPatternRegistry(),
 		observer:      cfg.observer,
 		hashSeed:      maphash.MakeSeed(),
 		logger:        logger,
@@ -175,6 +181,120 @@ func (e *Engine) SubscribePriority(id SubscriberID, channelName string, prio int
 	e.subscriptions.Add(id, channelName)
 	e.subscriptionCount.Add(1)
 	return nil
+}
+
+// SubscribePattern subscribes to every channel a glob pattern matches,
+// present and future. The pattern's namespace prefix must be literal and
+// must allow wildcards. Pattern deliveries are broadcast-only and count
+// against the same subscription accounting as exact ones.
+func (e *Engine) SubscribePattern(id SubscriberID, pat string) error {
+	if e.config.namespaces != nil {
+		ns, _ := namespace.Split(pat)
+		if pattern.IsPattern(ns) {
+			return ErrWildcardDenied
+		}
+		settings, known := e.config.namespaces.Resolve(pat)
+		if !known {
+			return ErrUnknownNamespace
+		}
+		if !settings.AllowWildcard {
+			return ErrWildcardDenied
+		}
+	}
+
+	e.subscribeOps.Add(1)
+	if !e.patterns.add(id, pat) {
+		return ErrAlreadySubscribed
+	}
+	e.patternSubs.Add(1)
+	e.subscriptionCount.Add(1)
+	return nil
+}
+
+func (e *Engine) UnsubscribePattern(id SubscriberID, pat string) bool {
+	if !e.patterns.remove(id, pat) {
+		return false
+	}
+	e.unsubscribeOps.Add(1)
+	e.subscriptionCount.Add(-1)
+	if e.patternSubs.Add(-1) == 0 {
+		e.reapEmptyChannels()
+	}
+	return true
+}
+
+// reapEmptyChannels drops channels that only existed to serve pattern
+// subscribers: no exact subscribers and no history. Called when the last
+// pattern subscription goes away; history-bearing channels stay under the
+// TTL sweeper's authority.
+func (e *Engine) reapEmptyChannels() {
+	for i := range e.shards {
+		s := &e.shards[i]
+		s.mu.Lock()
+		for name, ch := range s.channels {
+			if ch.SubscriberCount() == 0 && ch.hist == nil {
+				delete(s.channels, name)
+				e.channelCount.Add(-1)
+				s.maybeRebuild()
+				recycleChannel(ch)
+			}
+		}
+		s.mu.Unlock()
+	}
+}
+
+// materializeChannel creates the channel a pattern-matched publish needs
+// so offsets, epoch, and history behave exactly as if an exact subscriber
+// existed. Returns nil when the namespace is unknown under strict mode.
+// The returned channel is acquired; the caller must Release it.
+func (e *Engine) materializeChannel(channel string) *Channel {
+	settings, known := e.channelSettings(channel)
+	if !known {
+		return nil
+	}
+	s := e.getShard(channel)
+	s.mu.Lock()
+	ch, ok := s.channels[channel]
+	if !ok {
+		ch = NewChannel(channel)
+		if settings.HistorySize > 0 {
+			ch.hist = newHistory(settings.HistorySize, settings.HistoryTTL)
+		}
+		ch.maxSubs = settings.MaxSubscribers
+		ch.fanout = settings.Fanout
+		s.channels[channel] = ch
+		if len(s.channels) > s.peak {
+			s.peak = len(s.channels)
+		}
+		e.channelCount.Add(1)
+	}
+	ch.Acquire()
+	s.mu.Unlock()
+	return ch
+}
+
+// deliverPatterns fans the publication out to wildcard subscribers whose
+// patterns match the channel, skipping anyone the exact fan-out already
+// reached. Returns counts instead of mutating the result so Publish never
+// takes the result's address: that would demote the exact fan-out loop's
+// counter increments from registers to memory.
+func (e *Engine) deliverPatterns(ch *Channel, d Delivery, exclude SubscriberID, deliver DeliveryFunc) (delivered, dropped int) {
+	patternIDs := e.patterns.subscribersFor(d.Channel)
+	if len(patternIDs) == 0 {
+		return 0, 0
+	}
+	exact := ch.Subscribers()
+	for _, id := range patternIDs {
+		if id == exclude || slices.Contains(exact, id) {
+			continue
+		}
+		if deliver(id, d) {
+			delivered++
+		} else {
+			dropped++
+		}
+	}
+	return delivered, dropped
 }
 
 // roundRobinDeliver hands the publication to exactly one subscriber,
@@ -308,6 +428,14 @@ func (e *Engine) UnsubscribeAll(id SubscriberID) {
 		s.mu.Unlock()
 	}
 	e.subscriptions.RemoveAll(id)
+
+	if n := e.patterns.removeAll(id); n > 0 {
+		e.unsubscribeOps.Add(int64(n))
+		e.subscriptionCount.Add(int64(-n))
+		if e.patternSubs.Add(int64(-n)) == 0 {
+			e.reapEmptyChannels()
+		}
+	}
 }
 
 func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deliver DeliveryFunc) PublishResult {
@@ -331,6 +459,9 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	}
 	s.mu.RUnlock()
 
+	if ch == nil && e.patternSubs.Load() != 0 && len(e.patterns.subscribersFor(channel)) != 0 {
+		ch = e.materializeChannel(channel)
+	}
 	if ch == nil {
 		if observed {
 			e.observer.ObservePublishDuration(time.Since(start).Seconds())
@@ -381,6 +512,12 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 				}
 			}
 		}
+	}
+
+	if e.patternSubs.Load() != 0 {
+		pd, pdrop := e.deliverPatterns(ch, d, exclude, deliver)
+		result.Delivered += pd
+		result.Dropped += pdrop
 	}
 
 	delivered := int64(result.Delivered)
