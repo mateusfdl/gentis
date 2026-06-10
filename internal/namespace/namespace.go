@@ -5,8 +5,10 @@
 package namespace
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -141,11 +143,11 @@ func LoadFile(path string) (*Registry, error) {
 		return nil, fmt.Errorf("namespace: read config: %w", err)
 	}
 
-	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 
 	var cfg configYAML
-	if err := dec.Decode(&cfg); err != nil {
+	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("namespace: parse config %s: %w", path, err)
 	}
 
@@ -243,10 +245,12 @@ func toSettings(name string, raw settingsYAML) (Settings, error) {
 		if s.HistorySize <= 0 {
 			return Settings{}, fmt.Errorf("%w: namespace %q at-least-once qos requires history_size > 0", ErrInvalidConfig, name)
 		}
-		if s.RedeliveryTimeout == 0 {
+		if raw.RedeliveryTimeout == nil {
 			s.RedeliveryTimeout = 30 * time.Second
 		}
-		if s.MaxRedeliveries == 0 {
+		// Defaulting keys off the raw pointer: an explicit zero means
+		// "poison on first timeout" and must survive.
+		if raw.MaxRedeliveries == nil {
 			s.MaxRedeliveries = 3
 		}
 	}

@@ -273,3 +273,31 @@ func TestLoadFileFanoutBadValue(t *testing.T) {
 		t.Fatalf("bad fanout_mode: err = %v, want ErrInvalidConfig", err)
 	}
 }
+
+func TestLoadFileExplicitZeroMaxRedeliveries(t *testing.T) {
+	reg, err := LoadFile("testdata/qos_zero_redeliveries.yaml")
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	s, ok := reg.Resolve("jobs:x")
+	if !ok {
+		t.Fatal("Resolve(jobs:x) not known")
+	}
+	if s.MaxRedeliveries != 0 {
+		t.Fatalf("MaxRedeliveries = %d, want 0 (explicit zero means poison on first timeout, not the default 3)", s.MaxRedeliveries)
+	}
+}
+
+func TestLoadFileEmptyConfigYieldsDefaults(t *testing.T) {
+	reg, err := LoadFile("testdata/empty.yaml")
+	if err != nil {
+		t.Fatalf("LoadFile on empty config: %v", err)
+	}
+	s, ok := reg.Resolve("anything")
+	if !ok {
+		t.Fatal("empty config must resolve everything in lenient mode")
+	}
+	if !s.AllowPublish {
+		t.Fatal("empty config default must allow publish")
+	}
+}

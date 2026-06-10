@@ -1,0 +1,5 @@
+namespaces:
+  jobs:
+    history_size: 8
+    qos: at-least-once
+    max_redeliveries: 0
