@@ -100,7 +100,7 @@ func TestPublish(t *testing.T) {
 	delivered := make(map[SubscriberID]bool)
 	var mu sync.Mutex
 
-	result := e.Publish("news", []byte("hello"), 1, func(id SubscriberID, ch string, data []byte) bool {
+	result := e.Publish("news", []byte("hello"), 1, func(id SubscriberID, d Delivery) bool {
 		mu.Lock()
 		delivered[id] = true
 		mu.Unlock()
@@ -126,7 +126,7 @@ func TestPublishWithDrops(t *testing.T) {
 	e.Subscribe(1, "test")
 	e.Subscribe(2, "test")
 
-	result := e.Publish("test", []byte("data"), 0, func(id SubscriberID, ch string, data []byte) bool {
+	result := e.Publish("test", []byte("data"), 0, func(id SubscriberID, d Delivery) bool {
 		return id != 2
 	})
 
@@ -142,7 +142,7 @@ func TestPublishWithDrops(t *testing.T) {
 func TestPublishToNonexistentChannel(t *testing.T) {
 	e := New()
 
-	result := e.Publish("nonexistent", []byte("data"), 0, func(id SubscriberID, ch string, data []byte) bool {
+	result := e.Publish("nonexistent", []byte("data"), 0, func(id SubscriberID, d Delivery) bool {
 		t.Error("delivery function should not be called")
 		return true
 	})
@@ -159,7 +159,7 @@ func TestStats(t *testing.T) {
 	e.Subscribe(2, "ch1")
 	e.Subscribe(3, "ch2")
 
-	e.Publish("ch1", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+	e.Publish("ch1", []byte("msg"), 0, func(id SubscriberID, d Delivery) bool {
 		return true
 	})
 
@@ -216,7 +216,7 @@ func TestConcurrentPublish(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result := e.Publish("pub-channel", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+			result := e.Publish("pub-channel", []byte("msg"), 0, func(id SubscriberID, d Delivery) bool {
 				return true
 			})
 			mu.Lock()
@@ -354,7 +354,7 @@ func TestStatsDropped(t *testing.T) {
 	e.Subscribe(1, "ch")
 	e.Subscribe(2, "ch")
 
-	e.Publish("ch", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+	e.Publish("ch", []byte("msg"), 0, func(id SubscriberID, d Delivery) bool {
 		return id != 2
 	})
 
@@ -376,7 +376,7 @@ func TestPublishNoExclude(t *testing.T) {
 	e.Subscribe(2, "ch")
 	e.Subscribe(3, "ch")
 
-	result := e.Publish("ch", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+	result := e.Publish("ch", []byte("msg"), 0, func(id SubscriberID, d Delivery) bool {
 		return true
 	})
 
@@ -390,7 +390,7 @@ func TestPublishResultChannel(t *testing.T) {
 
 	e.Subscribe(1, "my-channel")
 
-	result := e.Publish("my-channel", []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+	result := e.Publish("my-channel", []byte("msg"), 0, func(id SubscriberID, d Delivery) bool {
 		return true
 	})
 
@@ -404,15 +404,15 @@ func TestPublishDeliveryFuncReceivesCorrectArgs(t *testing.T) {
 
 	e.Subscribe(1, "test-ch")
 
-	e.Publish("test-ch", []byte("payload"), 0, func(id SubscriberID, ch string, data []byte) bool {
+	e.Publish("test-ch", []byte("payload"), 0, func(id SubscriberID, d Delivery) bool {
 		if id != 1 {
 			t.Errorf("expected subscriber ID 1, got %d", id)
 		}
-		if ch != "test-ch" {
-			t.Errorf("expected channel 'test-ch', got %q", ch)
+		if d.Channel != "test-ch" {
+			t.Errorf("expected channel 'test-ch', got %q", d.Channel)
 		}
-		if string(data) != "payload" {
-			t.Errorf("expected data 'payload', got %q", string(data))
+		if string(d.Data) != "payload" {
+			t.Errorf("expected data 'payload', got %q", string(d.Data))
 		}
 		return true
 	})
@@ -432,7 +432,7 @@ func TestConcurrentPublishMultipleChannels(t *testing.T) {
 		wg.Add(1)
 		go func(ch string) {
 			defer wg.Done()
-			e.Publish(ch, []byte("msg"), 0, func(id SubscriberID, ch string, data []byte) bool {
+			e.Publish(ch, []byte("msg"), 0, func(id SubscriberID, d Delivery) bool {
 				return true
 			})
 		}("channel-" + string(rune('a'+i)))
@@ -578,7 +578,7 @@ func TestStatsAccumulate(t *testing.T) {
 	e.Subscribe(1, "ch")
 	e.Subscribe(2, "ch")
 
-	deliver := func(id SubscriberID, ch string, data []byte) bool { return true }
+	deliver := func(id SubscriberID, d Delivery) bool { return true }
 
 	e.Publish("ch", []byte("msg1"), 0, deliver)
 	e.Publish("ch", []byte("msg2"), 0, deliver)
@@ -605,7 +605,7 @@ func TestConcurrentPublishDuringUnsubscribe(t *testing.T) {
 	)
 
 	e := New()
-	deliver := func(id SubscriberID, ch string, data []byte) bool { return true }
+	deliver := func(id SubscriberID, d Delivery) bool { return true }
 
 	var wg sync.WaitGroup
 
@@ -647,7 +647,7 @@ func TestStopDuringPublish(t *testing.T) {
 	publishing.Store(true)
 
 	// Slow delivery callback to keep the fan-out in progress.
-	deliver := func(id SubscriberID, ch string, data []byte) bool {
+	deliver := func(id SubscriberID, d Delivery) bool {
 		if publishing.Load() {
 			time.Sleep(time.Microsecond)
 		}
@@ -679,4 +679,81 @@ func TestStopDuringPublish(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestPublishAssignsMonotonicOffsetsWithinEpoch(t *testing.T) {
+	e := New()
+	defer e.Stop()
+
+	e.Subscribe(1, "metrics")
+
+	var deliveries []Delivery
+	deliver := func(id SubscriberID, d Delivery) bool {
+		deliveries = append(deliveries, d)
+		return true
+	}
+
+	for i := range 3 {
+		result := e.Publish("metrics", []byte("payload"), 0, deliver)
+		if result.Offset != uint64(i+1) {
+			t.Errorf("publish %d: expected result offset %d, got %d", i, i+1, result.Offset)
+		}
+		if result.Epoch == 0 {
+			t.Errorf("publish %d: expected non-zero result epoch", i)
+		}
+	}
+
+	if len(deliveries) != 3 {
+		t.Fatalf("expected 3 deliveries, got %d", len(deliveries))
+	}
+	epoch := deliveries[0].Epoch
+	for i, d := range deliveries {
+		if d.Channel != "metrics" {
+			t.Errorf("delivery %d: expected channel %q, got %q", i, "metrics", d.Channel)
+		}
+		if string(d.Data) != "payload" {
+			t.Errorf("delivery %d: expected data %q, got %q", i, "payload", d.Data)
+		}
+		if d.Offset != uint64(i+1) {
+			t.Errorf("delivery %d: expected offset %d, got %d", i, i+1, d.Offset)
+		}
+		if d.Epoch != epoch {
+			t.Errorf("delivery %d: expected epoch %d, got %d", i, epoch, d.Epoch)
+		}
+	}
+}
+
+func TestChannelRecycleRegeneratesEpochAndRestartsOffset(t *testing.T) {
+	e := New()
+	defer e.Stop()
+
+	deliver := func(id SubscriberID, d Delivery) bool { return true }
+
+	e.Subscribe(1, "recycled")
+	first := e.Publish("recycled", []byte("a"), 0, deliver)
+	e.Unsubscribe(1, "recycled")
+
+	e.Subscribe(1, "recycled")
+	second := e.Publish("recycled", []byte("b"), 0, deliver)
+
+	if second.Epoch == first.Epoch {
+		t.Errorf("expected a new epoch after channel recycle, both are %d", first.Epoch)
+	}
+	if second.Offset != 1 {
+		t.Errorf("expected offset to restart at 1 in the new epoch, got %d", second.Offset)
+	}
+}
+
+func TestPublishToMissingChannelAssignsNoIdentity(t *testing.T) {
+	e := New()
+	defer e.Stop()
+
+	result := e.Publish("missing", []byte("data"), 0, func(id SubscriberID, d Delivery) bool { return true })
+
+	if result.Offset != 0 {
+		t.Errorf("expected offset 0 for missing channel, got %d", result.Offset)
+	}
+	if result.Epoch != 0 {
+		t.Errorf("expected zero epoch for missing channel, got %d", result.Epoch)
+	}
 }

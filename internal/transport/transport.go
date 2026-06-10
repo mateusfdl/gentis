@@ -8,7 +8,7 @@ import (
 )
 
 type Sender interface {
-	DeliverMessage(channel string, data []byte) bool
+	DeliverMessage(d engine.Delivery) bool
 }
 
 // SessionState is the minimal per-connection state surface that the ws
@@ -119,13 +119,13 @@ func (s *SessionStore) Unregister(id engine.SubscriberID) {
 	s.overflow.Delete(id)
 }
 
-func (s *SessionStore) Deliver(id engine.SubscriberID, channel string, data []byte) bool {
+func (s *SessionStore) Deliver(id engine.SubscriberID, d engine.Delivery) bool {
 	if idx, ok := s.slotFor(id); ok {
 		if g := uint32(uint64(id) >> genShift); g != 0 && g != s.gen[idx].Load() {
 			return false
 		}
 		if p := s.arr[idx].Load(); p != nil {
-			return (*p).DeliverMessage(channel, data)
+			return (*p).DeliverMessage(d)
 		}
 		return false
 	}
@@ -133,5 +133,5 @@ func (s *SessionStore) Deliver(id engine.SubscriberID, channel string, data []by
 	if !ok {
 		return false
 	}
-	return val.(Sender).DeliverMessage(channel, data)
+	return val.(Sender).DeliverMessage(d)
 }

@@ -68,6 +68,8 @@ type UnsubscribedResponse struct {
 type ChannelMessagePayload struct {
 	Channel string          `json:"channel"`
 	Data    json.RawMessage `json:"data"`
+	Offset  uint64          `json:"offset,omitempty"`
+	Epoch   uint64          `json:"epoch,omitempty,string"`
 }
 
 type PongResponse struct{}

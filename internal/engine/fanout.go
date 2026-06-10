@@ -19,8 +19,7 @@ type fanoutResult struct {
 // fanoutJob describes a unit of work dispatched to the persistent worker pool.
 type fanoutJob struct {
 	chunk   []SubscriberID
-	channel string
-	data    []byte
+	d       Delivery
 	exclude SubscriberID
 	deliver DeliveryFunc
 	result  *fanoutResult
@@ -78,7 +77,7 @@ func (p *fanoutPool) worker() {
 				if id == job.exclude {
 					continue
 				}
-				if job.deliver(id, job.channel, job.data) {
+				if job.deliver(id, job.d) {
 					d++
 				} else {
 					dr++
@@ -132,8 +131,7 @@ var resultsPool = sync.Pool{
 // fast deliver callbacks, the goroutine coordination overhead may negate the benefit.
 func (e *Engine) parallelFanout(
 	subscribers []SubscriberID,
-	channel string,
-	data []byte,
+	d Delivery,
 	exclude SubscriberID,
 	deliver DeliveryFunc,
 ) (delivered, dropped int) {
@@ -172,26 +170,25 @@ func (e *Engine) parallelFanout(
 			wg.Add(1)
 			if !e.fanoutPool.submit(fanoutJob{
 				chunk:   subscribers[start:end],
-				channel: channel,
-				data:    data,
+				d:       d,
 				exclude: exclude,
 				deliver: deliver,
 				result:  &results[i],
 				wg:      &wg,
 			}) {
 				// Pool is shutting down; execute inline to avoid deadlock.
-				var d, dr int
+				var del, drp int
 				for _, id := range subscribers[start:end] {
 					if id == exclude {
 						continue
 					}
-					if deliver(id, channel, data) {
-						d++
+					if deliver(id, d) {
+						del++
 					} else {
-						dr++
+						drp++
 					}
 				}
-				results[i] = fanoutResult{delivered: d, dropped: dr}
+				results[i] = fanoutResult{delivered: del, dropped: drp}
 				wg.Done()
 			}
 		}
@@ -206,18 +203,18 @@ func (e *Engine) parallelFanout(
 			wg.Add(1)
 			go func(idx int, chunk []SubscriberID) {
 				defer wg.Done()
-				var d, dr int
+				var del, drp int
 				for _, id := range chunk {
 					if id == exclude {
 						continue
 					}
-					if deliver(id, channel, data) {
-						d++
+					if deliver(id, d) {
+						del++
 					} else {
-						dr++
+						drp++
 					}
 				}
-				results[idx] = fanoutResult{delivered: d, dropped: dr}
+				results[idx] = fanoutResult{delivered: del, dropped: drp}
 			}(i, subscribers[start:end])
 		}
 	}
@@ -229,18 +226,18 @@ func (e *Engine) parallelFanout(
 			end = n
 		}
 		chunk := subscribers[:end]
-		var d, dr int
+		var del, drp int
 		for _, id := range chunk {
 			if id == exclude {
 				continue
 			}
-			if deliver(id, channel, data) {
-				d++
+			if deliver(id, d) {
+				del++
 			} else {
-				dr++
+				drp++
 			}
 		}
-		results[0] = fanoutResult{delivered: d, dropped: dr}
+		results[0] = fanoutResult{delivered: del, dropped: drp}
 	}
 
 	wg.Wait()

@@ -15,12 +15,12 @@ type benchSender struct {
 	sendCh chan *gentisv1.ServerMessage
 }
 
-func (s *benchSender) DeliverMessage(channel string, data []byte) bool {
+func (s *benchSender) DeliverMessage(d engine.Delivery) bool {
 	msg := &gentisv1.ServerMessage{
 		Message: &gentisv1.ServerMessage_ChannelMessage{
 			ChannelMessage: &gentisv1.ChannelMessage{
-				Channel: channel,
-				Data:    data,
+				Channel: d.Channel,
+				Data:    d.Data,
 			},
 		},
 	}
@@ -111,11 +111,11 @@ type pooledBenchSender struct {
 	sendCh chan *gentisv1.ServerMessage
 }
 
-func (s *pooledBenchSender) DeliverMessage(channel string, data []byte) bool {
+func (s *pooledBenchSender) DeliverMessage(d engine.Delivery) bool {
 	msg := benchMsgPool.Get().(*gentisv1.ServerMessage)
 	cm := msg.Message.(*gentisv1.ServerMessage_ChannelMessage)
-	cm.ChannelMessage.Channel = channel
-	cm.ChannelMessage.Data = data
+	cm.ChannelMessage.Channel = d.Channel
+	cm.ChannelMessage.Data = d.Data
 	select {
 	case s.sendCh <- msg:
 		return true

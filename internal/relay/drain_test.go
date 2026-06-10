@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
+	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 )
 
@@ -15,7 +16,7 @@ func TestDrainSendRing(t *testing.T) {
 	sess := &Session{sendRing: ring}
 
 	for range 3 {
-		if !ring.TryProduce(getServerMsg("ch", []byte("x"))) {
+		if !ring.TryProduce(getServerMsg(engine.Delivery{Channel: "ch", Data: []byte("x")})) {
 			t.Fatal("TryProduce failed during setup")
 		}
 	}

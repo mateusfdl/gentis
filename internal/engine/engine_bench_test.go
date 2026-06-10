@@ -51,7 +51,7 @@ func BenchmarkPublish(b *testing.B) {
 			}
 
 			data := []byte("benchmark message payload")
-			deliver := func(id SubscriberID, ch string, d []byte) bool {
+			deliver := func(id SubscriberID, d Delivery) bool {
 				return true
 			}
 
@@ -72,7 +72,7 @@ func BenchmarkPublishParallel(b *testing.B) {
 			}
 
 			data := []byte("benchmark message payload")
-			deliver := func(id SubscriberID, ch string, d []byte) bool {
+			deliver := func(id SubscriberID, d Delivery) bool {
 				return true
 			}
 
@@ -113,7 +113,7 @@ func BenchmarkMixedOperations(b *testing.B) {
 			case 1:
 				e.Unsubscribe(id-10, "bench-channel")
 			default:
-				e.Publish("bench-channel", []byte("msg"), id, func(SubscriberID, string, []byte) bool {
+				e.Publish("bench-channel", []byte("msg"), id, func(SubscriberID, Delivery) bool {
 					return true
 				})
 			}
@@ -169,7 +169,7 @@ func BenchmarkPublishParallelFanout(b *testing.B) {
 			}
 
 			data := []byte("benchmark message payload")
-			deliver := func(id SubscriberID, ch string, d []byte) bool {
+			deliver := func(id SubscriberID, d Delivery) bool {
 				return true
 			}
 
@@ -184,7 +184,7 @@ func BenchmarkPublishParallelFanout(b *testing.B) {
 func BenchmarkPublishSequentialVsParallel(b *testing.B) {
 	numSubs := 5000
 	data := []byte("benchmark message payload")
-	deliver := func(id SubscriberID, ch string, d []byte) bool {
+	deliver := func(id SubscriberID, d Delivery) bool {
 		return true
 	}
 

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math/rand/v2"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -8,12 +9,18 @@ import (
 
 type Channel struct {
 	name        string
+	epoch       uint64
+	offset      atomic.Uint64
 	subscribers atomic.Pointer[[]SubscriberID]
 	mu          sync.Mutex
 	refs        atomic.Int32 // holds a ref outside RLock
 	recycled    atomic.Bool
 	pooled      atomic.Bool   // CAS guard: exactly one goroutine may pool this channel
 	gen         atomic.Uint64 // incremented on each pool reuse to prevent ABA races
+}
+
+func newEpoch() uint64 {
+	return rand.Uint64()
 }
 
 var channelPool = sync.Pool{
@@ -26,6 +33,8 @@ func NewChannel(name string) *Channel {
 	c := channelPool.Get().(*Channel)
 	c.gen.Add(1) // invalidates any stale returnToPool calls
 	c.name = name
+	c.epoch = newEpoch()
+	c.offset.Store(0)
 	c.refs.Store(0)
 	c.recycled.Store(false)
 	c.pooled.Store(false)
@@ -70,6 +79,7 @@ func (c *Channel) returnToPool(expectedGen uint64) {
 		return
 	}
 	c.name = ""
+	c.epoch = 0
 	c.subscribers.Store(nil)
 	channelPool.Put(c)
 }

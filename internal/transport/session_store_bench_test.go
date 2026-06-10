@@ -49,7 +49,7 @@ func BenchmarkSessionStoreDeliver(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			s.Deliver(engine.SubscriberID(i%N), "ch", nil)
+			s.Deliver(engine.SubscriberID(i%N), engine.Delivery{Channel: "ch"})
 		}
 	})
 
@@ -61,7 +61,7 @@ func BenchmarkSessionStoreDeliver(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			s.Deliver(engine.SubscriberID(i%N), "ch", nil)
+			s.Deliver(engine.SubscriberID(i%N), engine.Delivery{Channel: "ch"})
 		}
 	})
 }
@@ -79,7 +79,7 @@ func BenchmarkSessionStoreRegisterDeliverUnregister(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				id := engine.SubscriberID(i % n)
 				s.Register(id, sender)
-				s.Deliver(id, "ch", nil)
+				s.Deliver(id, engine.Delivery{Channel: "ch", Data: nil})
 				s.Unregister(id)
 			}
 		})
@@ -91,7 +91,7 @@ func BenchmarkSessionStoreRegisterDeliverUnregister(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				id := engine.SubscriberID(i % n)
 				s.Register(id, sender)
-				s.Deliver(id, "ch", nil)
+				s.Deliver(id, engine.Delivery{Channel: "ch", Data: nil})
 				s.Unregister(id)
 			}
 		})
@@ -103,4 +103,4 @@ func BenchmarkSessionStoreRegisterDeliverUnregister(b *testing.B) {
 // interface so we can measure pure store overhead.
 type microSender struct{}
 
-func (microSender) DeliverMessage(_ string, _ []byte) bool { return true }
+func (microSender) DeliverMessage(_ engine.Delivery) bool { return true }

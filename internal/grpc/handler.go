@@ -166,12 +166,12 @@ func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 		return
 	}
 
-	s.engine.Publish(req.Channel, req.Data, s.subID, func(id engine.SubscriberID, ch string, d []byte) bool {
+	s.engine.Publish(req.Channel, req.Data, s.subID, func(id engine.SubscriberID, d engine.Delivery) bool {
 		other, ok := s.server.getSession(int(id))
 		if !ok {
 			return false
 		}
-		return other.DeliverMessage(ch, d)
+		return other.DeliverMessage(d)
 	})
 }
 

@@ -28,16 +28,16 @@ type Session struct {
 	cancel   context.CancelFunc
 }
 
-func (s *Session) DeliverMessage(channel string, data []byte) bool {
-	msg := getServerMsg(channel, data)
+func (s *Session) DeliverMessage(d engine.Delivery) bool {
+	msg := getServerMsg(d)
 	if !s.sendRing.TryProduce(msg) {
 		putServerMsg(msg)
-		s.logger.Warn("message dropped, send buffer full", "channel", channel)
+		s.logger.Warn("message dropped, send buffer full", "channel", d.Channel)
 		return false
 	}
 	s.wake()
 	if s.logger.Enabled(s.ctx, slog.LevelDebug) {
-		s.logger.Debug("ring produce", "channel", channel, "ring_len", s.sendRing.Len(), "ring_cap", s.sendRing.Cap())
+		s.logger.Debug("ring produce", "channel", d.Channel, "ring_len", s.sendRing.Len(), "ring_cap", s.sendRing.Cap())
 	}
 	return true
 }

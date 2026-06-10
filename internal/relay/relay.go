@@ -82,12 +82,12 @@ type Session struct {
 	dropsFull atomic.Int64
 }
 
-func (sess *Session) DeliverMessage(channel string, data []byte) bool {
-	msg := getServerMsg(channel, data)
+func (sess *Session) DeliverMessage(d engine.Delivery) bool {
+	msg := getServerMsg(d)
 	if !sess.sendRing.TryProduce(msg) {
 		putServerMsg(msg)
 		sess.dropsFull.Add(1)
-		sess.relay.logger.Warn("message dropped, send buffer full", "channel", channel, "session_id", sess.id)
+		sess.relay.logger.Warn("message dropped, send buffer full", "channel", d.Channel, "session_id", sess.id)
 		return false
 	}
 	sess.wake()
@@ -405,12 +405,12 @@ func (s *Server) onUpstreamMessage(channel string, data []byte) {
 		return
 	}
 
-	s.engine.Publish(channel, data, 0, func(id engine.SubscriberID, ch string, d []byte) bool {
+	s.engine.Publish(channel, data, 0, func(id engine.SubscriberID, d engine.Delivery) bool {
 		sess, ok := s.getSession(int(id))
 		if !ok {
 			return false
 		}
-		return sess.DeliverMessage(ch, d)
+		return sess.DeliverMessage(d)
 	})
 }
 
@@ -570,12 +570,12 @@ func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 		if sess.relay.store != nil {
 			sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, sess.relay.store.Deliver)
 		} else {
-			sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, func(id engine.SubscriberID, ch string, d []byte) bool {
+			sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, func(id engine.SubscriberID, d engine.Delivery) bool {
 				other, ok := sess.relay.getSession(int(id))
 				if !ok {
 					return false
 				}
-				return other.DeliverMessage(ch, d)
+				return other.DeliverMessage(d)
 			})
 		}
 	}

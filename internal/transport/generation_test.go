@@ -12,10 +12,10 @@ type fakeSender struct {
 	received [][]byte
 }
 
-func (f *fakeSender) DeliverMessage(channel string, data []byte) bool {
+func (f *fakeSender) DeliverMessage(d engine.Delivery) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.received = append(f.received, data)
+	f.received = append(f.received, d.Data)
 	return true
 }
 
@@ -43,14 +43,14 @@ func TestDeliverDropsStaleGenerationAfterSlotReuse(t *testing.T) {
 	b := &fakeSender{}
 	store.Register(idB, b)
 
-	if store.Deliver(idA, "foo", []byte("stale")) {
+	if store.Deliver(idA, engine.Delivery{Channel: "foo", Data: []byte("stale")}) {
 		t.Fatal("stale-generation delivery to a reused slot reported success")
 	}
 	if b.count() != 0 {
 		t.Fatalf("reused session received %d stale messages, want 0", b.count())
 	}
 
-	if !store.Deliver(idB, "foo", []byte("live")) {
+	if !store.Deliver(idB, engine.Delivery{Channel: "foo", Data: []byte("live")}) {
 		t.Fatal("live delivery to the current session failed")
 	}
 	if b.count() != 1 {
@@ -65,7 +65,7 @@ func TestDeliverBareIDStillWorks(t *testing.T) {
 	s := &fakeSender{}
 	store.Register(id, s)
 
-	if !store.Deliver(id, "foo", []byte("x")) {
+	if !store.Deliver(id, engine.Delivery{Channel: "foo", Data: []byte("x")}) {
 		t.Fatal("bare-id delivery failed")
 	}
 	if s.count() != 1 {

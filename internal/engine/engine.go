@@ -11,7 +11,17 @@ import (
 
 type SubscriberID uint64
 
-type DeliveryFunc func(id SubscriberID, channel string, data []byte) bool
+// Delivery is one publication as handed to a subscriber: the payload plus
+// the identity the engine assigned to it. Offsets are monotonic per channel
+// and only comparable within the same epoch.
+type Delivery struct {
+	Channel string
+	Data    []byte
+	Offset  uint64
+	Epoch   uint64
+}
+
+type DeliveryFunc func(id SubscriberID, d Delivery) bool
 
 type MetricsObserver interface {
 	ObservePublishDuration(seconds float64)
@@ -20,6 +30,8 @@ type MetricsObserver interface {
 
 type PublishResult struct {
 	Channel   string
+	Offset    uint64
+	Epoch     uint64
 	Delivered int
 	Dropped   int
 }
@@ -207,18 +219,27 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	}
 	defer ch.Release()
 
+	d := Delivery{
+		Channel: channel,
+		Data:    data,
+		Offset:  ch.offset.Add(1),
+		Epoch:   ch.epoch,
+	}
+	result.Offset = d.Offset
+	result.Epoch = d.Epoch
+
 	subscribers := ch.Subscribers()
 
 	// Use parallel fan-out for high-subscriber channels to reduce
 	// publish latency by distributing delivery across multiple goroutines.
 	if len(subscribers) >= e.config.fanoutThreshold && e.config.fanoutWorkers > 1 {
-		result.Delivered, result.Dropped = e.parallelFanout(subscribers, channel, data, exclude, deliver)
+		result.Delivered, result.Dropped = e.parallelFanout(subscribers, d, exclude, deliver)
 	} else {
 		for _, id := range subscribers {
 			if id == exclude {
 				continue
 			}
-			if deliver(id, channel, data) {
+			if deliver(id, d) {
 				result.Delivered++
 			} else {
 				result.Dropped++

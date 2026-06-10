@@ -15,7 +15,7 @@ type stubSender struct {
 	calls atomic.Int64
 }
 
-func (s *stubSender) DeliverMessage(_ string, _ []byte) bool {
+func (s *stubSender) DeliverMessage(_ engine.Delivery) bool {
 	s.calls.Add(1)
 	return true
 }
@@ -25,7 +25,7 @@ func TestSessionStore_LegacyRegisterDeliverUnregister(t *testing.T) {
 	sender := &stubSender{}
 
 	s.Register(42, sender)
-	if !s.Deliver(42, "ch", []byte("x")) {
+	if !s.Deliver(42, engine.Delivery{Channel: "ch", Data: []byte("x")}) {
 		t.Fatal("Deliver after Register returned false")
 	}
 	if got := sender.calls.Load(); got != 1 {
@@ -33,7 +33,7 @@ func TestSessionStore_LegacyRegisterDeliverUnregister(t *testing.T) {
 	}
 
 	s.Unregister(42)
-	if s.Deliver(42, "ch", []byte("x")) {
+	if s.Deliver(42, engine.Delivery{Channel: "ch", Data: []byte("x")}) {
 		t.Error("Deliver after Unregister should return false")
 	}
 }
@@ -47,7 +47,7 @@ func TestSessionStore_FlatInRangeUsesArray(t *testing.T) {
 	if idx, ok := s.slotFor(105); !ok || idx != 5 {
 		t.Fatalf("slotFor(105): want (5, true), got (%d, %v)", idx, ok)
 	}
-	if !s.Deliver(105, "a", []byte("b")) {
+	if !s.Deliver(105, engine.Delivery{Channel: "a", Data: []byte("b")}) {
 		t.Fatal("in-range Deliver returned false")
 	}
 }
@@ -60,12 +60,12 @@ func TestSessionStore_FlatBelowBaseUsesOverflow(t *testing.T) {
 	if idx, ok := s.slotFor(50); ok {
 		t.Fatalf("slotFor(50): expected overflow, got idx=%d ok=%v", idx, ok)
 	}
-	if !s.Deliver(50, "a", []byte("b")) {
+	if !s.Deliver(50, engine.Delivery{Channel: "a", Data: []byte("b")}) {
 		t.Fatal("below-base Deliver returned false")
 	}
 
 	s.Unregister(50)
-	if s.Deliver(50, "a", []byte("b")) {
+	if s.Deliver(50, engine.Delivery{Channel: "a", Data: []byte("b")}) {
 		t.Error("below-base Deliver after Unregister should return false")
 	}
 }
@@ -78,7 +78,7 @@ func TestSessionStore_FlatAboveRangeUsesOverflow(t *testing.T) {
 	if _, ok := s.slotFor(200); ok {
 		t.Fatal("slotFor(200): expected overflow")
 	}
-	if !s.Deliver(200, "a", []byte("b")) {
+	if !s.Deliver(200, engine.Delivery{Channel: "a", Data: []byte("b")}) {
 		t.Fatal("above-range Deliver returned false")
 	}
 }
@@ -106,9 +106,9 @@ func TestSessionStore_FlatBoundaryIDs(t *testing.T) {
 	}
 
 	// All three should deliver.
-	s.Deliver(base, "x", nil)
-	s.Deliver(base+cap-1, "x", nil)
-	s.Deliver(base+cap, "x", nil)
+	s.Deliver(base, engine.Delivery{Channel: "x", Data: nil})
+	s.Deliver(base+cap-1, engine.Delivery{Channel: "x", Data: nil})
+	s.Deliver(base+cap, engine.Delivery{Channel: "x", Data: nil})
 	for name, sender := range map[string]*stubSender{
 		"first": first, "last": last, "afterLast": afterLast,
 	} {
@@ -120,10 +120,10 @@ func TestSessionStore_FlatBoundaryIDs(t *testing.T) {
 
 func TestSessionStore_DeliverUnknownIDReturnsFalse(t *testing.T) {
 	s := NewFlatSessionStore(0, 8)
-	if s.Deliver(3, "x", nil) {
+	if s.Deliver(3, engine.Delivery{Channel: "x", Data: nil}) {
 		t.Error("Deliver on empty slot should return false")
 	}
-	if s.Deliver(99, "x", nil) {
+	if s.Deliver(99, engine.Delivery{Channel: "x", Data: nil}) {
 		t.Error("Deliver on overflow miss should return false")
 	}
 }
@@ -134,7 +134,7 @@ func TestSessionStore_RegisterOverwrites(t *testing.T) {
 	b := &stubSender{}
 	s.Register(1, a)
 	s.Register(1, b) // overwrite
-	s.Deliver(1, "x", nil)
+	s.Deliver(1, engine.Delivery{Channel: "x", Data: nil})
 	if a.calls.Load() != 0 {
 		t.Errorf("old sender should not have been called, got %d", a.calls.Load())
 	}
@@ -152,7 +152,7 @@ func TestSessionStore_ZeroCapacityFallsBackToLegacy(t *testing.T) {
 	// Still functional.
 	sender := &stubSender{}
 	s.Register(42, sender)
-	s.Deliver(42, "x", nil)
+	s.Deliver(42, engine.Delivery{Channel: "x", Data: nil})
 	if sender.calls.Load() != 1 {
 		t.Errorf("legacy-mode call count: want 1, got %d", sender.calls.Load())
 	}
@@ -175,7 +175,7 @@ func TestSessionStore_ConcurrentRegisterDeliver(t *testing.T) {
 				id := engine.SubscriberID((g*perProducer + i) % 128)
 				sender := &stubSender{}
 				s.Register(id, sender)
-				_ = s.Deliver(id, "ch", nil)
+				_ = s.Deliver(id, engine.Delivery{Channel: "ch", Data: nil})
 				s.Unregister(id)
 			}
 		}(g)
@@ -205,7 +205,7 @@ func TestSessionStore_MixedFlatAndOverflow(t *testing.T) {
 		{999, false, nil},  // below base — overflow miss
 	}
 	for _, tt := range tests {
-		got := s.Deliver(tt.id, "x", nil)
+		got := s.Deliver(tt.id, engine.Delivery{Channel: "x", Data: nil})
 		if got != tt.want {
 			t.Errorf("Deliver(%d): want %v, got %v", tt.id, tt.want, got)
 		}

@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
+	"github.com/mateusfdl/gentis/internal/engine"
 )
 
 var serverMsgPool = sync.Pool{
@@ -16,11 +17,13 @@ var serverMsgPool = sync.Pool{
 	},
 }
 
-func getServerMsg(channel string, data []byte) *gentisv1.ServerMessage {
+func getServerMsg(d engine.Delivery) *gentisv1.ServerMessage {
 	msg := serverMsgPool.Get().(*gentisv1.ServerMessage)
 	cm := msg.Message.(*gentisv1.ServerMessage_ChannelMessage)
-	cm.ChannelMessage.Channel = channel
-	cm.ChannelMessage.Data = data
+	cm.ChannelMessage.Channel = d.Channel
+	cm.ChannelMessage.Data = d.Data
+	cm.ChannelMessage.Offset = d.Offset
+	cm.ChannelMessage.Epoch = d.Epoch
 	return msg
 }
 
@@ -28,6 +31,8 @@ func putServerMsg(msg *gentisv1.ServerMessage) {
 	cm := msg.Message.(*gentisv1.ServerMessage_ChannelMessage)
 	cm.ChannelMessage.Channel = ""
 	cm.ChannelMessage.Data = nil
+	cm.ChannelMessage.Offset = 0
+	cm.ChannelMessage.Epoch = 0
 	serverMsgPool.Put(msg)
 }
 

@@ -22,8 +22,8 @@ type Session struct {
 	cancel context.CancelFunc
 }
 
-func (s *Session) DeliverMessage(channel string, data []byte) bool {
-	msg := getWSMsg(channel, data)
+func (s *Session) DeliverMessage(d engine.Delivery) bool {
+	msg := getWSMsg(d)
 	if s.server.config.OnDeliveryLatency != nil {
 		msg.enqueuedAt = time.Now()
 	}
@@ -32,7 +32,7 @@ func (s *Session) DeliverMessage(channel string, data []byte) bool {
 		return true
 	default:
 		putWSMsg(msg)
-		s.server.logger.Warn("message dropped, send buffer full", "channel", channel, "session_id", s.id)
+		s.server.logger.Warn("message dropped, send buffer full", "channel", d.Channel, "session_id", s.id)
 		return false
 	}
 }
