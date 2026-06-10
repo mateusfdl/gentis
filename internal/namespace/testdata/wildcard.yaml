@@ -1,0 +1,7 @@
+default:
+  allow_publish: true
+namespaces:
+  metrics:
+    allow_wildcard: true
+  logs:
+    history_size: 10

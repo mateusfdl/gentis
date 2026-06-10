@@ -237,6 +237,37 @@ func TestLoadFileFanoutMode(t *testing.T) {
 	}
 }
 
+func TestLoadFileAllowWildcard(t *testing.T) {
+	reg, err := LoadFile("testdata/wildcard.yaml")
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	tests := []struct {
+		channel string
+		want    bool
+	}{
+		{channel: "metrics:x", want: true},
+		{channel: "logs:x", want: false},
+		{channel: "plain", want: false},
+	}
+	for _, tt := range tests {
+		got, ok := reg.Resolve(tt.channel)
+		if !ok {
+			t.Fatalf("Resolve(%q) failed", tt.channel)
+		}
+		if got.AllowWildcard != tt.want {
+			t.Errorf("Resolve(%q).AllowWildcard = %v, want %v", tt.channel, got.AllowWildcard, tt.want)
+		}
+	}
+}
+
+func TestLoadFileWildcardRequiresBroadcast(t *testing.T) {
+	if _, err := LoadFile("testdata/wildcard_bad_fanout.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("allow_wildcard with round_robin: err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestLoadFileFanoutBadValue(t *testing.T) {
 	if _, err := LoadFile("testdata/fanout_bad.yaml"); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("bad fanout_mode: err = %v, want ErrInvalidConfig", err)

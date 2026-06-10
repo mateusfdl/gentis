@@ -51,6 +51,11 @@ type Settings struct {
 	// Fanout selects the delivery strategy for channels in this
 	// namespace.
 	Fanout FanoutMode
+
+	// AllowWildcard admits pattern subscriptions ("metrics:*") in this
+	// namespace. Pattern deliveries are broadcast-only, so the option is
+	// incompatible with round_robin and priority fanout.
+	AllowWildcard bool
 }
 
 type Config struct {
@@ -117,6 +122,7 @@ type settingsYAML struct {
 	MaxSubscribers    *int           `yaml:"max_subscribers"`
 	QoS               *string        `yaml:"qos"`
 	Fanout            *string        `yaml:"fanout_mode"`
+	AllowWildcard     *bool          `yaml:"allow_wildcard"`
 	RedeliveryTimeout *time.Duration `yaml:"redelivery_timeout"`
 	MaxRedeliveries   *int           `yaml:"max_redeliveries"`
 }
@@ -226,6 +232,12 @@ func toSettings(name string, raw settingsYAML) (Settings, error) {
 			return Settings{}, fmt.Errorf("%w: namespace %q max_redeliveries must be >= 0", ErrInvalidConfig, name)
 		}
 		s.MaxRedeliveries = *raw.MaxRedeliveries
+	}
+	if raw.AllowWildcard != nil {
+		s.AllowWildcard = *raw.AllowWildcard
+	}
+	if s.AllowWildcard && s.Fanout != Broadcast {
+		return Settings{}, fmt.Errorf("%w: namespace %q allow_wildcard requires broadcast fanout", ErrInvalidConfig, name)
 	}
 	if s.QoS == AtLeastOnce {
 		if s.HistorySize <= 0 {

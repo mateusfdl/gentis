@@ -1,0 +1,6 @@
+default:
+  allow_publish: true
+namespaces:
+  tasks:
+    allow_wildcard: true
+    fanout_mode: round_robin
