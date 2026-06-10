@@ -1,0 +1,3 @@
+namespaces:
+  tasks:
+    fanout_mode: random

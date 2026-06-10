@@ -2,7 +2,10 @@ package engine
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
+
+	"github.com/mateusfdl/gentis/internal/namespace"
 )
 
 func BenchmarkSubscribe(b *testing.B) {
@@ -229,6 +232,32 @@ func BenchmarkShardDistribution(b *testing.B) {
 					e.Subscribe(id, fmt.Sprintf("channel-%d", id%100))
 				}
 			})
+		})
+	}
+}
+
+func BenchmarkPublishRoundRobin(b *testing.B) {
+	for _, subs := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprintf("subs=%d", subs), func(b *testing.B) {
+			e := New(WithNamespaces(namespace.NewRegistry(namespace.Config{
+				Default: namespace.Settings{AllowPublish: true, Fanout: namespace.RoundRobin},
+			})))
+			defer e.Stop()
+
+			for i := 1; i <= subs; i++ {
+				e.Subscribe(SubscriberID(i), "rr-bench")
+			}
+			var sink atomic.Int64
+			deliver := func(SubscriberID, Delivery) bool {
+				sink.Add(1)
+				return true
+			}
+			data := make([]byte, 64)
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				e.Publish("rr-bench", data, 0, deliver)
+			}
 		})
 	}
 }

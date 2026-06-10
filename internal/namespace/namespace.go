@@ -23,6 +23,19 @@ const (
 	AtLeastOnce
 )
 
+type FanoutMode int
+
+const (
+	// Broadcast delivers every publication to every subscriber.
+	Broadcast FanoutMode = iota
+	// RoundRobin delivers each publication to exactly one subscriber,
+	// rotating through them: a work queue.
+	RoundRobin
+	// Priority delivers to the highest-priority cohort of subscribers
+	// only; lower cohorts are standby and take over on disconnect.
+	Priority
+)
+
 type Settings struct {
 	HistorySize    int
 	HistoryTTL     time.Duration
@@ -34,6 +47,10 @@ type Settings struct {
 	QoS               QoSLevel
 	RedeliveryTimeout time.Duration
 	MaxRedeliveries   int
+
+	// Fanout selects the delivery strategy for channels in this
+	// namespace.
+	Fanout FanoutMode
 }
 
 type Config struct {
@@ -99,6 +116,7 @@ type settingsYAML struct {
 	AllowPublish      *bool          `yaml:"allow_publish"`
 	MaxSubscribers    *int           `yaml:"max_subscribers"`
 	QoS               *string        `yaml:"qos"`
+	Fanout            *string        `yaml:"fanout_mode"`
 	RedeliveryTimeout *time.Duration `yaml:"redelivery_timeout"`
 	MaxRedeliveries   *int           `yaml:"max_redeliveries"`
 }
@@ -183,6 +201,18 @@ func toSettings(name string, raw settingsYAML) (Settings, error) {
 			s.QoS = AtLeastOnce
 		default:
 			return Settings{}, fmt.Errorf("%w: namespace %q qos must be at-most-once or at-least-once, got %q", ErrInvalidConfig, name, *raw.QoS)
+		}
+	}
+	if raw.Fanout != nil {
+		switch *raw.Fanout {
+		case "broadcast":
+			s.Fanout = Broadcast
+		case "round_robin":
+			s.Fanout = RoundRobin
+		case "priority":
+			s.Fanout = Priority
+		default:
+			return Settings{}, fmt.Errorf("%w: namespace %q fanout_mode must be broadcast, round_robin, or priority, got %q", ErrInvalidConfig, name, *raw.Fanout)
 		}
 	}
 	if raw.RedeliveryTimeout != nil {

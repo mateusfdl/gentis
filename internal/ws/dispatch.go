@@ -157,7 +157,7 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 		return
 	}
 
-	if err := h.Engine().Subscribe(engine.SubscriberID(h.ID()), req.Channel); err != nil {
+	if err := h.Engine().SubscribePriority(engine.SubscriberID(h.ID()), req.Channel, int(req.Priority)); err != nil {
 		h.SendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}

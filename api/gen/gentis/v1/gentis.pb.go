@@ -733,8 +733,12 @@ type SubscribeRequest struct {
 	Channel        string                 `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
 	Recover        *RecoverPoint          `protobuf:"bytes,2,opt,name=recover,proto3" json:"recover,omitempty"`
 	MaxUnconfirmed *UnconfirmedWindow     `protobuf:"bytes,3,opt,name=max_unconfirmed,json=maxUnconfirmed,proto3" json:"max_unconfirmed,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// priority ranks this consumer in priority fan-out namespaces: only the
+	// highest-priority cohort receives deliveries, lower cohorts are
+	// standby. Ignored in broadcast and round_robin namespaces.
+	Priority      int32 `protobuf:"varint,4,opt,name=priority,proto3" json:"priority,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SubscribeRequest) Reset() {
@@ -786,6 +790,13 @@ func (x *SubscribeRequest) GetMaxUnconfirmed() *UnconfirmedWindow {
 		return x.MaxUnconfirmed
 	}
 	return nil
+}
+
+func (x *SubscribeRequest) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
 }
 
 // UnconfirmedWindow is the consumer's advertised credit: how many
@@ -1473,11 +1484,12 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"auth_token\x18\x01 \x01(\tR\tauthToken\"0\n" +
 	"\x0fRefreshResponse\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x01 \x01(\x04R\texpiresAt\"\xa6\x01\n" +
+	"expires_at\x18\x01 \x01(\x04R\texpiresAt\"\xc2\x01\n" +
 	"\x10SubscribeRequest\x12\x18\n" +
 	"\achannel\x18\x01 \x01(\tR\achannel\x121\n" +
 	"\arecover\x18\x02 \x01(\v2\x17.gentis.v1.RecoverPointR\arecover\x12E\n" +
-	"\x0fmax_unconfirmed\x18\x03 \x01(\v2\x1c.gentis.v1.UnconfirmedWindowR\x0emaxUnconfirmed\"?\n" +
+	"\x0fmax_unconfirmed\x18\x03 \x01(\v2\x1c.gentis.v1.UnconfirmedWindowR\x0emaxUnconfirmed\x12\x1a\n" +
+	"\bpriority\x18\x04 \x01(\x05R\bpriority\"?\n" +
 	"\x11UnconfirmedWindow\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\rR\x05count\x12\x14\n" +
 	"\x05bytes\x18\x02 \x01(\x04R\x05bytes\"B\n" +

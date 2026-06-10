@@ -644,7 +644,7 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 
 	route := sess.relay.router.Route(req.Channel)
 
-	if err := sess.relay.engine.Subscribe(sess.subID, req.Channel); err != nil {
+	if err := sess.relay.engine.SubscribePriority(sess.subID, req.Channel, int(req.Priority)); err != nil {
 		sess.sendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}

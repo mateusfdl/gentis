@@ -211,3 +211,34 @@ func TestLoadFileQoSBadValue(t *testing.T) {
 		t.Fatalf("bad qos value: err = %v, want ErrInvalidConfig", err)
 	}
 }
+
+func TestLoadFileFanoutMode(t *testing.T) {
+	reg, err := LoadFile("testdata/fanout.yaml")
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	tests := []struct {
+		channel string
+		want    FanoutMode
+	}{
+		{channel: "tasks:x", want: RoundRobin},
+		{channel: "alerts:x", want: Priority},
+		{channel: "plain", want: Broadcast},
+	}
+	for _, tt := range tests {
+		got, ok := reg.Resolve(tt.channel)
+		if !ok {
+			t.Fatalf("Resolve(%q) failed", tt.channel)
+		}
+		if got.Fanout != tt.want {
+			t.Errorf("Resolve(%q).Fanout = %v, want %v", tt.channel, got.Fanout, tt.want)
+		}
+	}
+}
+
+func TestLoadFileFanoutBadValue(t *testing.T) {
+	if _, err := LoadFile("testdata/fanout_bad.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("bad fanout_mode: err = %v, want ErrInvalidConfig", err)
+	}
+}

@@ -88,6 +88,10 @@ message SubscribeRequest {
   string channel = 1;
   RecoverPoint recover = 2;
   UnconfirmedWindow max_unconfirmed = 3;
+  // priority ranks this consumer in priority fan-out namespaces: only the
+  // highest-priority cohort receives deliveries, lower cohorts are
+  // standby. Ignored in broadcast and round_robin namespaces.
+  int32 priority = 4;
 }
 
 // UnconfirmedWindow is the consumer's advertised credit: how many

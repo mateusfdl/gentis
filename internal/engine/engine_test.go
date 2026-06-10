@@ -990,3 +990,202 @@ func TestCheckPublishWithoutRegistry(t *testing.T) {
 		t.Fatalf("CheckPublish without registry = %v, want nil", err)
 	}
 }
+
+func fanoutRegistry() *namespace.Registry {
+	return namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"tasks":  {AllowPublish: true, Fanout: namespace.RoundRobin},
+			"alerts": {AllowPublish: true, Fanout: namespace.Priority},
+		},
+	})
+}
+
+type deliveryRecorder struct {
+	mu     sync.Mutex
+	byID   map[SubscriberID][]uint64
+	refuse map[SubscriberID]bool
+}
+
+func newDeliveryRecorder() *deliveryRecorder {
+	return &deliveryRecorder{byID: make(map[SubscriberID][]uint64), refuse: make(map[SubscriberID]bool)}
+}
+
+func (r *deliveryRecorder) deliver(id SubscriberID, d Delivery) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.refuse[id] {
+		return false
+	}
+	r.byID[id] = append(r.byID[id], d.Offset)
+	return true
+}
+
+func (r *deliveryRecorder) counts() map[SubscriberID]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[SubscriberID]int, len(r.byID))
+	for id, offs := range r.byID {
+		out[id] = len(offs)
+	}
+	return out
+}
+
+func TestRoundRobinDistributesEvenly(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	for id := SubscriberID(1); id <= 3; id++ {
+		if err := e.Subscribe(id, "tasks:q"); err != nil {
+			t.Fatalf("subscribe %d: %v", id, err)
+		}
+	}
+
+	for i := 0; i < 6; i++ {
+		r := e.Publish("tasks:q", []byte("job"), 0, rec.deliver)
+		if r.Delivered != 1 {
+			t.Fatalf("publish %d delivered %d, want exactly 1", i, r.Delivered)
+		}
+	}
+
+	for id, n := range rec.counts() {
+		if n != 2 {
+			t.Fatalf("subscriber %d got %d jobs, want 2 each: %v", id, n, rec.counts())
+		}
+	}
+}
+
+func TestRoundRobinSkipsFailedSubscriber(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+	rec.refuse[2] = true
+
+	for id := SubscriberID(1); id <= 3; id++ {
+		e.Subscribe(id, "tasks:q")
+	}
+
+	for i := 0; i < 6; i++ {
+		r := e.Publish("tasks:q", []byte("job"), 0, rec.deliver)
+		if r.Delivered != 1 {
+			t.Fatalf("publish %d delivered %d, want 1 (failed subscriber skipped)", i, r.Delivered)
+		}
+	}
+
+	counts := rec.counts()
+	if counts[2] != 0 {
+		t.Fatalf("refusing subscriber got %d jobs, want 0", counts[2])
+	}
+	if counts[1]+counts[3] != 6 {
+		t.Fatalf("healthy subscribers got %d jobs total, want 6: %v", counts[1]+counts[3], counts)
+	}
+}
+
+func TestRoundRobinExcludesPublisher(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	e.Subscribe(1, "tasks:q")
+	e.Subscribe(2, "tasks:q")
+
+	for i := 0; i < 4; i++ {
+		e.Publish("tasks:q", []byte("job"), 1, rec.deliver)
+	}
+
+	counts := rec.counts()
+	if counts[1] != 0 || counts[2] != 4 {
+		t.Fatalf("counts = %v, want all 4 on subscriber 2 (publisher excluded)", counts)
+	}
+}
+
+func TestRoundRobinAllRefusedDrops(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+	rec.refuse[1] = true
+
+	e.Subscribe(1, "tasks:q")
+
+	r := e.Publish("tasks:q", []byte("job"), 0, rec.deliver)
+	if r.Delivered != 0 || r.Dropped != 1 {
+		t.Fatalf("delivered=%d dropped=%d, want 0/1", r.Delivered, r.Dropped)
+	}
+}
+
+func TestRoundRobinSubscriberChurn(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	e.Subscribe(1, "tasks:q")
+	e.Subscribe(2, "tasks:q")
+	e.Publish("tasks:q", []byte("a"), 0, rec.deliver)
+	e.Unsubscribe(2, "tasks:q")
+	e.Publish("tasks:q", []byte("b"), 0, rec.deliver)
+	e.Publish("tasks:q", []byte("c"), 0, rec.deliver)
+
+	counts := rec.counts()
+	if counts[1]+counts[2] != 3 {
+		t.Fatalf("total deliveries = %d, want 3: %v", counts[1]+counts[2], counts)
+	}
+	if counts[1] < 2 {
+		t.Fatalf("remaining subscriber got %d, want >= 2: %v", counts[1], counts)
+	}
+}
+
+func TestPriorityDeliversToTopCohortOnly(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	e.SubscribePriority(1, "alerts:pager", 1)
+	e.SubscribePriority(2, "alerts:pager", 5)
+	e.SubscribePriority(3, "alerts:pager", 5)
+
+	r := e.Publish("alerts:pager", []byte("alert"), 0, rec.deliver)
+	if r.Delivered != 2 {
+		t.Fatalf("delivered %d, want 2 (top cohort only)", r.Delivered)
+	}
+
+	counts := rec.counts()
+	if counts[1] != 0 || counts[2] != 1 || counts[3] != 1 {
+		t.Fatalf("counts = %v, want only subscribers 2 and 3", counts)
+	}
+}
+
+func TestPriorityFallsBackOnDisconnect(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	e.SubscribePriority(1, "alerts:pager", 1)
+	e.SubscribePriority(2, "alerts:pager", 5)
+
+	e.Unsubscribe(2, "alerts:pager")
+
+	r := e.Publish("alerts:pager", []byte("alert"), 0, rec.deliver)
+	if r.Delivered != 1 {
+		t.Fatalf("delivered %d, want 1 (standby takes over)", r.Delivered)
+	}
+	if rec.counts()[1] != 1 {
+		t.Fatalf("counts = %v, want standby subscriber 1", rec.counts())
+	}
+}
+
+func TestPriorityHigherJoinerTakesOver(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	e.SubscribePriority(1, "alerts:pager", 1)
+	e.SubscribePriority(2, "alerts:pager", 9)
+
+	e.Publish("alerts:pager", []byte("alert"), 0, rec.deliver)
+
+	counts := rec.counts()
+	if counts[1] != 0 || counts[2] != 1 {
+		t.Fatalf("counts = %v, want only the higher-priority joiner", counts)
+	}
+}

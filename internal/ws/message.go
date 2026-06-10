@@ -37,6 +37,7 @@ type SubscribeRequest struct {
 	Channel        string             `json:"channel"`
 	Recover        *RecoverPoint      `json:"recover,omitempty"`
 	MaxUnconfirmed *UnconfirmedWindow `json:"max_unconfirmed,omitempty"`
+	Priority       int32              `json:"priority,omitempty"`
 }
 
 type UnconfirmedWindow struct {

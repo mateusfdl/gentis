@@ -1,0 +1,7 @@
+default:
+  allow_publish: true
+namespaces:
+  tasks:
+    fanout_mode: round_robin
+  alerts:
+    fanout_mode: priority

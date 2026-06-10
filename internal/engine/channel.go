@@ -5,6 +5,8 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+
+	"github.com/mateusfdl/gentis/internal/namespace"
 )
 
 type Channel struct {
@@ -19,6 +21,15 @@ type Channel struct {
 	gen         atomic.Uint64 // incremented on each pool reuse to prevent ABA races
 	hist        *history      // nil unless the engine enables history
 	maxSubs     int           // namespace subscriber cap, 0 = unlimited
+
+	fanout namespace.FanoutMode
+	rr     atomic.Uint64 // round-robin rotation cursor
+
+	// prios and topCohort exist only in priority mode: prios maps each
+	// subscriber to its rank, topCohort caches the highest-rank cohort so
+	// the publish path reads one pointer instead of sorting.
+	prios     map[SubscriberID]int
+	topCohort atomic.Pointer[[]SubscriberID]
 }
 
 func newEpoch() uint64 {
@@ -84,6 +95,10 @@ func (c *Channel) returnToPool(expectedGen uint64) {
 	c.epoch = 0
 	c.hist = nil
 	c.maxSubs = 0
+	c.fanout = namespace.Broadcast
+	c.rr.Store(0)
+	c.prios = nil
+	c.topCohort.Store(nil)
 	c.subscribers.Store(nil)
 	channelPool.Put(c)
 }
@@ -173,6 +188,53 @@ func (c *Channel) Subscribers() []SubscriberID {
 	}
 
 	return *ptr
+}
+
+// setPriority records a subscriber's rank and rebuilds the cached top
+// cohort. Caller must already hold the subscription serialization the
+// engine provides (shard lock); c.mu guards against concurrent readers.
+func (c *Channel) setPriority(id SubscriberID, prio int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.prios == nil {
+		c.prios = make(map[SubscriberID]int)
+	}
+	c.prios[id] = prio
+	c.rebuildTopCohortLocked()
+}
+
+func (c *Channel) clearPriority(id SubscriberID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.prios == nil {
+		return
+	}
+	delete(c.prios, id)
+	c.rebuildTopCohortLocked()
+}
+
+func (c *Channel) rebuildTopCohortLocked() {
+	if len(c.prios) == 0 {
+		empty := make([]SubscriberID, 0)
+		c.topCohort.Store(&empty)
+		return
+	}
+	max := false
+	best := 0
+	for _, p := range c.prios {
+		if !max || p > best {
+			best = p
+			max = true
+		}
+	}
+	cohort := make([]SubscriberID, 0, len(c.prios))
+	for id, p := range c.prios {
+		if p == best {
+			cohort = append(cohort, id)
+		}
+	}
+	slices.Sort(cohort)
+	c.topCohort.Store(&cohort)
 }
 
 func (c *Channel) SubscriberCount() int {

@@ -126,6 +126,13 @@ func New(opts ...Option) *Engine {
 }
 
 func (e *Engine) Subscribe(id SubscriberID, channelName string) error {
+	return e.SubscribePriority(id, channelName, 0)
+}
+
+// SubscribePriority subscribes with a consumer rank. The rank only
+// matters in priority fan-out namespaces, where the highest-rank cohort
+// receives deliveries and everyone else is standby.
+func (e *Engine) SubscribePriority(id SubscriberID, channelName string, prio int) error {
 	e.subscribeOps.Add(1)
 
 	s := e.getShard(channelName)
@@ -143,6 +150,7 @@ func (e *Engine) Subscribe(id SubscriberID, channelName string) error {
 			ch.hist = newHistory(settings.HistorySize, settings.HistoryTTL)
 		}
 		ch.maxSubs = settings.MaxSubscribers
+		ch.fanout = settings.Fanout
 		s.channels[channelName] = ch
 		if len(s.channels) > s.peak {
 			s.peak = len(s.channels)
@@ -159,11 +167,41 @@ func (e *Engine) Subscribe(id SubscriberID, channelName string) error {
 		s.mu.Unlock()
 		return ErrAlreadySubscribed
 	}
+	if ch.fanout == namespace.Priority {
+		ch.setPriority(id, prio)
+	}
 	s.mu.Unlock()
 
 	e.subscriptions.Add(id, channelName)
 	e.subscriptionCount.Add(1)
 	return nil
+}
+
+// roundRobinDeliver hands the publication to exactly one subscriber,
+// rotating through the set. A subscriber that refuses (full buffer) is
+// skipped and the next one is tried; the message counts as dropped only
+// when every candidate refused.
+func roundRobinDeliver(ch *Channel, subs []SubscriberID, d Delivery, exclude SubscriberID, deliver DeliveryFunc) (int, int) {
+	n := uint64(len(subs))
+	if n == 0 {
+		return 0, 0
+	}
+	start := ch.rr.Add(1)
+	tried := 0
+	for i := uint64(0); i < n; i++ {
+		id := subs[(start+i)%n]
+		if id == exclude {
+			continue
+		}
+		tried++
+		if deliver(id, d) {
+			return 1, 0
+		}
+	}
+	if tried == 0 {
+		return 0, 0
+	}
+	return 0, 1
 }
 
 // channelSettings resolves the namespace settings governing a new channel.
@@ -225,6 +263,9 @@ func (e *Engine) Unsubscribe(id SubscriberID, channelName string) bool {
 		s.mu.Unlock()
 		return false
 	}
+	if ch.fanout == namespace.Priority {
+		ch.clearPriority(id)
+	}
 
 	// Channels with history outlive their last subscriber so reconnecting
 	// clients can recover; the TTL sweeper reaps them once drained.
@@ -252,6 +293,9 @@ func (e *Engine) UnsubscribeAll(id SubscriberID) {
 		ch, ok := s.channels[channelName]
 		if ok {
 			if ch.Unsubscribe(id) {
+				if ch.fanout == namespace.Priority {
+					ch.clearPriority(id)
+				}
 				e.subscriptionCount.Add(-1)
 			}
 			if ch.SubscriberCount() == 0 && ch.hist == nil {
@@ -311,19 +355,30 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 
 	subscribers := ch.Subscribers()
 
-	// Use parallel fan-out for high-subscriber channels to reduce
-	// publish latency by distributing delivery across multiple goroutines.
-	if len(subscribers) >= e.config.fanoutThreshold && e.config.fanoutWorkers > 1 {
-		result.Delivered, result.Dropped = e.parallelFanout(subscribers, d, exclude, deliver)
-	} else {
-		for _, id := range subscribers {
-			if id == exclude {
-				continue
-			}
-			if deliver(id, d) {
-				result.Delivered++
-			} else {
-				result.Dropped++
+	switch ch.fanout {
+	case namespace.RoundRobin:
+		result.Delivered, result.Dropped = roundRobinDeliver(ch, subscribers, d, exclude, deliver)
+	case namespace.Priority:
+		if cohort := ch.topCohort.Load(); cohort != nil {
+			subscribers = *cohort
+		}
+		fallthrough
+	default:
+		// Use parallel fan-out for high-subscriber channels to reduce
+		// publish latency by distributing delivery across multiple
+		// goroutines.
+		if len(subscribers) >= e.config.fanoutThreshold && e.config.fanoutWorkers > 1 {
+			result.Delivered, result.Dropped = e.parallelFanout(subscribers, d, exclude, deliver)
+		} else {
+			for _, id := range subscribers {
+				if id == exclude {
+					continue
+				}
+				if deliver(id, d) {
+					result.Delivered++
+				} else {
+					result.Dropped++
+				}
 			}
 		}
 	}

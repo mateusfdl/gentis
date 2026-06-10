@@ -275,7 +275,7 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 		return
 	}
 
-	if err := s.engine.Subscribe(s.subID, req.Channel); err != nil {
+	if err := s.engine.SubscribePriority(s.subID, req.Channel, int(req.Priority)); err != nil {
 		s.sendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}
