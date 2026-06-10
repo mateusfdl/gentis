@@ -2,13 +2,16 @@ package engine
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func appendN(h *history, from, to uint64, storedAt int64) {
+	var seq atomic.Uint64
+	seq.Store(from - 1)
 	for off := from; off <= to; off++ {
-		h.append(off, []byte(fmt.Sprintf("msg-%d", off)), storedAt)
+		h.appendNext(&seq, []byte(fmt.Sprintf("msg-%d", off)), storedAt)
 	}
 }
 
@@ -151,7 +154,8 @@ func TestHistoryReplay(t *testing.T) {
 func TestHistoryStoresSameBackingSlice(t *testing.T) {
 	h := newHistory(4, 0)
 	payload := []byte("zero-copy")
-	h.append(1, payload, 100)
+	var seq atomic.Uint64
+	h.appendNext(&seq, payload, 100)
 
 	items, ok := h.replay(0)
 	if !ok || len(items) != 1 {

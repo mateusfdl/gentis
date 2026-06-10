@@ -2,6 +2,7 @@ package engine
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,16 +35,21 @@ func newHistory(capacity int, ttl time.Duration) *history {
 	}
 }
 
-func (h *history) append(offset uint64, data []byte, now int64) {
+// appendNext assigns the next offset from seq and appends under one lock:
+// concurrent publishers would otherwise interleave assignment and append,
+// regressing lastOffset and breaking the contiguity replay depends on.
+func (h *history) appendNext(seq *atomic.Uint64, data []byte, now int64) uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	offset := seq.Add(1)
 	h.entries[h.head] = historyItem{offset: offset, data: data, storedAt: now}
 	h.head = (h.head + 1) % len(h.entries)
 	if h.count < len(h.entries) {
 		h.count++
 	}
 	h.lastOffset = offset
+	return offset
 }
 
 // replay returns the items with offset > fromOffset, oldest first. ok is

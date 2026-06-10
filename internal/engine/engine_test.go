@@ -832,6 +832,43 @@ func TestRecoverMissingChannel(t *testing.T) {
 	}
 }
 
+func TestRecoverContiguousUnderConcurrentPublishers(t *testing.T) {
+	const goroutines, perGoroutine = 8, 400
+	const total = goroutines * perGoroutine
+
+	e := New(WithHistory(total, 0))
+	defer e.Stop()
+
+	e.Subscribe(1, "hot-ch")
+	deliver := func(SubscriberID, Delivery) bool { return true }
+	epoch := e.Publish("hot-ch", []byte("seed"), 0, deliver).Epoch
+
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range perGoroutine {
+				e.Publish("hot-ch", []byte("x"), 0, deliver)
+			}
+		}()
+	}
+	wg.Wait()
+
+	got, ok := e.Recover("hot-ch", 1, epoch)
+	if !ok {
+		t.Fatal("Recover() ok = false, want true")
+	}
+	if len(got) != total {
+		t.Fatalf("Recover() returned %d deliveries, want %d", len(got), total)
+	}
+	for i, d := range got {
+		if want := uint64(i + 2); d.Offset != want {
+			t.Fatalf("delivery[%d].Offset = %d, want %d", i, d.Offset, want)
+		}
+	}
+}
+
 func TestHistorySweeperExpiresEntries(t *testing.T) {
 	e := New(WithHistory(8, 50*time.Millisecond))
 	defer e.Stop()

@@ -471,18 +471,20 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	}
 	defer ch.Release()
 
+	var offset uint64
+	if ch.hist != nil {
+		offset = ch.hist.appendNext(&ch.offset, data, time.Now().UnixNano())
+	} else {
+		offset = ch.offset.Add(1)
+	}
 	d := Delivery{
 		Channel: channel,
 		Data:    data,
-		Offset:  ch.offset.Add(1),
+		Offset:  offset,
 		Epoch:   ch.epoch,
 	}
 	result.Offset = d.Offset
 	result.Epoch = d.Epoch
-
-	if ch.hist != nil {
-		ch.hist.append(d.Offset, data, time.Now().UnixNano())
-	}
 
 	subscribers := ch.Subscribers()
 
