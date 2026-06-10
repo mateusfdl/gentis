@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
 )
 
@@ -16,7 +17,9 @@ type Sender interface {
 // arena-backed arena.ArenaState satisfy it.
 type SessionState interface {
 	IsAuthenticated() bool
-	Authenticate(token string) error
+	Authenticate(c auth.Claims) error
+	CanSubscribe(channel string) bool
+	CanPublish(channel string) bool
 	AddSubscription(channel string)
 	RemoveSubscription(channel string)
 }

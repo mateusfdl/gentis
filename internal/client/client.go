@@ -2,12 +2,14 @@ package client
 
 import (
 	"sync"
+
+	"github.com/mateusfdl/gentis/internal/auth"
 )
 
 type State struct {
 	id            int
 	authenticated bool
-	authToken     string
+	claims        auth.Claims
 	subscriptions map[string]struct{}
 	mu            sync.RWMutex
 }
@@ -23,12 +25,12 @@ func (s *State) ID() int {
 	return s.id
 }
 
-func (s *State) Authenticate(token string) error {
+func (s *State) Authenticate(c auth.Claims) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.authenticated = true
-	s.authToken = token
+	s.claims = c
 	return nil
 }
 
@@ -38,10 +40,28 @@ func (s *State) IsAuthenticated() bool {
 	return s.authenticated
 }
 
-func (s *State) AuthToken() string {
+func (s *State) Subject() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.authToken
+	return s.claims.Subject
+}
+
+func (s *State) Claims() auth.Claims {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.claims
+}
+
+func (s *State) CanSubscribe(channel string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.claims.CanSubscribe(channel)
+}
+
+func (s *State) CanPublish(channel string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.claims.CanPublish(channel)
 }
 
 func (s *State) AddSubscription(channel string) {

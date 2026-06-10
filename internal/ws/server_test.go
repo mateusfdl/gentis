@@ -12,6 +12,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
@@ -449,5 +450,84 @@ func TestPublishWithoutIDGetsNoAck(t *testing.T) {
 	readJSON(t, conn, &msg)
 	if msg.Pong == nil {
 		t.Fatalf("expected Pong (no ack without id), got %+v", msg)
+	}
+}
+
+func startVerifierTestServer(t *testing.T, secret []byte) string {
+	t.Helper()
+
+	eng := engine.New()
+	store := transport.NewSessionStore()
+
+	srv := New("127.0.0.1:0",
+		WithEngine(eng),
+		WithSessionStore(store),
+		WithVerifier(auth.NewHMACVerifier(secret)),
+	)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	return srv.listener.Addr().String()
+}
+
+func TestConnectRejectsInvalidToken(t *testing.T) {
+	addr := startVerifierTestServer(t, []byte("ws-secret"))
+	conn := dialWS(t, addr)
+	defer conn.Close()
+
+	sendJSON(t, conn, map[string]any{
+		"id":      "c1",
+		"connect": map[string]any{"auth_token": "garbage"},
+	})
+
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeNotAuthenticated {
+		t.Fatalf("expected NOT_AUTHENTICATED error, got %+v", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":        "s1",
+		"subscribe": map[string]any{"channel": "ch"},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeNotAuthenticated {
+		t.Fatalf("subscribe after failed connect: got %+v, want NOT_AUTHENTICATED", resp)
+	}
+}
+
+func TestConnectAcceptsSignedToken(t *testing.T) {
+	secret := []byte("ws-secret")
+	addr := startVerifierTestServer(t, secret)
+	conn := dialWS(t, addr)
+	defer conn.Close()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	sendJSON(t, conn, map[string]any{
+		"id":      "c1",
+		"connect": map[string]any{"auth_token": token},
+	})
+
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("expected Connected, got %+v", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":        "s1",
+		"subscribe": map[string]any{"channel": "ch"},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("expected Subscribed, got %+v", resp)
 	}
 }

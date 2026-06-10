@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
@@ -16,6 +17,7 @@ type MessageHandler interface {
 	State() transport.SessionState
 	Engine() *engine.Engine
 	Store() *transport.SessionStore
+	Verifier() auth.Verifier
 	Send(msg *ServerMessage)
 	SendError(code string, message string, reqID string)
 }
@@ -64,7 +66,12 @@ func dispatchParsed(h MessageHandler, msg *ClientMessage) {
 }
 
 func handleConnect(h MessageHandler, req *ConnectRequest, reqID string) {
-	h.State().Authenticate(req.AuthToken)
+	claims, err := h.Verifier().Verify(req.AuthToken)
+	if err != nil {
+		h.SendError(ErrorCodeNotAuthenticated, "authentication failed", reqID)
+		return
+	}
+	h.State().Authenticate(claims)
 	h.Send(&ServerMessage{
 		ID: reqID,
 		Connected: &ConnectedResponse{

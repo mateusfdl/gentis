@@ -93,7 +93,13 @@ func (s *Session) handleMessage(msg *gentisv1.ClientMessage) {
 }
 
 func (s *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
-	s.state.Authenticate(req.AuthToken)
+	claims, err := s.server.config.Verifier.Verify(req.AuthToken)
+	if err != nil {
+		s.logger.Debug("authentication failed", "err", err)
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "authentication failed", reqID)
+		return
+	}
+	s.state.Authenticate(claims)
 
 	connID := fmt.Sprintf("conn-%d", s.id)
 	s.send(&gentisv1.ServerMessage{

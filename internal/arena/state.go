@@ -6,6 +6,9 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/mateusfdl/gentis/internal/auth"
 )
 
 // ArenaState is a heap-allocated wrapper around a SessionSlot that lives
@@ -24,6 +27,12 @@ type ArenaState struct {
 	idx   uint32
 	mu    sync.RWMutex
 	freed atomic.Bool
+
+	// Allowlists are variable-length so they cannot live in the
+	// fixed-layout slot; they stay on this heap wrapper. Usually nil
+	// (full access), so the GC cost is two empty slice headers.
+	channels []string
+	pub      []string
 }
 
 // NewArenaState allocates a slot from the given arena and returns a wrapper.
@@ -74,18 +83,48 @@ func (s *ArenaState) IsAuthenticated() bool {
 	return atomic.LoadUint32(&s.slot.Authenticated) == 1
 }
 
-func (s *ArenaState) Authenticate(token string) error {
+func (s *ArenaState) Authenticate(c auth.Claims) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.slot.SetAuthToken(token)
+	s.slot.SetSubject(c.Subject)
+	if c.ExpiresAt.IsZero() {
+		s.slot.ExpiresAt = 0
+	} else {
+		s.slot.ExpiresAt = c.ExpiresAt.Unix()
+	}
+	s.channels = c.Channels
+	s.pub = c.Pub
 	atomic.StoreUint32(&s.slot.Authenticated, 1)
 	return nil
 }
 
-func (s *ArenaState) AuthToken() string {
+func (s *ArenaState) Subject() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.slot.GetAuthToken()
+	return s.slot.GetSubject()
+}
+
+func (s *ArenaState) ExpiresAt() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.slot.ExpiresAt == 0 {
+		return time.Time{}
+	}
+	return time.Unix(s.slot.ExpiresAt, 0)
+}
+
+func (s *ArenaState) CanSubscribe(channel string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c := auth.Claims{Channels: s.channels}
+	return c.CanSubscribe(channel)
+}
+
+func (s *ArenaState) CanPublish(channel string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c := auth.Claims{Pub: s.pub}
+	return c.CanPublish(channel)
 }
 
 func (s *ArenaState) AddSubscription(channel string) {

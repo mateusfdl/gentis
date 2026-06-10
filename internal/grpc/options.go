@@ -3,6 +3,7 @@ package grpc
 import (
 	"log/slog"
 
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/metrics"
 	"github.com/mateusfdl/gentis/internal/transport"
@@ -16,6 +17,7 @@ type Config struct {
 	SessionStore   *transport.SessionStore
 	Observer       *metrics.Observer
 	Logger         *slog.Logger
+	Verifier       auth.Verifier
 
 	// Arena-backed session state (linux only). Default off. When enabled,
 	// session state lives in an mmap arena slot instead of on the Go heap,
@@ -64,6 +66,12 @@ func WithSessionStore(store *transport.SessionStore) Option {
 	}
 }
 
+func WithVerifier(v auth.Verifier) Option {
+	return func(c *Config) {
+		c.Verifier = v
+	}
+}
+
 func WithObserver(obs *metrics.Observer) Option {
 	return func(c *Config) {
 		c.Observer = obs
@@ -105,5 +113,6 @@ func defaultConfig(address string) *Config {
 	return &Config{
 		Address:        address,
 		MetricsEnabled: false,
+		Verifier:       auth.InsecureVerifier{},
 	}
 }

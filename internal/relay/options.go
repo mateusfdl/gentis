@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/metrics"
 	"github.com/mateusfdl/gentis/internal/transport"
@@ -22,6 +23,7 @@ type Config struct {
 	SessionStore       *transport.SessionStore
 	Observer           *metrics.Observer
 	Logger             *slog.Logger
+	Verifier           auth.Verifier
 
 	// Arena-backed session state (linux only). Default off. When enabled,
 	// session state lives in an mmap arena slot instead of on the Go heap,
@@ -90,6 +92,12 @@ func WithMetrics(addr string) Option {
 	}
 }
 
+func WithVerifier(v auth.Verifier) Option {
+	return func(c *Config) {
+		c.Verifier = v
+	}
+}
+
 func WithEngine(e *engine.Engine) Option {
 	return func(c *Config) {
 		c.Engine = e
@@ -145,6 +153,7 @@ func WithMaxSessions(n int) Option {
 
 func defaultConfig() *Config {
 	return &Config{
+		Verifier:           auth.InsecureVerifier{},
 		ListenAddr:         "127.0.0.1:9001",
 		BufferSize:         256,
 		IncomingBufferSize: 4096,

@@ -481,7 +481,13 @@ func validateChannel(name string) bool {
 }
 
 func (sess *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
-	sess.state.Authenticate(req.AuthToken)
+	claims, err := sess.relay.config.Verifier.Verify(req.AuthToken)
+	if err != nil {
+		sess.relay.logger.Debug("authentication failed", "err", err)
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "authentication failed", reqID)
+		return
+	}
+	sess.state.Authenticate(claims)
 
 	sess.send(&gentisv1.ServerMessage{
 		Id: reqID,

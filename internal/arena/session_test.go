@@ -5,24 +5,24 @@ import (
 	"testing"
 )
 
-func TestSetGetAuthToken(t *testing.T) {
+func TestSetGetSubject(t *testing.T) {
 	var s SessionSlot
-	s.SetAuthToken("my-secret-token")
+	s.SetSubject("user-42")
 
-	got := s.GetAuthToken()
-	if got != "my-secret-token" {
-		t.Fatalf("GetAuthToken() = %q, want %q", got, "my-secret-token")
+	got := s.GetSubject()
+	if got != "user-42" {
+		t.Fatalf("GetSubject() = %q, want %q", got, "user-42")
 	}
 }
 
-func TestAuthTokenTruncation(t *testing.T) {
+func TestSubjectTruncation(t *testing.T) {
 	var s SessionSlot
-	long := strings.Repeat("x", MaxAuthTokenLen+50)
-	s.SetAuthToken(long)
+	long := strings.Repeat("x", MaxSubjectLen+50)
+	s.SetSubject(long)
 
-	got := s.GetAuthToken()
-	if len(got) != MaxAuthTokenLen {
-		t.Fatalf("token len = %d, want %d", len(got), MaxAuthTokenLen)
+	got := s.GetSubject()
+	if len(got) != MaxSubjectLen {
+		t.Fatalf("subject len = %d, want %d", len(got), MaxSubjectLen)
 	}
 }
 
@@ -102,17 +102,18 @@ func TestClear(t *testing.T) {
 	var s SessionSlot
 	s.ID = 42
 	s.Authenticated = 1
-	s.SetAuthToken("token")
+	s.SetSubject("user-1")
+	s.ExpiresAt = 1700000000
 	s.AddSubscription("chan-1")
 	s.AddSubscription("chan-2")
 
 	s.Clear()
 
-	if s.ID != 0 || s.Authenticated != 0 || s.TokenLen != 0 || s.SubCount != 0 {
+	if s.ID != 0 || s.Authenticated != 0 || s.SubjectLen != 0 || s.SubCount != 0 || s.ExpiresAt != 0 {
 		t.Fatal("Clear did not zero all fields")
 	}
-	if s.GetAuthToken() != "" {
-		t.Fatal("auth token not cleared")
+	if s.GetSubject() != "" {
+		t.Fatal("subject not cleared")
 	}
 }
 

@@ -9,7 +9,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unsafe"
+
+	"github.com/mateusfdl/gentis/internal/auth"
 )
 
 func newTestArena(t *testing.T, maxSlots int) *Arena {
@@ -36,8 +39,8 @@ func TestArenaState_InitialState(t *testing.T) {
 	if s.IsAuthenticated() {
 		t.Error("new state should not be authenticated")
 	}
-	if s.AuthToken() != "" {
-		t.Errorf("AuthToken: want empty, got %q", s.AuthToken())
+	if s.Subject() != "" {
+		t.Errorf("Subject: want empty, got %q", s.Subject())
 	}
 	if s.SubscriptionCount() != 0 {
 		t.Errorf("SubscriptionCount: want 0, got %d", s.SubscriptionCount())
@@ -51,14 +54,35 @@ func TestArenaState_Authenticate(t *testing.T) {
 		t.Fatalf("NewArenaState: %v", err)
 	}
 
-	if err := s.Authenticate("my-token"); err != nil {
+	claims := auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Unix(1700003600, 0),
+		Channels:  []string{"chat-*"},
+		Pub:       []string{"chat-1"},
+	}
+	if err := s.Authenticate(claims); err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 	if !s.IsAuthenticated() {
 		t.Error("should be authenticated after Authenticate")
 	}
-	if got := s.AuthToken(); got != "my-token" {
-		t.Errorf("AuthToken: want %q, got %q", "my-token", got)
+	if got := s.Subject(); got != "user-1" {
+		t.Errorf("Subject: want %q, got %q", "user-1", got)
+	}
+	if got := s.ExpiresAt(); !got.Equal(time.Unix(1700003600, 0)) {
+		t.Errorf("ExpiresAt: want %v, got %v", time.Unix(1700003600, 0), got)
+	}
+	if !s.CanSubscribe("chat-9") {
+		t.Error("CanSubscribe(chat-9): want true")
+	}
+	if s.CanSubscribe("news") {
+		t.Error("CanSubscribe(news): want false")
+	}
+	if !s.CanPublish("chat-1") {
+		t.Error("CanPublish(chat-1): want true")
+	}
+	if s.CanPublish("chat-2") {
+		t.Error("CanPublish(chat-2): want false")
 	}
 }
 
@@ -66,11 +90,14 @@ func TestArenaState_AuthenticateOverwrite(t *testing.T) {
 	a := newTestArena(t, 1)
 	s, _ := NewArenaState(1, a)
 
-	_ = s.Authenticate("token-1")
-	_ = s.Authenticate("token-2")
+	_ = s.Authenticate(auth.Claims{Subject: "user-1"})
+	_ = s.Authenticate(auth.Claims{Subject: "user-2"})
 
-	if got := s.AuthToken(); got != "token-2" {
-		t.Errorf("AuthToken: want %q, got %q", "token-2", got)
+	if got := s.Subject(); got != "user-2" {
+		t.Errorf("Subject: want %q, got %q", "user-2", got)
+	}
+	if got := s.ExpiresAt(); !got.IsZero() {
+		t.Errorf("ExpiresAt: want zero time, got %v", got)
 	}
 }
 
@@ -200,7 +227,7 @@ func TestArenaState_ConcurrentReaders(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for j := 0; j < 1000; j++ {
-			_ = s.Authenticate("t")
+			_ = s.Authenticate(auth.Claims{Subject: "u"})
 			s.AddSubscription("channel-x")
 			s.RemoveSubscription("channel-x")
 		}

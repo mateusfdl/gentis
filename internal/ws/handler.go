@@ -9,6 +9,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
@@ -18,6 +19,7 @@ func (s *Session) ID() int                               { return s.id }
 func (s *Session) State() transport.SessionState         { return s.state }
 func (s *Session) Engine() *engine.Engine                { return s.engine }
 func (s *Session) Store() *transport.SessionStore        { return s.store }
+func (s *Session) Verifier() auth.Verifier               { return s.server.config.Verifier }
 func (s *Session) Send(msg *ServerMessage)               { s.send(msg) }
 func (s *Session) SendError(code, message, reqID string) { s.sendError(code, message, reqID) }
 

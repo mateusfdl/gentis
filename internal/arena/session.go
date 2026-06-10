@@ -1,7 +1,7 @@
 package arena
 
 const (
-	MaxAuthTokenLen  = 128
+	MaxSubjectLen    = 128
 	MaxSubscriptions = 16
 	MaxChanNameLen   = 256
 )
@@ -12,24 +12,25 @@ type SessionSlot struct {
 	ID            uint64
 	Authenticated uint32
 	_             uint32 // alignment padding
-	AuthToken     [MaxAuthTokenLen]byte
-	TokenLen      uint32
+	ExpiresAt     int64
+	Subject       [MaxSubjectLen]byte
+	SubjectLen    uint32
 	SubCount      uint32
 	Subscriptions [MaxSubscriptions][MaxChanNameLen]byte
 	SubLens       [MaxSubscriptions]uint32
 }
 
-func (s *SessionSlot) SetAuthToken(token string) {
-	n := copy(s.AuthToken[:], token)
-	s.TokenLen = uint32(n)
+func (s *SessionSlot) SetSubject(subject string) {
+	n := copy(s.Subject[:], subject)
+	s.SubjectLen = uint32(n)
 }
 
-// GetAuthToken returns the stored auth token as a string.
+// GetSubject returns the stored subject as a string.
 //
 // Note: this allocates a heap string. Use only on the auth path, not the
 // hot message delivery path.
-func (s *SessionSlot) GetAuthToken() string {
-	return string(s.AuthToken[:s.TokenLen])
+func (s *SessionSlot) GetSubject() string {
+	return string(s.Subject[:s.SubjectLen])
 }
 
 func (s *SessionSlot) AddSubscription(channel string) bool {

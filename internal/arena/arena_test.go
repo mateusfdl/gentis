@@ -196,14 +196,14 @@ func TestSessionSlotInArena(t *testing.T) {
 
 	s := (*SessionSlot)(ptr)
 	s.ID = 42
-	s.SetAuthToken("arena-token")
+	s.SetSubject("arena-subject")
 	s.AddSubscription("test-channel")
 
 	if s.ID != 42 {
 		t.Fatalf("ID = %d, want 42", s.ID)
 	}
-	if s.GetAuthToken() != "arena-token" {
-		t.Fatalf("token = %q, want %q", s.GetAuthToken(), "arena-token")
+	if s.GetSubject() != "arena-subject" {
+		t.Fatalf("subject = %q, want %q", s.GetSubject(), "arena-subject")
 	}
 	if !s.IsSubscribed("test-channel") {
 		t.Fatal("not subscribed to test-channel")

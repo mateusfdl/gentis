@@ -9,6 +9,7 @@ import (
 	"time"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
+	"github.com/mateusfdl/gentis/internal/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -872,5 +873,110 @@ func TestPublishAckToSubscriberlessChannel(t *testing.T) {
 	if ack.Offset != 0 || ack.Epoch != 0 || ack.Delivered != 0 || ack.Dropped != 0 {
 		t.Errorf("expected zero-identity ack for subscriberless channel, got offset=%d epoch=%d delivered=%d dropped=%d",
 			ack.Offset, ack.Epoch, ack.Delivered, ack.Dropped)
+	}
+}
+
+func startVerifierServer(t *testing.T, secret []byte) (string, func()) {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithVerifier(auth.NewHMACVerifier(secret)))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	return addr, func() { srv.Stop() }
+}
+
+func TestConnectRejectsInvalidToken(t *testing.T) {
+	addr, cleanup := startVerifierServer(t, []byte("grpc-secret"))
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "c1",
+		Message: &gentisv1.ClientMessage_Connect{
+			Connect: &gentisv1.ConnectRequest{AuthToken: "garbage"},
+		},
+	})
+
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil {
+		t.Fatalf("expected ErrorResponse, got %T", msg.Message)
+	}
+	if errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED {
+		t.Errorf("error code = %v, want NOT_AUTHENTICATED", errResp.Code)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	errResp = msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED {
+		t.Fatalf("subscribe after failed connect: got %v, want NOT_AUTHENTICATED error", msg.Message)
+	}
+}
+
+func TestConnectAcceptsSignedToken(t *testing.T) {
+	secret := []byte("grpc-secret")
+	addr, cleanup := startVerifierServer(t, secret)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	authenticate(t, stream, token)
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetSubscribed() == nil {
+		t.Fatalf("expected SubscribedResponse, got %T", msg.Message)
+	}
+}
+
+func TestConnectRejectsExpiredToken(t *testing.T) {
+	secret := []byte("grpc-secret")
+	addr, cleanup := startVerifierServer(t, secret)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(-time.Minute),
+	})
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "c1",
+		Message: &gentisv1.ClientMessage_Connect{
+			Connect: &gentisv1.ConnectRequest{AuthToken: token},
+		},
+	})
+
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED {
+		t.Fatalf("expected NOT_AUTHENTICATED error, got %v", msg.Message)
 	}
 }

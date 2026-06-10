@@ -4,6 +4,8 @@ import (
 	"sort"
 	"sync"
 	"testing"
+
+	"github.com/mateusfdl/gentis/internal/auth"
 )
 
 func TestNewState(t *testing.T) {
@@ -17,8 +19,8 @@ func TestNewState(t *testing.T) {
 		t.Error("expected new state to be unauthenticated")
 	}
 
-	if s.AuthToken() != "" {
-		t.Errorf("expected empty auth token, got %q", s.AuthToken())
+	if s.Subject() != "" {
+		t.Errorf("expected empty subject, got %q", s.Subject())
 	}
 
 	if s.SubscriptionCount() != 0 {
@@ -29,7 +31,7 @@ func TestNewState(t *testing.T) {
 func TestAuthenticate(t *testing.T) {
 	s := NewState(1)
 
-	if err := s.Authenticate("my-token"); err != nil {
+	if err := s.Authenticate(auth.Claims{Subject: "user-1", Channels: []string{"chat-*"}, Pub: []string{"chat-1"}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -37,33 +39,35 @@ func TestAuthenticate(t *testing.T) {
 		t.Error("expected authenticated after Authenticate()")
 	}
 
-	if s.AuthToken() != "my-token" {
-		t.Errorf("expected token 'my-token', got %q", s.AuthToken())
-	}
-}
-
-func TestAuthenticateEmptyToken(t *testing.T) {
-	s := NewState(1)
-
-	s.Authenticate("")
-
-	if !s.IsAuthenticated() {
-		t.Error("expected authenticated even with empty token")
+	if s.Subject() != "user-1" {
+		t.Errorf("expected subject 'user-1', got %q", s.Subject())
 	}
 
-	if s.AuthToken() != "" {
-		t.Errorf("expected empty token, got %q", s.AuthToken())
+	if !s.CanSubscribe("chat-42") {
+		t.Error("expected CanSubscribe(chat-42) = true")
+	}
+
+	if s.CanSubscribe("news") {
+		t.Error("expected CanSubscribe(news) = false")
+	}
+
+	if !s.CanPublish("chat-1") {
+		t.Error("expected CanPublish(chat-1) = true")
+	}
+
+	if s.CanPublish("chat-2") {
+		t.Error("expected CanPublish(chat-2) = false")
 	}
 }
 
 func TestAuthenticateOverwrite(t *testing.T) {
 	s := NewState(1)
 
-	s.Authenticate("token-1")
-	s.Authenticate("token-2")
+	s.Authenticate(auth.Claims{Subject: "user-1"})
+	s.Authenticate(auth.Claims{Subject: "user-2"})
 
-	if s.AuthToken() != "token-2" {
-		t.Errorf("expected token-2, got %q", s.AuthToken())
+	if s.Subject() != "user-2" {
+		t.Errorf("expected subject user-2, got %q", s.Subject())
 	}
 }
 
@@ -172,10 +176,10 @@ func TestConcurrentAuthenticate(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
-		go func(token string) {
+		go func(subject string) {
 			defer wg.Done()
-			s.Authenticate(token)
-		}("token")
+			s.Authenticate(auth.Claims{Subject: subject})
+		}("user")
 	}
 
 	wg.Wait()

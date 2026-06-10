@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
@@ -13,6 +14,7 @@ type Config struct {
 	Engine         *engine.Engine
 	SessionStore   *transport.SessionStore
 	Logger         *slog.Logger
+	Verifier       auth.Verifier
 	ReadLimit      int64
 	WriteTimeout   time.Duration
 	SendBufferSize int
@@ -31,6 +33,13 @@ func defaultConfig(address string) *Config {
 		ReadLimit:      65536,
 		WriteTimeout:   10 * time.Second,
 		SendBufferSize: 256,
+		Verifier:       auth.InsecureVerifier{},
+	}
+}
+
+func WithVerifier(v auth.Verifier) Option {
+	return func(c *Config) {
+		c.Verifier = v
 	}
 }
 

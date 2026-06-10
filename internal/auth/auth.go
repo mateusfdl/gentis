@@ -57,6 +57,20 @@ func matchPattern(pattern, channel string) bool {
 	return pattern == channel
 }
 
+// Verifier is the boundary transports depend on. Concrete schemes
+// (HMAC, insecure) live behind it.
+type Verifier interface {
+	Verify(token string) (Claims, error)
+}
+
+// InsecureVerifier accepts any token and grants full access. Used when
+// authentication is explicitly disabled.
+type InsecureVerifier struct{}
+
+func (InsecureVerifier) Verify(string) (Claims, error) {
+	return Claims{Subject: "anonymous"}, nil
+}
+
 type headerJSON struct {
 	Alg string `json:"alg"`
 }
