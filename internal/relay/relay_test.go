@@ -2,6 +2,8 @@ package relay
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
+	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"github.com/mateusfdl/gentis/internal/transport"
 	"google.golang.org/grpc"
@@ -996,5 +999,48 @@ func TestRelayWildcardUnsubscribe(t *testing.T) {
 	}
 	if unsub.Channel != "metrics:*" {
 		t.Fatalf("unsubscribed channel = %q, want metrics:*", unsub.Channel)
+	}
+}
+
+type failSendStream struct {
+	gentisv1.GentisService_StreamServer
+}
+
+func (f *failSendStream) Send(*gentisv1.ServerMessage) error {
+	return errors.New("broken pipe")
+}
+
+func TestSendDoesNotBlockAfterSenderDies(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ring, err := ringbuf.NewPointer[gentisv1.ServerMessage](sendRingCap(256))
+	if err != nil {
+		t.Fatalf("ring alloc: %v", err)
+	}
+	sess := &Session{
+		sendRing:   ring,
+		wakeCh:     make(chan struct{}, 1),
+		drainCh:    make(chan struct{}, 1),
+		senderDone: make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
+	}
+	sess.send(&gentisv1.ServerMessage{Id: "1"})
+
+	go sess.runSender(&failSendStream{})
+	<-sess.senderDone
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range sendRingCap(256) + 8 {
+			sess.send(&gentisv1.ServerMessage{Id: fmt.Sprintf("m-%d", i)})
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("send() blocked after sender death; dispatch loop would wedge")
 	}
 }

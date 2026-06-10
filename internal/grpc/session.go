@@ -30,7 +30,12 @@ type Session struct {
 	sendRing *ringbuf.PointerRing[gentisv1.ServerMessage]
 	wakeCh   chan struct{}
 	drainCh  chan struct{}
-	engine   *engine.Engine
+
+	// senderDone is closed when runSender exits, releasing any send()
+	// blocked on a full ring that no longer has a consumer.
+	senderDone chan struct{}
+
+	engine *engine.Engine
 	server   *Server
 	logger   *slog.Logger
 	ctx      context.Context
@@ -128,17 +133,18 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 	}
 
 	sess := &Session{
-		id:       id,
-		subID:    subID,
-		state:    state,
-		sendRing: sendRing,
-		wakeCh:   make(chan struct{}, 1),
-		drainCh:  make(chan struct{}, 1),
-		engine:   s.engine,
-		server:   s,
-		logger:   s.logger.With("session_id", id),
-		ctx:      ctx,
-		cancel:   cancel,
+		id:         id,
+		subID:      subID,
+		state:      state,
+		sendRing:   sendRing,
+		wakeCh:     make(chan struct{}, 1),
+		drainCh:    make(chan struct{}, 1),
+		senderDone: make(chan struct{}),
+		engine:     s.engine,
+		server:     s,
+		logger:     s.logger.With("session_id", id),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval)
 
@@ -177,6 +183,8 @@ func (s *Session) send(msg *gentisv1.ServerMessage) {
 	for !s.sendRing.TryProduce(msg) {
 		select {
 		case <-s.ctx.Done():
+			return
+		case <-s.senderDone:
 			return
 		case <-s.drainCh:
 		}

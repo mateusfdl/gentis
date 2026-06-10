@@ -77,6 +77,11 @@ type Session struct {
 	sendRing *ringbuf.PointerRing[gentisv1.ServerMessage]
 	wakeCh   chan struct{}
 	drainCh  chan struct{}
+
+	// senderDone is closed when runSender exits, releasing any send()
+	// blocked on a full ring that no longer has a consumer.
+	senderDone chan struct{}
+
 	relay    *Server
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -387,16 +392,17 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 	}
 
 	sess := &Session{
-		id:       id,
-		subID:    subID,
-		state:    state,
-		sendRing: ring,
-		wakeCh:   make(chan struct{}, 1),
-		drainCh:  make(chan struct{}, 1),
-		relay:    s,
-		ctx:      ctx,
-		cancel:   cancel,
-		channels: make(map[string]struct{}),
+		id:         id,
+		subID:      subID,
+		state:      state,
+		sendRing:   ring,
+		wakeCh:     make(chan struct{}, 1),
+		drainCh:    make(chan struct{}, 1),
+		senderDone: make(chan struct{}),
+		relay:      s,
+		ctx:        ctx,
+		cancel:     cancel,
+		channels:   make(map[string]struct{}),
 	}
 	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval)
 
@@ -486,6 +492,11 @@ func (s *Server) onUpstreamMessage(channel string, data []byte) {
 }
 
 func (sess *Session) runSender(stream gentisv1.GentisService_StreamServer) {
+	// senderDone unblocks any send() waiting on ring drain: after the
+	// outbound side dies nobody consumes the ring, so a blocked send in
+	// the dispatch loop would wedge the handler forever. The session
+	// itself stays alive to drain inbound traffic until Recv errors.
+	defer close(sess.senderDone)
 	defer sess.drainSendRing()
 	for {
 		for {
@@ -494,9 +505,6 @@ func (sess *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 				break
 			}
 			if err := stream.Send(msg); err != nil {
-				// Outbound is dead but inbound may still hold client
-				// messages; let the dispatch loop drain them until Recv
-				// errors instead of cancelling the whole session.
 				putServerMsgIfPooled(msg)
 				return
 			}
@@ -839,6 +847,8 @@ func (sess *Session) send(msg *gentisv1.ServerMessage) {
 	for !sess.sendRing.TryProduce(msg) {
 		select {
 		case <-sess.ctx.Done():
+			return
+		case <-sess.senderDone:
 			return
 		case <-sess.drainCh:
 		}

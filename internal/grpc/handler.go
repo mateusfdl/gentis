@@ -88,6 +88,11 @@ func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
 }
 
 func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
+	// senderDone unblocks any send() waiting on ring drain: after the
+	// outbound side dies nobody consumes the ring, so a blocked send in
+	// the dispatch loop would wedge the handler forever. The session
+	// itself stays alive to drain inbound traffic until Recv errors.
+	defer close(s.senderDone)
 	defer s.drainSendRing()
 	var pending []*gentisv1.ServerMessage
 	for {
@@ -111,9 +116,6 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 				return
 			}
 			if err := stream.Send(msg); err != nil {
-				// Outbound is dead but inbound may still hold client
-				// messages; let the dispatch loop drain them until Recv
-				// errors instead of cancelling the whole session.
 				putServerMsgIfPooled(msg)
 				return
 			}
