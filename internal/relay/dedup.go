@@ -46,9 +46,9 @@ func (sh *dedupShard) maybeRebuild() {
 
 func NewDeduplicator(ttl time.Duration) *Deduplicator {
 	d := &Deduplicator{
-		seed:   maphash.MakeSeed(),
-		ttl:    ttl,
-		done:   make(chan struct{}),
+		seed: maphash.MakeSeed(),
+		ttl:  ttl,
+		done: make(chan struct{}),
 	}
 	for i := range d.shards {
 		d.shards[i].seen = make(map[uint64]int64)
