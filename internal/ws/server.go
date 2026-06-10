@@ -88,7 +88,7 @@ func (s *Server) Start() error {
 			listener.Close()
 			return fmt.Errorf("failed to load TLS key pair: %w", err)
 		}
-		listener = tls.NewListener(listener, &tls.Config{Certificates: []tls.Certificate{cert}})
+		listener = tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}})
 	}
 	s.listener = listener
 

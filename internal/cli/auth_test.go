@@ -75,3 +75,25 @@ func TestBuildVerifier(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildVerifierSecretFromEnv(t *testing.T) {
+	t.Setenv("GENTIS_AUTH_HMAC_SECRET", "env-secret")
+	cmd := newAuthFlagCmd()
+
+	v, err := buildVerifier(cmd, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("buildVerifier: %v", err)
+	}
+	if _, ok := v.(*auth.HMACVerifier); !ok {
+		t.Fatalf("verifier = %T, want *auth.HMACVerifier from env secret", v)
+	}
+}
+
+func TestBuildVerifierEnvConflictsWithDisabled(t *testing.T) {
+	t.Setenv("GENTIS_AUTH_HMAC_SECRET", "env-secret")
+	cmd := newAuthFlagCmd("--auth-disabled")
+
+	if _, err := buildVerifier(cmd, slog.New(slog.DiscardHandler)); !errors.Is(err, errAuthConflict) {
+		t.Fatalf("err = %v, want errAuthConflict", err)
+	}
+}

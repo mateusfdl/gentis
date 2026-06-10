@@ -27,7 +27,7 @@ const (
 	maxBatchBytes = 1 << 20
 )
 
-// MessageHandler is the minimal interface needed by DispatchMessage.
+// MessageHandler is the session surface DispatchMessage drives.
 type MessageHandler interface {
 	ID() int
 	State() transport.SessionState
