@@ -1,0 +1,11 @@
+strict: false
+default:
+  allow_publish: true
+namespaces:
+  jobs:
+    allow_publish: true
+    history_size: 64
+    history_ttl: 5m
+    qos: at-least-once
+    redelivery_timeout: 2s
+    max_redeliveries: 3
