@@ -43,6 +43,18 @@ func startUpstream(t *testing.T) (string, func()) {
 	return addr, func() { srv.Stop() }
 }
 
+func waitUpstreamConnected(t *testing.T, r *Server) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if r.IsUpstreamConnected() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("relay never connected to upstream")
+}
+
 func startRelay(t *testing.T, upstreamAddr string) (string, func()) {
 	t.Helper()
 	addr := freeAddr(t)
@@ -55,7 +67,7 @@ func startRelay(t *testing.T, upstreamAddr string) (string, func()) {
 	if err := r.Start(); err != nil {
 		t.Fatalf("failed to start relay: %v", err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	waitUpstreamConnected(t, r)
 	return addr, func() { r.Stop() }
 }
 
@@ -437,7 +449,7 @@ func TestRelayLocalPublishBetweenRelayClients(t *testing.T) {
 	}
 	defer r.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	waitUpstreamConnected(t, r)
 
 	sub, closeSub := connectClient(t, relayAddr)
 	defer closeSub()
@@ -493,7 +505,7 @@ func TestRelayConnectionCount(t *testing.T) {
 	}
 	defer r.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	waitUpstreamConnected(t, r)
 
 	if r.ConnectionCount() != 0 {
 		t.Errorf("expected 0 connections, got %d", r.ConnectionCount())
@@ -685,7 +697,7 @@ func TestRelayLocalPublishAck(t *testing.T) {
 	}
 	defer r.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	waitUpstreamConnected(t, r)
 
 	sub, closeSub := connectClient(t, relayAddr)
 	defer closeSub()
@@ -755,7 +767,7 @@ func TestRelayPermissionChecks(t *testing.T) {
 	}
 	defer r.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	waitUpstreamConnected(t, r)
 
 	stream, closeClient := connectClient(t, relayAddr)
 	defer closeClient()
