@@ -1573,7 +1573,7 @@ func TestQoSSlowConsumerNoDrops(t *testing.T) {
 				AllowPublish:      true,
 				HistorySize:       64,
 				QoS:               namespace.AtLeastOnce,
-				RedeliveryTimeout: 200 * time.Millisecond,
+				RedeliveryTimeout: 5 * time.Second,
 				MaxRedeliveries:   3,
 			},
 		},

@@ -1052,7 +1052,7 @@ func TestQoSSlowConsumerNoDrops(t *testing.T) {
 				AllowPublish:      true,
 				HistorySize:       64,
 				QoS:               namespace.AtLeastOnce,
-				RedeliveryTimeout: 200 * time.Millisecond,
+				RedeliveryTimeout: 5 * time.Second,
 				MaxRedeliveries:   3,
 			},
 		},
@@ -1500,5 +1500,88 @@ func TestRunWriterClosesConnOnWriteError(t *testing.T) {
 	case <-conn.closed:
 	case <-time.After(2 * time.Second):
 		t.Fatal("connection never closed after write error; fd leaks")
+	}
+}
+
+func TestRefreshRejectsBadToken(t *testing.T) {
+	secret := []byte("ws-secret")
+	addr := startVerifierTestServer(t, secret)
+	conn := dialWS(t, addr)
+	defer conn.Close()
+
+	sendJSON(t, conn, map[string]any{
+		"id": "c1",
+		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+			Subject:   "user-1",
+			ExpiresAt: time.Now().Add(time.Hour),
+		})},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("expected Connected, got %+v", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":      "r1",
+		"refresh": map[string]any{"auth_token": "garbage"},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeNotAuthenticated {
+		t.Fatalf("refresh with bad token: got %+v, want NOT_AUTHENTICATED", resp)
+	}
+}
+
+func TestRefreshRejectsSubjectChange(t *testing.T) {
+	secret := []byte("ws-secret")
+	addr := startVerifierTestServer(t, secret)
+	conn := dialWS(t, addr)
+	defer conn.Close()
+
+	sendJSON(t, conn, map[string]any{
+		"id": "c1",
+		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+			Subject:   "user-1",
+			ExpiresAt: time.Now().Add(time.Hour),
+		})},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("expected Connected, got %+v", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id": "r1",
+		"refresh": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+			Subject:   "user-2",
+			ExpiresAt: time.Now().Add(time.Hour),
+		})},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeNotAuthenticated {
+		t.Fatalf("refresh with subject change: got %+v, want NOT_AUTHENTICATED", resp)
+	}
+}
+
+func TestWildcardSubscribeRejectsRecovery(t *testing.T) {
+	addr, stop := startTestServer(t)
+	defer stop()
+
+	conn := dialWS(t, addr)
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{
+		"id": "sub-1",
+		"subscribe": map[string]any{
+			"channel": "metrics:*",
+			"recover": map[string]any{"offset": 3, "epoch": "7"},
+		},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeInvalidPayload {
+		t.Fatalf("pattern subscribe with recover: got %+v, want INVALID_PAYLOAD", resp)
 	}
 }

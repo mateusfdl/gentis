@@ -13,6 +13,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
+	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"github.com/mateusfdl/gentis/internal/transport"
@@ -1225,5 +1226,216 @@ func TestHandleDisconnectIgnoresStaleStream(t *testing.T) {
 	defer u.streamMu.Unlock()
 	if u.stream != fresh {
 		t.Fatal("stale stream error must not null the fresh stream")
+	}
+}
+
+func TestRelayWildcardSubscribeRejectsQoSAndRecovery(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	relayAddr, stopRelay := startRelay(t, upstreamAddr)
+	defer stopRelay()
+
+	stream, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel:        "metrics:*",
+				MaxUnconfirmed: &gentisv1.UnconfirmedWindow{Count: 4},
+			},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	if errResp := msg.GetError(); errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD {
+		t.Fatalf("pattern subscribe with qos: got %v, want INVALID_PAYLOAD", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s2",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel: "metrics:*",
+				Recover: &gentisv1.RecoverPoint{Offset: 3, Epoch: 7},
+			},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if errResp := msg.GetError(); errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD {
+		t.Fatalf("pattern subscribe with recover: got %v, want INVALID_PAYLOAD", msg.Message)
+	}
+}
+
+func TestRelayQoSConfirmFlow(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	reg := namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"jobs": {
+				AllowPublish:      true,
+				HistorySize:       64,
+				QoS:               namespace.AtLeastOnce,
+				RedeliveryTimeout: 5 * time.Second,
+				MaxRedeliveries:   3,
+			},
+		},
+	})
+	eng := engine.New(engine.WithNamespaces(reg))
+	defer eng.Stop()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithBufferSize(256),
+		WithEngine(eng),
+		WithSessionStore(transport.NewSessionStore()),
+	)
+	r.router = NewRouter([]ChannelPattern{
+		{Pattern: "jobs:*", Mode: RouteModeLocal},
+	})
+	if err := r.Start(); err != nil {
+		t.Fatalf("start relay: %v", err)
+	}
+	defer r.Stop()
+
+	sub, closeSub := connectClient(t, relayAddr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel:        "jobs:emails",
+				MaxUnconfirmed: &gentisv1.UnconfirmedWindow{Count: 2},
+			},
+		},
+	})
+	if recvWithTimeout(t, sub, 2*time.Second).GetSubscribed() == nil {
+		t.Fatal("subscribe failed")
+	}
+
+	pub, closePub := connectClient(t, relayAddr)
+	defer closePub()
+	authenticate(t, pub, "token")
+	for i := 1; i <= 10; i++ {
+		pub.Send(&gentisv1.ClientMessage{
+			Id: fmt.Sprintf("p%d", i),
+			Message: &gentisv1.ClientMessage_Publish{
+				Publish: &gentisv1.PublishRequest{Channel: "jobs:emails", Data: []byte(fmt.Sprintf("job-%d", i))},
+			},
+		})
+		if recvWithTimeout(t, pub, 2*time.Second).GetPublished() == nil {
+			t.Fatalf("publish %d not acked", i)
+		}
+	}
+
+	var got []uint64
+	for len(got) < 10 {
+		msg := recvWithTimeout(t, sub, 3*time.Second)
+		cm := msg.GetChannelMessage()
+		if cm == nil {
+			continue
+		}
+		if string(cm.Data) != fmt.Sprintf("job-%d", cm.Offset) {
+			t.Fatalf("delivery offset %d carries %q, want job-%d", cm.Offset, cm.Data, cm.Offset)
+		}
+		got = append(got, cm.Offset)
+
+		sub.Send(&gentisv1.ClientMessage{
+			Message: &gentisv1.ClientMessage_Confirm{
+				Confirm: &gentisv1.ConfirmRequest{Channel: "jobs:emails", Offset: cm.Offset},
+			},
+		})
+	}
+
+	for i, off := range got {
+		if off != uint64(i+1) {
+			t.Fatalf("deliveries = %v, want 1..10 in order without gaps or dups", got)
+		}
+	}
+}
+
+func TestRelayRecoverOnSubscribe(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	eng := engine.New(engine.WithHistory(16, 0))
+	defer eng.Stop()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithBufferSize(256),
+		WithEngine(eng),
+		WithSessionStore(transport.NewSessionStore()),
+	)
+	r.router = NewRouter([]ChannelPattern{
+		{Pattern: "local-*", Mode: RouteModeLocal},
+	})
+	if err := r.Start(); err != nil {
+		t.Fatalf("start relay: %v", err)
+	}
+	defer r.Stop()
+
+	holder, closeHolder := connectClient(t, relayAddr)
+	defer closeHolder()
+	authenticate(t, holder, "token")
+	holder.Send(&gentisv1.ClientMessage{
+		Id: "h1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "local-hist"},
+		},
+	})
+	if recvWithTimeout(t, holder, 2*time.Second).GetSubscribed() == nil {
+		t.Fatal("holder subscribe failed")
+	}
+
+	pub, closePub := connectClient(t, relayAddr)
+	defer closePub()
+	authenticate(t, pub, "token")
+	var epoch uint64
+	for i := 1; i <= 3; i++ {
+		pub.Send(&gentisv1.ClientMessage{
+			Id: fmt.Sprintf("p%d", i),
+			Message: &gentisv1.ClientMessage_Publish{
+				Publish: &gentisv1.PublishRequest{Channel: "local-hist", Data: []byte(fmt.Sprintf("m-%d", i))},
+			},
+		})
+		ack := recvWithTimeout(t, pub, 2*time.Second).GetPublished()
+		if ack == nil {
+			t.Fatalf("publish %d not acked", i)
+		}
+		epoch = ack.Epoch
+	}
+
+	sub, closeSub := connectClient(t, relayAddr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Id: "s1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel: "local-hist",
+				Recover: &gentisv1.RecoverPoint{Offset: 1, Epoch: epoch},
+			},
+		},
+	})
+	subResp := recvWithTimeout(t, sub, 2*time.Second).GetSubscribed()
+	if subResp == nil || !subResp.Recovered {
+		t.Fatalf("subscribe with recover: got %+v, want Recovered=true", subResp)
+	}
+
+	for _, want := range []string{"m-2", "m-3"} {
+		msg := recvWithTimeout(t, sub, 3*time.Second)
+		cm := msg.GetChannelMessage()
+		if cm == nil || string(cm.Data) != want {
+			t.Fatalf("replay: got %v, want %q", msg.Message, want)
+		}
 	}
 }
