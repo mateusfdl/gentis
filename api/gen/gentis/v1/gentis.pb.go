@@ -33,19 +33,27 @@ const (
 	ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED ErrorCode = 5
 	ErrorCode_ERROR_CODE_NOT_SUBSCRIBED     ErrorCode = 6
 	ErrorCode_ERROR_CODE_INTERNAL           ErrorCode = 7
+	ErrorCode_ERROR_CODE_MESSAGE_TOO_LARGE  ErrorCode = 8
+	ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT ErrorCode = 9
+	ErrorCode_ERROR_CODE_PERMISSION_DENIED  ErrorCode = 10
+	ErrorCode_ERROR_CODE_RATE_LIMITED       ErrorCode = 11
 )
 
 // Enum value maps for ErrorCode.
 var (
 	ErrorCode_name = map[int32]string{
-		0: "ERROR_CODE_UNSPECIFIED",
-		1: "ERROR_CODE_UNKNOWN_MESSAGE",
-		2: "ERROR_CODE_INVALID_PAYLOAD",
-		3: "ERROR_CODE_NOT_AUTHENTICATED",
-		4: "ERROR_CODE_CHANNEL_NOT_FOUND",
-		5: "ERROR_CODE_ALREADY_SUBSCRIBED",
-		6: "ERROR_CODE_NOT_SUBSCRIBED",
-		7: "ERROR_CODE_INTERNAL",
+		0:  "ERROR_CODE_UNSPECIFIED",
+		1:  "ERROR_CODE_UNKNOWN_MESSAGE",
+		2:  "ERROR_CODE_INVALID_PAYLOAD",
+		3:  "ERROR_CODE_NOT_AUTHENTICATED",
+		4:  "ERROR_CODE_CHANNEL_NOT_FOUND",
+		5:  "ERROR_CODE_ALREADY_SUBSCRIBED",
+		6:  "ERROR_CODE_NOT_SUBSCRIBED",
+		7:  "ERROR_CODE_INTERNAL",
+		8:  "ERROR_CODE_MESSAGE_TOO_LARGE",
+		9:  "ERROR_CODE_SUBSCRIPTION_LIMIT",
+		10: "ERROR_CODE_PERMISSION_DENIED",
+		11: "ERROR_CODE_RATE_LIMITED",
 	}
 	ErrorCode_value = map[string]int32{
 		"ERROR_CODE_UNSPECIFIED":        0,
@@ -56,6 +64,10 @@ var (
 		"ERROR_CODE_ALREADY_SUBSCRIBED": 5,
 		"ERROR_CODE_NOT_SUBSCRIBED":     6,
 		"ERROR_CODE_INTERNAL":           7,
+		"ERROR_CODE_MESSAGE_TOO_LARGE":  8,
+		"ERROR_CODE_SUBSCRIPTION_LIMIT": 9,
+		"ERROR_CODE_PERMISSION_DENIED":  10,
+		"ERROR_CODE_RATE_LIMITED":       11,
 	}
 )
 
@@ -240,6 +252,7 @@ type ServerMessage struct {
 	//	*ServerMessage_ChannelMessage
 	//	*ServerMessage_Pong
 	//	*ServerMessage_Error
+	//	*ServerMessage_Published
 	Message       isServerMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -343,6 +356,15 @@ func (x *ServerMessage) GetError() *ErrorResponse {
 	return nil
 }
 
+func (x *ServerMessage) GetPublished() *PublishResponse {
+	if x != nil {
+		if x, ok := x.Message.(*ServerMessage_Published); ok {
+			return x.Published
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Message interface {
 	isServerMessage_Message()
 }
@@ -371,6 +393,10 @@ type ServerMessage_Error struct {
 	Error *ErrorResponse `protobuf:"bytes,6,opt,name=error,proto3,oneof"`
 }
 
+type ServerMessage_Published struct {
+	Published *PublishResponse `protobuf:"bytes,7,opt,name=published,proto3,oneof"`
+}
+
 func (*ServerMessage_Connected) isServerMessage_Message() {}
 
 func (*ServerMessage_Subscribed) isServerMessage_Message() {}
@@ -382,6 +408,8 @@ func (*ServerMessage_ChannelMessage) isServerMessage_Message() {}
 func (*ServerMessage_Pong) isServerMessage_Message() {}
 
 func (*ServerMessage_Error) isServerMessage_Message() {}
+
+func (*ServerMessage_Published) isServerMessage_Message() {}
 
 // ConnectRequest authenticates the client.
 type ConnectRequest struct {
@@ -706,18 +734,104 @@ func (x *PublishRequest) GetData() []byte {
 	return nil
 }
 
+// PublishResponse acknowledges a publish with its assigned identity
+// and fanout outcome.
+type PublishResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Channel string                 `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
+	// Per-channel monotonic position assigned to this publication.
+	Offset uint64 `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
+	// Number of subscribers the message was delivered to.
+	Delivered uint32 `protobuf:"varint,3,opt,name=delivered,proto3" json:"delivered,omitempty"`
+	// Number of subscribers whose send buffer was full.
+	Dropped uint32 `protobuf:"varint,4,opt,name=dropped,proto3" json:"dropped,omitempty"`
+	// Channel incarnation the offset belongs to.
+	Epoch         uint64 `protobuf:"varint,5,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishResponse) Reset() {
+	*x = PublishResponse{}
+	mi := &file_gentis_v1_gentis_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishResponse) ProtoMessage() {}
+
+func (x *PublishResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_gentis_v1_gentis_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishResponse.ProtoReflect.Descriptor instead.
+func (*PublishResponse) Descriptor() ([]byte, []int) {
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *PublishResponse) GetChannel() string {
+	if x != nil {
+		return x.Channel
+	}
+	return ""
+}
+
+func (x *PublishResponse) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *PublishResponse) GetDelivered() uint32 {
+	if x != nil {
+		return x.Delivered
+	}
+	return 0
+}
+
+func (x *PublishResponse) GetDropped() uint32 {
+	if x != nil {
+		return x.Dropped
+	}
+	return 0
+}
+
+func (x *PublishResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
 // ChannelMessage delivers a published message to subscribers.
 type ChannelMessage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Channel       string                 `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Channel string                 `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
+	Data    []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	// Per-channel monotonic position of this publication.
+	Offset uint64 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	// Channel incarnation; offsets are only comparable within one epoch.
+	Epoch         uint64 `protobuf:"varint,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ChannelMessage) Reset() {
 	*x = ChannelMessage{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[9]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -729,7 +843,7 @@ func (x *ChannelMessage) String() string {
 func (*ChannelMessage) ProtoMessage() {}
 
 func (x *ChannelMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[9]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -742,7 +856,7 @@ func (x *ChannelMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelMessage.ProtoReflect.Descriptor instead.
 func (*ChannelMessage) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{9}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ChannelMessage) GetChannel() string {
@@ -759,6 +873,20 @@ func (x *ChannelMessage) GetData() []byte {
 	return nil
 }
 
+func (x *ChannelMessage) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ChannelMessage) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
 // PingRequest is a keep-alive ping.
 type PingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -768,7 +896,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[10]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -780,7 +908,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[10]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -793,7 +921,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{10}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{11}
 }
 
 // PongResponse is a keep-alive pong.
@@ -805,7 +933,7 @@ type PongResponse struct {
 
 func (x *PongResponse) Reset() {
 	*x = PongResponse{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[11]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -817,7 +945,7 @@ func (x *PongResponse) String() string {
 func (*PongResponse) ProtoMessage() {}
 
 func (x *PongResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[11]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -830,7 +958,7 @@ func (x *PongResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PongResponse.ProtoReflect.Descriptor instead.
 func (*PongResponse) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{11}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{12}
 }
 
 // ErrorResponse reports an error.
@@ -844,7 +972,7 @@ type ErrorResponse struct {
 
 func (x *ErrorResponse) Reset() {
 	*x = ErrorResponse{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[12]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +984,7 @@ func (x *ErrorResponse) String() string {
 func (*ErrorResponse) ProtoMessage() {}
 
 func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[12]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +997,7 @@ func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorResponse.ProtoReflect.Descriptor instead.
 func (*ErrorResponse) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{12}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ErrorResponse) GetCode() ErrorCode {
@@ -899,7 +1027,7 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\vunsubscribe\x18\x03 \x01(\v2\x1d.gentis.v1.UnsubscribeRequestH\x00R\vunsubscribe\x125\n" +
 	"\apublish\x18\x04 \x01(\v2\x19.gentis.v1.PublishRequestH\x00R\apublish\x12,\n" +
 	"\x04ping\x18\x05 \x01(\v2\x16.gentis.v1.PingRequestH\x00R\x04pingB\t\n" +
-	"\amessage\"\x97\x03\n" +
+	"\amessage\"\xd3\x03\n" +
 	"\rServerMessage\x12\x0e\n" +
 	"\x02id\x18\n" +
 	" \x01(\tR\x02id\x12<\n" +
@@ -910,7 +1038,8 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\funsubscribed\x18\x03 \x01(\v2\x1f.gentis.v1.UnsubscribedResponseH\x00R\funsubscribed\x12D\n" +
 	"\x0fchannel_message\x18\x04 \x01(\v2\x19.gentis.v1.ChannelMessageH\x00R\x0echannelMessage\x12-\n" +
 	"\x04pong\x18\x05 \x01(\v2\x17.gentis.v1.PongResponseH\x00R\x04pong\x120\n" +
-	"\x05error\x18\x06 \x01(\v2\x18.gentis.v1.ErrorResponseH\x00R\x05errorB\t\n" +
+	"\x05error\x18\x06 \x01(\v2\x18.gentis.v1.ErrorResponseH\x00R\x05error\x12:\n" +
+	"\tpublished\x18\a \x01(\v2\x1a.gentis.v1.PublishResponseH\x00R\tpublishedB\t\n" +
 	"\amessage\"/\n" +
 	"\x0eConnectRequest\x12\x1d\n" +
 	"\n" +
@@ -927,15 +1056,23 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\achannel\x18\x01 \x01(\tR\achannel\">\n" +
 	"\x0ePublishRequest\x12\x18\n" +
 	"\achannel\x18\x01 \x01(\tR\achannel\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data\">\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"\x91\x01\n" +
+	"\x0fPublishResponse\x12\x18\n" +
+	"\achannel\x18\x01 \x01(\tR\achannel\x12\x16\n" +
+	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x1c\n" +
+	"\tdelivered\x18\x03 \x01(\rR\tdelivered\x12\x18\n" +
+	"\adropped\x18\x04 \x01(\rR\adropped\x12\x14\n" +
+	"\x05epoch\x18\x05 \x01(\x04R\x05epoch\"l\n" +
 	"\x0eChannelMessage\x12\x18\n" +
 	"\achannel\x18\x01 \x01(\tR\achannel\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data\"\r\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x04R\x06offset\x12\x14\n" +
+	"\x05epoch\x18\x04 \x01(\x04R\x05epoch\"\r\n" +
 	"\vPingRequest\"\x0e\n" +
 	"\fPongResponse\"S\n" +
 	"\rErrorResponse\x12(\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x14.gentis.v1.ErrorCodeR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage*\x86\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage*\x8a\x03\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aERROR_CODE_UNKNOWN_MESSAGE\x10\x01\x12\x1e\n" +
@@ -944,7 +1081,12 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\x1cERROR_CODE_CHANNEL_NOT_FOUND\x10\x04\x12!\n" +
 	"\x1dERROR_CODE_ALREADY_SUBSCRIBED\x10\x05\x12\x1d\n" +
 	"\x19ERROR_CODE_NOT_SUBSCRIBED\x10\x06\x12\x17\n" +
-	"\x13ERROR_CODE_INTERNAL\x10\a2Q\n" +
+	"\x13ERROR_CODE_INTERNAL\x10\a\x12 \n" +
+	"\x1cERROR_CODE_MESSAGE_TOO_LARGE\x10\b\x12!\n" +
+	"\x1dERROR_CODE_SUBSCRIPTION_LIMIT\x10\t\x12 \n" +
+	"\x1cERROR_CODE_PERMISSION_DENIED\x10\n" +
+	"\x12\x1b\n" +
+	"\x17ERROR_CODE_RATE_LIMITED\x10\v2Q\n" +
 	"\rGentisService\x12@\n" +
 	"\x06Stream\x12\x18.gentis.v1.ClientMessage\x1a\x18.gentis.v1.ServerMessage(\x010\x01B8Z6github.com/mateusfdl/gentis/api/gen/gentis/v1;gentisv1b\x06proto3"
 
@@ -961,7 +1103,7 @@ func file_gentis_v1_gentis_proto_rawDescGZIP() []byte {
 }
 
 var file_gentis_v1_gentis_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_gentis_v1_gentis_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_gentis_v1_gentis_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_gentis_v1_gentis_proto_goTypes = []any{
 	(ErrorCode)(0),               // 0: gentis.v1.ErrorCode
 	(*ClientMessage)(nil),        // 1: gentis.v1.ClientMessage
@@ -973,31 +1115,33 @@ var file_gentis_v1_gentis_proto_goTypes = []any{
 	(*UnsubscribeRequest)(nil),   // 7: gentis.v1.UnsubscribeRequest
 	(*UnsubscribedResponse)(nil), // 8: gentis.v1.UnsubscribedResponse
 	(*PublishRequest)(nil),       // 9: gentis.v1.PublishRequest
-	(*ChannelMessage)(nil),       // 10: gentis.v1.ChannelMessage
-	(*PingRequest)(nil),          // 11: gentis.v1.PingRequest
-	(*PongResponse)(nil),         // 12: gentis.v1.PongResponse
-	(*ErrorResponse)(nil),        // 13: gentis.v1.ErrorResponse
+	(*PublishResponse)(nil),      // 10: gentis.v1.PublishResponse
+	(*ChannelMessage)(nil),       // 11: gentis.v1.ChannelMessage
+	(*PingRequest)(nil),          // 12: gentis.v1.PingRequest
+	(*PongResponse)(nil),         // 13: gentis.v1.PongResponse
+	(*ErrorResponse)(nil),        // 14: gentis.v1.ErrorResponse
 }
 var file_gentis_v1_gentis_proto_depIdxs = []int32{
 	3,  // 0: gentis.v1.ClientMessage.connect:type_name -> gentis.v1.ConnectRequest
 	5,  // 1: gentis.v1.ClientMessage.subscribe:type_name -> gentis.v1.SubscribeRequest
 	7,  // 2: gentis.v1.ClientMessage.unsubscribe:type_name -> gentis.v1.UnsubscribeRequest
 	9,  // 3: gentis.v1.ClientMessage.publish:type_name -> gentis.v1.PublishRequest
-	11, // 4: gentis.v1.ClientMessage.ping:type_name -> gentis.v1.PingRequest
+	12, // 4: gentis.v1.ClientMessage.ping:type_name -> gentis.v1.PingRequest
 	4,  // 5: gentis.v1.ServerMessage.connected:type_name -> gentis.v1.ConnectedResponse
 	6,  // 6: gentis.v1.ServerMessage.subscribed:type_name -> gentis.v1.SubscribedResponse
 	8,  // 7: gentis.v1.ServerMessage.unsubscribed:type_name -> gentis.v1.UnsubscribedResponse
-	10, // 8: gentis.v1.ServerMessage.channel_message:type_name -> gentis.v1.ChannelMessage
-	12, // 9: gentis.v1.ServerMessage.pong:type_name -> gentis.v1.PongResponse
-	13, // 10: gentis.v1.ServerMessage.error:type_name -> gentis.v1.ErrorResponse
-	0,  // 11: gentis.v1.ErrorResponse.code:type_name -> gentis.v1.ErrorCode
-	1,  // 12: gentis.v1.GentisService.Stream:input_type -> gentis.v1.ClientMessage
-	2,  // 13: gentis.v1.GentisService.Stream:output_type -> gentis.v1.ServerMessage
-	13, // [13:14] is the sub-list for method output_type
-	12, // [12:13] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	11, // 8: gentis.v1.ServerMessage.channel_message:type_name -> gentis.v1.ChannelMessage
+	13, // 9: gentis.v1.ServerMessage.pong:type_name -> gentis.v1.PongResponse
+	14, // 10: gentis.v1.ServerMessage.error:type_name -> gentis.v1.ErrorResponse
+	10, // 11: gentis.v1.ServerMessage.published:type_name -> gentis.v1.PublishResponse
+	0,  // 12: gentis.v1.ErrorResponse.code:type_name -> gentis.v1.ErrorCode
+	1,  // 13: gentis.v1.GentisService.Stream:input_type -> gentis.v1.ClientMessage
+	2,  // 14: gentis.v1.GentisService.Stream:output_type -> gentis.v1.ServerMessage
+	14, // [14:15] is the sub-list for method output_type
+	13, // [13:14] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_gentis_v1_gentis_proto_init() }
@@ -1019,6 +1163,7 @@ func file_gentis_v1_gentis_proto_init() {
 		(*ServerMessage_ChannelMessage)(nil),
 		(*ServerMessage_Pong)(nil),
 		(*ServerMessage_Error)(nil),
+		(*ServerMessage_Published)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1026,7 +1171,7 @@ func file_gentis_v1_gentis_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gentis_v1_gentis_proto_rawDesc), len(file_gentis_v1_gentis_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

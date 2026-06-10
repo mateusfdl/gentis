@@ -37,6 +37,7 @@ message ServerMessage {
     ChannelMessage channel_message = 4;
     PongResponse pong = 5;
     ErrorResponse error = 6;
+    PublishResponse published = 7;
   }
 }
 
@@ -76,10 +77,28 @@ message PublishRequest {
   bytes data = 2;
 }
 
+// PublishResponse acknowledges a publish with its assigned identity
+// and fanout outcome.
+message PublishResponse {
+  string channel = 1;
+  // Per-channel monotonic position assigned to this publication.
+  uint64 offset = 2;
+  // Number of subscribers the message was delivered to.
+  uint32 delivered = 3;
+  // Number of subscribers whose send buffer was full.
+  uint32 dropped = 4;
+  // Channel incarnation the offset belongs to.
+  uint64 epoch = 5;
+}
+
 // ChannelMessage delivers a published message to subscribers.
 message ChannelMessage {
   string channel = 1;
   bytes data = 2;
+  // Per-channel monotonic position of this publication.
+  uint64 offset = 3;
+  // Channel incarnation; offsets are only comparable within one epoch.
+  uint64 epoch = 4;
 }
 
 // PingRequest is a keep-alive ping.
@@ -104,4 +123,8 @@ enum ErrorCode {
   ERROR_CODE_ALREADY_SUBSCRIBED = 5;
   ERROR_CODE_NOT_SUBSCRIBED = 6;
   ERROR_CODE_INTERNAL = 7;
+  ERROR_CODE_MESSAGE_TOO_LARGE = 8;
+  ERROR_CODE_SUBSCRIPTION_LIMIT = 9;
+  ERROR_CODE_PERMISSION_DENIED = 10;
+  ERROR_CODE_RATE_LIMITED = 11;
 }
