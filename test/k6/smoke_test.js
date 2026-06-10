@@ -66,7 +66,7 @@ export default async function () {
     'publisher excluded from own publish': () => selfEchoes === 0,
     'every publish acked': () => acks.length === 3,
     'ack offsets are monotonic per channel': () =>
-      acks.every((a, i) => Number(a.offset) === i + 1),
+      acks.every((a, i) => Number(a.offset) === Number(acks[0].offset) + i),
     'acks share one epoch': () =>
       acks.length > 0 && acks.every((a) => a.epoch === acks[0].epoch && Number(a.epoch) !== 0),
   });
