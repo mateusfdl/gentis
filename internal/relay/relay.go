@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -621,8 +622,8 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 
 	route := sess.relay.router.Route(req.Channel)
 
-	if !sess.relay.engine.Subscribe(sess.subID, req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel", reqID)
+	if err := sess.relay.engine.Subscribe(sess.subID, req.Channel); err != nil {
+		sess.sendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}
 
@@ -702,6 +703,11 @@ func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 
 	if max := sess.relay.config.MaxMessageSize; max > 0 && len(req.Data) > max {
 		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_MESSAGE_TOO_LARGE, "message exceeds max size", reqID)
+		return
+	}
+
+	if err := sess.relay.engine.CheckPublish(req.Channel); err != nil {
+		sess.sendError(publishErrorCode(err), err.Error(), reqID)
 		return
 	}
 
@@ -797,5 +803,29 @@ func (s *Server) keepaliveOptions() []grpc.ServerOption {
 			MinTime:             5 * time.Second,
 			PermitWithoutStream: true,
 		}),
+	}
+}
+
+func subscribeErrorCode(err error) gentisv1.ErrorCode {
+	switch {
+	case errors.Is(err, engine.ErrAlreadySubscribed):
+		return gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED
+	case errors.Is(err, engine.ErrUnknownNamespace):
+		return gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND
+	case errors.Is(err, engine.ErrChannelFull):
+		return gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT
+	default:
+		return gentisv1.ErrorCode_ERROR_CODE_INTERNAL
+	}
+}
+
+func publishErrorCode(err error) gentisv1.ErrorCode {
+	switch {
+	case errors.Is(err, engine.ErrUnknownNamespace):
+		return gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND
+	case errors.Is(err, engine.ErrPublishDenied):
+		return gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED
+	default:
+		return gentisv1.ErrorCode_ERROR_CODE_INTERNAL
 	}
 }

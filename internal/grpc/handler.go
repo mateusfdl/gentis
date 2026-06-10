@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -204,8 +205,8 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 		return
 	}
 
-	if !s.engine.Subscribe(s.subID, req.Channel) {
-		s.sendError(gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED, "already subscribed to channel", reqID)
+	if err := s.engine.Subscribe(s.subID, req.Channel); err != nil {
+		s.sendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}
 
@@ -271,6 +272,11 @@ func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 		return
 	}
 
+	if err := s.engine.CheckPublish(req.Channel); err != nil {
+		s.sendError(publishErrorCode(err), err.Error(), reqID)
+		return
+	}
+
 	var result engine.PublishResult
 	if s.server.store != nil {
 		result = s.engine.Publish(req.Channel, req.Data, s.subID, s.server.store.Deliver)
@@ -314,4 +320,28 @@ func (s *Session) handlePing(reqID string) {
 
 func validateChannel(name string) bool {
 	return len(name) > 0 && len(name) <= maxChannelNameLen
+}
+
+func subscribeErrorCode(err error) gentisv1.ErrorCode {
+	switch {
+	case errors.Is(err, engine.ErrAlreadySubscribed):
+		return gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED
+	case errors.Is(err, engine.ErrUnknownNamespace):
+		return gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND
+	case errors.Is(err, engine.ErrChannelFull):
+		return gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT
+	default:
+		return gentisv1.ErrorCode_ERROR_CODE_INTERNAL
+	}
+}
+
+func publishErrorCode(err error) gentisv1.ErrorCode {
+	switch {
+	case errors.Is(err, engine.ErrUnknownNamespace):
+		return gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND
+	case errors.Is(err, engine.ErrPublishDenied):
+		return gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED
+	default:
+		return gentisv1.ErrorCode_ERROR_CODE_INTERNAL
+	}
 }

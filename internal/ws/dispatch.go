@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -135,8 +136,8 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 		return
 	}
 
-	if !h.Engine().Subscribe(engine.SubscriberID(h.ID()), req.Channel) {
-		h.SendError(ErrorCodeAlreadySubscribed, "already subscribed to channel", reqID)
+	if err := h.Engine().Subscribe(engine.SubscriberID(h.ID()), req.Channel); err != nil {
+		h.SendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}
 
@@ -195,6 +196,11 @@ func handlePublish(h MessageHandler, req *PublishRequest, reqID string) {
 		return
 	}
 
+	if err := h.Engine().CheckPublish(req.Channel); err != nil {
+		h.SendError(publishErrorCode(err), err.Error(), reqID)
+		return
+	}
+
 	result := h.Engine().Publish(req.Channel, []byte(req.Data), engine.SubscriberID(h.ID()), h.Store().Deliver)
 
 	// Acks are opt-in: only clients that correlate publishes with an id
@@ -212,6 +218,30 @@ func handlePublish(h MessageHandler, req *PublishRequest, reqID string) {
 			Dropped:   uint32(result.Dropped),
 		},
 	})
+}
+
+func subscribeErrorCode(err error) string {
+	switch {
+	case errors.Is(err, engine.ErrAlreadySubscribed):
+		return ErrorCodeAlreadySubscribed
+	case errors.Is(err, engine.ErrUnknownNamespace):
+		return ErrorCodeChannelNotFound
+	case errors.Is(err, engine.ErrChannelFull):
+		return ErrorCodeSubscriptionLimit
+	default:
+		return ErrorCodeUnknownMessage
+	}
+}
+
+func publishErrorCode(err error) string {
+	switch {
+	case errors.Is(err, engine.ErrUnknownNamespace):
+		return ErrorCodeChannelNotFound
+	case errors.Is(err, engine.ErrPublishDenied):
+		return ErrorCodePermissionDenied
+	default:
+		return ErrorCodeUnknownMessage
+	}
 }
 
 func validateChannel(name string) bool {

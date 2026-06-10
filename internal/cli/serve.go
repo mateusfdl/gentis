@@ -54,7 +54,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		obs = metrics.NewObserver("server")
 	}
 
-	engOpts := buildEngineOpts(cmd, logger, obs)
+	engOpts, err := buildEngineOpts(cmd, logger, obs)
+	if err != nil {
+		return err
+	}
 	eng := engine.New(engOpts...)
 
 	arenaEnabled, _ := cmd.Flags().GetBool("arena")

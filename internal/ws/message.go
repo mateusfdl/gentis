@@ -14,6 +14,7 @@ const (
 	ErrorCodePermissionDenied  = "PERMISSION_DENIED"
 	ErrorCodeMessageTooLarge   = "MESSAGE_TOO_LARGE"
 	ErrorCodeSubscriptionLimit = "SUBSCRIPTION_LIMIT"
+	ErrorCodeChannelNotFound   = "CHANNEL_NOT_FOUND"
 )
 
 type ClientMessage struct {

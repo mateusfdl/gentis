@@ -1,12 +1,14 @@
 package engine
 
 import (
+	"errors"
 	"hash/maphash"
 	"log/slog"
 	"sync/atomic"
 	"time"
 
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
+	"github.com/mateusfdl/gentis/internal/namespace"
 )
 
 type SubscriberID uint64
@@ -46,6 +48,13 @@ type EngineStats struct {
 	UnsubscribeOps    int64
 	MessageBytes      int64
 }
+
+var (
+	ErrAlreadySubscribed = errors.New("engine: already subscribed to channel")
+	ErrUnknownNamespace  = errors.New("engine: unknown channel namespace")
+	ErrChannelFull       = errors.New("engine: channel subscriber limit reached")
+	ErrPublishDenied     = errors.New("engine: publish not allowed in namespace")
+)
 
 type Engine struct {
 	config        *config
@@ -100,10 +109,10 @@ func New(opts ...Option) *Engine {
 		e.fanoutPool = newFanoutPool(cfg.fanoutWorkers)
 	}
 
-	if cfg.history.size > 0 && cfg.history.ttl > 0 {
+	if interval := historySweepInterval(cfg); interval > 0 {
 		e.sweepStop = make(chan struct{})
 		e.sweepDone = make(chan struct{})
-		go e.runHistorySweeper(cfg.history.ttl)
+		go e.runHistorySweeper(interval)
 	}
 
 	logger.Info("engine initialized",
@@ -116,7 +125,7 @@ func New(opts ...Option) *Engine {
 	return e
 }
 
-func (e *Engine) Subscribe(id SubscriberID, channelName string) bool {
+func (e *Engine) Subscribe(id SubscriberID, channelName string) error {
 	e.subscribeOps.Add(1)
 
 	s := e.getShard(channelName)
@@ -124,10 +133,16 @@ func (e *Engine) Subscribe(id SubscriberID, channelName string) bool {
 
 	ch, ok := s.channels[channelName]
 	if !ok {
-		ch = NewChannel(channelName)
-		if e.config.history.size > 0 {
-			ch.hist = newHistory(e.config.history.size, e.config.history.ttl)
+		settings, known := e.channelSettings(channelName)
+		if !known {
+			s.mu.Unlock()
+			return ErrUnknownNamespace
 		}
+		ch = NewChannel(channelName)
+		if settings.HistorySize > 0 {
+			ch.hist = newHistory(settings.HistorySize, settings.HistoryTTL)
+		}
+		ch.maxSubs = settings.MaxSubscribers
 		s.channels[channelName] = ch
 		if len(s.channels) > s.peak {
 			s.peak = len(s.channels)
@@ -135,15 +150,50 @@ func (e *Engine) Subscribe(id SubscriberID, channelName string) bool {
 		e.channelCount.Add(1)
 	}
 
-	subscribed := ch.Subscribe(id)
-	s.mu.Unlock()
-
-	if subscribed {
-		e.subscriptions.Add(id, channelName)
-		e.subscriptionCount.Add(1)
+	if ch.maxSubs > 0 && ch.SubscriberCount() >= ch.maxSubs {
+		s.mu.Unlock()
+		return ErrChannelFull
 	}
 
-	return subscribed
+	if !ch.Subscribe(id) {
+		s.mu.Unlock()
+		return ErrAlreadySubscribed
+	}
+	s.mu.Unlock()
+
+	e.subscriptions.Add(id, channelName)
+	e.subscriptionCount.Add(1)
+	return nil
+}
+
+// channelSettings resolves the namespace settings governing a new channel.
+// Without a registry the engine-wide history option applies to every
+// channel and nothing is ever unknown.
+func (e *Engine) channelSettings(channelName string) (namespace.Settings, bool) {
+	if e.config.namespaces != nil {
+		return e.config.namespaces.Resolve(channelName)
+	}
+	return namespace.Settings{
+		HistorySize:  e.config.history.size,
+		HistoryTTL:   e.config.history.ttl,
+		AllowPublish: true,
+	}, true
+}
+
+// CheckPublish reports whether the namespace admits publishes on the
+// channel. Without a registry every publish is admitted at zero cost.
+func (e *Engine) CheckPublish(channel string) error {
+	if e.config.namespaces == nil {
+		return nil
+	}
+	s, ok := e.config.namespaces.Resolve(channel)
+	if !ok {
+		return ErrUnknownNamespace
+	}
+	if !s.AllowPublish {
+		return ErrPublishDenied
+	}
+	return nil
 }
 
 func (e *Engine) Unsubscribe(id SubscriberID, channelName string) bool {
@@ -398,17 +448,38 @@ func (e *Engine) Recover(channel string, fromOffset, epoch uint64) ([]Delivery, 
 	return out, true
 }
 
+// historySweepInterval derives the sweep cadence from the smallest positive
+// history TTL in play, or zero when no TTL exists and no sweeper is needed.
+func historySweepInterval(cfg *config) time.Duration {
+	minTTL := time.Duration(0)
+	consider := func(size int, ttl time.Duration) {
+		if size > 0 && ttl > 0 && (minTTL == 0 || ttl < minTTL) {
+			minTTL = ttl
+		}
+	}
+	consider(cfg.history.size, cfg.history.ttl)
+	if cfg.namespaces != nil {
+		for _, s := range cfg.namespaces.All() {
+			consider(s.HistorySize, s.HistoryTTL)
+		}
+	}
+	if minTTL == 0 {
+		return 0
+	}
+	interval := minTTL / 2
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+	return interval
+}
+
 // runHistorySweeper trims expired history entries across all shards. One
 // goroutine for the whole engine: per-channel sweep work is a tail trim
 // under a short lock, so a single sweeper scales fine and avoids
 // per-channel timers.
-func (e *Engine) runHistorySweeper(ttl time.Duration) {
+func (e *Engine) runHistorySweeper(interval time.Duration) {
 	defer close(e.sweepDone)
 
-	interval := ttl / 2
-	if interval < 10*time.Millisecond {
-		interval = 10 * time.Millisecond
-	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

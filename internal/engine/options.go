@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"runtime"
 	"time"
+
+	"github.com/mateusfdl/gentis/internal/namespace"
 )
 
 type Option func(*config)
@@ -16,6 +18,7 @@ type config struct {
 	gcPacer         gcPacerConfig
 	logger          *slog.Logger
 	history         historyConfig
+	namespaces      *namespace.Registry
 }
 
 type historyConfig struct {
@@ -84,6 +87,16 @@ func WithObserver(obs MetricsObserver) Option {
 func WithHistory(size int, ttl time.Duration) Option {
 	return func(c *config) {
 		c.history = historyConfig{size: size, ttl: ttl}
+	}
+}
+
+// WithNamespaces installs a channel namespace registry. Channel creation
+// resolves the namespace once and caches its settings (history, subscriber
+// cap) on the Channel; publish admission is checked via CheckPublish.
+// Overrides WithHistory for namespaced configuration.
+func WithNamespaces(r *namespace.Registry) Option {
+	return func(c *config) {
+		c.namespaces = r
 	}
 }
 

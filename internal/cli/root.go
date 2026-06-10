@@ -10,6 +10,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
+	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/transport"
 	wsserver "github.com/mateusfdl/gentis/internal/ws"
 	"github.com/spf13/cobra"
@@ -56,6 +57,7 @@ func init() {
 	pf.Int("fanout-workers", 4, "parallel fanout goroutine count")
 	pf.Int("history-size", 0, "per-channel history ring size for recovery, 0 to disable")
 	pf.Duration("history-ttl", 0, "history entry TTL, 0 keeps entries until evicted by size")
+	pf.String("config", "", "namespace config file (gentis.yaml)")
 
 	rootCmd.SetVersionTemplate("gentis {{.Version}}\n")
 }
@@ -81,8 +83,16 @@ func buildLogger(cmd *cobra.Command) (*slog.Logger, error) {
 	}), nil
 }
 
-func buildEngineOpts(cmd *cobra.Command, logger *slog.Logger, obs *metrics.Observer) []engine.Option {
+func buildEngineOpts(cmd *cobra.Command, logger *slog.Logger, obs *metrics.Observer) ([]engine.Option, error) {
 	var opts []engine.Option
+
+	if configPath, _ := cmd.Flags().GetString("config"); configPath != "" {
+		registry, err := namespace.LoadFile(configPath)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, engine.WithNamespaces(registry))
+	}
 
 	opts = append(opts, engine.WithLogger(logger))
 
@@ -119,7 +129,7 @@ func buildEngineOpts(cmd *cobra.Command, logger *slog.Logger, obs *metrics.Obser
 		opts = append(opts, engine.WithGCPacerNormalGOGC(normalGOGC))
 	}
 
-	return opts
+	return opts, nil
 }
 
 func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, store *transport.SessionStore, obs *metrics.Observer, verifier auth.Verifier) *wsserver.Server {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
@@ -983,5 +984,60 @@ func TestSubscribeWithRecoveryUnrecoverable(t *testing.T) {
 	}
 	if resp.Subscribed.Recovered == nil || *resp.Subscribed.Recovered {
 		t.Fatalf("Subscribed.Recovered = %v, want false", resp.Subscribed.Recovered)
+	}
+}
+
+func TestNamespacePolicies(t *testing.T) {
+	reg := namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"feed": {AllowPublish: false},
+		},
+		Strict: true,
+	})
+	eng := engine.New(engine.WithNamespaces(reg))
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{"id": "s1", "subscribe": map[string]any{"channel": "ghost:x"}})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeChannelNotFound {
+		t.Fatalf("subscribe unknown namespace: got %+v, want CHANNEL_NOT_FOUND", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{"id": "s2", "subscribe": map[string]any{"channel": "feed:news"}})
+	readJSON(t, conn, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("subscribe read-only namespace: got %+v, want Subscribed", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":      "p1",
+		"publish": map[string]any{"channel": "feed:news", "data": json.RawMessage(`"x"`)},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodePermissionDenied {
+		t.Fatalf("publish read-only namespace: got %+v, want PERMISSION_DENIED", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":      "p2",
+		"publish": map[string]any{"channel": "ghost:x", "data": json.RawMessage(`"x"`)},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeChannelNotFound {
+		t.Fatalf("publish unknown namespace: got %+v, want CHANNEL_NOT_FOUND", resp)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -1504,5 +1505,60 @@ func TestSubscribeWithRecoveryEpochMismatch(t *testing.T) {
 	}
 	if subscribed.Recovered {
 		t.Fatal("Subscribed.Recovered = true with wrong epoch, want false")
+	}
+}
+
+func TestNamespacePolicies(t *testing.T) {
+	reg := namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"feed": {AllowPublish: false},
+		},
+		Strict: true,
+	})
+	eng := engine.New(engine.WithNamespaces(reg))
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithEngine(eng))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		srv.Stop()
+		eng.Stop()
+	}()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "ghost:x"},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND {
+		t.Fatalf("subscribe unknown namespace: got %v, want CHANNEL_NOT_FOUND", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "p1",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "feed:news", Data: []byte("x")},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	errResp = msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED {
+		t.Fatalf("publish read-only namespace: got %v, want PERMISSION_DENIED", msg.Message)
 	}
 }

@@ -43,6 +43,17 @@ func NewRegistry(cfg Config) *Registry {
 	}
 }
 
+// All returns every configured namespace's settings, default included.
+// Used for engine startup decisions (e.g. sweep cadence), not per-message.
+func (r *Registry) All() []Settings {
+	out := make([]Settings, 0, len(r.namespaces)+1)
+	out = append(out, r.def)
+	for _, s := range r.namespaces {
+		out = append(out, s)
+	}
+	return out
+}
+
 // Split separates a channel name into its namespace prefix and remainder.
 // Substring slicing only, no allocation.
 func Split(channel string) (ns, rest string) {

@@ -18,6 +18,7 @@ type Channel struct {
 	pooled      atomic.Bool   // CAS guard: exactly one goroutine may pool this channel
 	gen         atomic.Uint64 // incremented on each pool reuse to prevent ABA races
 	hist        *history      // nil unless the engine enables history
+	maxSubs     int           // namespace subscriber cap, 0 = unlimited
 }
 
 func newEpoch() uint64 {
@@ -82,6 +83,7 @@ func (c *Channel) returnToPool(expectedGen uint64) {
 	c.name = ""
 	c.epoch = 0
 	c.hist = nil
+	c.maxSubs = 0
 	c.subscribers.Store(nil)
 	channelPool.Put(c)
 }

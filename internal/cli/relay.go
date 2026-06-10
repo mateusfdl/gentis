@@ -86,7 +86,10 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		obs = metrics.NewObserver("relay")
 	}
 
-	engOpts := buildEngineOpts(cmd, logger, obs)
+	engOpts, err := buildEngineOpts(cmd, logger, obs)
+	if err != nil {
+		return err
+	}
 	eng := engine.New(engOpts...)
 
 	arenaEnabled, _ := cmd.Flags().GetBool("arena")

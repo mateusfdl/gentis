@@ -1,21 +1,24 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/mateusfdl/gentis/internal/namespace"
 )
 
 func TestSubscribeAndUnsubscribe(t *testing.T) {
 	e := New()
 
-	if !e.Subscribe(1, "test-channel") {
+	if e.Subscribe(1, "test-channel") != nil {
 		t.Error("expected first subscribe to return true")
 	}
 
-	if e.Subscribe(1, "test-channel") {
+	if e.Subscribe(1, "test-channel") == nil {
 		t.Error("expected duplicate subscribe to return false")
 	}
 
@@ -884,4 +887,106 @@ func TestSweeperReapsDrainedEmptyChannels(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("drained empty channel never reaped, channels = %d", e.Stats().Channels)
+}
+
+func testRegistry() *namespace.Registry {
+	return namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"chat": {HistorySize: 8, AllowPublish: true},
+			"feed": {AllowPublish: false},
+			"tiny": {AllowPublish: true, MaxSubscribers: 2},
+		},
+		Strict: true,
+	})
+}
+
+func TestSubscribeUnknownNamespace(t *testing.T) {
+	e := New(WithNamespaces(testRegistry()))
+	defer e.Stop()
+
+	if err := e.Subscribe(1, "ghost:x"); !errors.Is(err, ErrUnknownNamespace) {
+		t.Fatalf("Subscribe(ghost:x) = %v, want ErrUnknownNamespace", err)
+	}
+}
+
+func TestSubscribeAlreadySubscribedError(t *testing.T) {
+	e := New()
+	defer e.Stop()
+
+	if err := e.Subscribe(1, "ch"); err != nil {
+		t.Fatalf("first Subscribe = %v, want nil", err)
+	}
+	if err := e.Subscribe(1, "ch"); !errors.Is(err, ErrAlreadySubscribed) {
+		t.Fatalf("second Subscribe = %v, want ErrAlreadySubscribed", err)
+	}
+}
+
+func TestSubscribeChannelFull(t *testing.T) {
+	e := New(WithNamespaces(testRegistry()))
+	defer e.Stop()
+
+	if err := e.Subscribe(1, "tiny:room"); err != nil {
+		t.Fatalf("Subscribe 1 = %v", err)
+	}
+	if err := e.Subscribe(2, "tiny:room"); err != nil {
+		t.Fatalf("Subscribe 2 = %v", err)
+	}
+	if err := e.Subscribe(3, "tiny:room"); !errors.Is(err, ErrChannelFull) {
+		t.Fatalf("Subscribe 3 = %v, want ErrChannelFull", err)
+	}
+
+	e.Unsubscribe(1, "tiny:room")
+	if err := e.Subscribe(3, "tiny:room"); err != nil {
+		t.Fatalf("Subscribe after slot freed = %v, want nil", err)
+	}
+}
+
+func TestNamespaceHistorySettings(t *testing.T) {
+	e := New(WithNamespaces(testRegistry()))
+	defer e.Stop()
+
+	e.Subscribe(1, "chat:room")
+	r := e.Publish("chat:room", []byte("x"), 0, func(SubscriberID, Delivery) bool { return true })
+	if _, ok := e.Recover("chat:room", 0, r.Epoch); !ok {
+		t.Fatal("chat namespace has history, Recover must succeed")
+	}
+
+	e.Subscribe(1, "plain")
+	r = e.Publish("plain", []byte("x"), 0, func(SubscriberID, Delivery) bool { return true })
+	if _, ok := e.Recover("plain", 0, r.Epoch); ok {
+		t.Fatal("default namespace has no history, Recover must fail")
+	}
+}
+
+func TestCheckPublish(t *testing.T) {
+	e := New(WithNamespaces(testRegistry()))
+	defer e.Stop()
+
+	tests := []struct {
+		name    string
+		channel string
+		wantErr error
+	}{
+		{name: "default namespace allowed", channel: "plain", wantErr: nil},
+		{name: "writable namespace allowed", channel: "chat:room", wantErr: nil},
+		{name: "read only namespace denied", channel: "feed:news", wantErr: ErrPublishDenied},
+		{name: "unknown namespace", channel: "ghost:x", wantErr: ErrUnknownNamespace},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := e.CheckPublish(tt.channel); !errors.Is(err, tt.wantErr) {
+				t.Errorf("CheckPublish(%q) = %v, want %v", tt.channel, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestCheckPublishWithoutRegistry(t *testing.T) {
+	e := New()
+	defer e.Stop()
+
+	if err := e.CheckPublish("anything:goes"); err != nil {
+		t.Fatalf("CheckPublish without registry = %v, want nil", err)
+	}
 }
