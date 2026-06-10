@@ -1371,3 +1371,33 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 		t.Fatalf("same-subject reconnect must stay idempotent, got %+v", resp)
 	}
 }
+
+func TestWildcardSubscribeDeniedNamespace(t *testing.T) {
+	reg := namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"metrics": {AllowPublish: true},
+		},
+	})
+	eng := engine.New(engine.WithNamespaces(reg))
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{"id": "s1", "subscribe": map[string]any{"channel": "metrics:*"}})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodePermissionDenied {
+		t.Fatalf("wildcard subscribe in denied namespace: got %+v, want PERMISSION_DENIED", resp)
+	}
+}

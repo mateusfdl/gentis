@@ -305,6 +305,8 @@ func subscribeErrorCode(err error) string {
 		return ErrorCodeChannelNotFound
 	case errors.Is(err, engine.ErrChannelFull):
 		return ErrorCodeSubscriptionLimit
+	case errors.Is(err, engine.ErrWildcardDenied):
+		return ErrorCodePermissionDenied
 	default:
 		return ErrorCodeUnknownMessage
 	}
