@@ -21,6 +21,9 @@ const (
 	Full
 	// Dup: the offset was already delivered; drop silently.
 	Dup
+	// Refused: the offset was next in order but the transport could not
+	// enqueue it. Nothing was committed; the pump retries from history.
+	Refused
 )
 
 // RedeliveryAction tells the caller what to do after a redelivery check.
@@ -69,7 +72,11 @@ func NewWindow(maxCount int, maxBytes int64, timeout time.Duration, maxRedeliver
 	}
 }
 
-func (w *Window) Admit(offset, epoch uint64, size int, now int64) Verdict {
+// Admit runs send while holding the window lock, so admission order is
+// enqueue order across the live path, the confirm pump, and the redelivery
+// pump. The window state only commits after send succeeds: a cumulative
+// confirm can never cover an offset that did not reach the transport.
+func (w *Window) Admit(offset, epoch uint64, size int, now int64, send func() bool) Verdict {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -93,6 +100,10 @@ func (w *Window) Admit(offset, epoch uint64, size int, now int64) Verdict {
 		return Full
 	}
 
+	if !send() {
+		return Refused
+	}
+
 	if len(w.inflight) == 0 {
 		w.oldestAt = now
 	}
@@ -102,19 +113,20 @@ func (w *Window) Admit(offset, epoch uint64, size int, now int64) Verdict {
 	return Admitted
 }
 
-// Rollback undoes the most recent Admit when the transport could not
-// actually enqueue the delivery.
-func (w *Window) Rollback(offset uint64) {
+// Reset drops the baseline after an unrecoverable gap so the next live
+// delivery re-baselines the window and the subscription keeps flowing.
+func (w *Window) Reset() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	n := len(w.inflight)
-	if n == 0 || w.inflight[n-1].offset != offset {
-		return
-	}
-	w.inflightBytes -= w.inflight[n-1].size
-	w.inflight = w.inflight[:n-1]
-	w.delivered = offset - 1
+	w.baselined = false
+	w.epoch = 0
+	w.delivered = 0
+	w.confirmed = 0
+	w.inflight = w.inflight[:0]
+	w.inflightBytes = 0
+	w.attempts = 0
+	w.attemptsOffset = 0
 }
 
 // Confirm applies a cumulative confirm: everything up to and including

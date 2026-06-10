@@ -5,10 +5,12 @@ import (
 	"time"
 )
 
+func sendOK() bool { return true }
+
 func admitN(t *testing.T, w *Window, from, to uint64, size int, now int64) {
 	t.Helper()
 	for off := from; off <= to; off++ {
-		if v := w.Admit(off, 7, size, now); v != Admitted {
+		if v := w.Admit(off, 7, size, now, sendOK); v != Admitted {
 			t.Fatalf("Admit(%d) = %v, want Admitted", off, v)
 		}
 	}
@@ -31,21 +33,21 @@ func TestWindowAdmit(t *testing.T) {
 		},
 		{
 			name:  "next in order admitted",
-			setup: func(w *Window) { w.Admit(1, 7, 10, 0) },
+			setup: func(w *Window) { w.Admit(1, 7, 10, 0, sendOK) },
 			off:   2,
 			size:  10,
 			want:  Admitted,
 		},
 		{
 			name:  "duplicate offset rejected",
-			setup: func(w *Window) { w.Admit(1, 7, 10, 0); w.Admit(2, 7, 10, 0) },
+			setup: func(w *Window) { w.Admit(1, 7, 10, 0, sendOK); w.Admit(2, 7, 10, 0, sendOK) },
 			off:   2,
 			size:  10,
 			want:  Dup,
 		},
 		{
 			name:  "gap defers to pump",
-			setup: func(w *Window) { w.Admit(1, 7, 10, 0) },
+			setup: func(w *Window) { w.Admit(1, 7, 10, 0, sendOK) },
 			off:   5,
 			size:  10,
 			want:  Full,
@@ -53,9 +55,9 @@ func TestWindowAdmit(t *testing.T) {
 		{
 			name: "count budget exhausted",
 			setup: func(w *Window) {
-				w.Admit(1, 7, 10, 0)
-				w.Admit(2, 7, 10, 0)
-				w.Admit(3, 7, 10, 0)
+				w.Admit(1, 7, 10, 0, sendOK)
+				w.Admit(2, 7, 10, 0, sendOK)
+				w.Admit(3, 7, 10, 0, sendOK)
 			},
 			off:  4,
 			size: 10,
@@ -63,7 +65,7 @@ func TestWindowAdmit(t *testing.T) {
 		},
 		{
 			name:  "byte budget exhausted",
-			setup: func(w *Window) { w.Admit(1, 7, 90, 0) },
+			setup: func(w *Window) { w.Admit(1, 7, 90, 0, sendOK) },
 			off:   2,
 			size:  20,
 			want:  Full,
@@ -74,7 +76,7 @@ func TestWindowAdmit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := NewWindow(3, 100, time.Second, 2)
 			tt.setup(w)
-			if got := w.Admit(tt.off, 7, tt.size, 0); got != tt.want {
+			if got := w.Admit(tt.off, 7, tt.size, 0, sendOK); got != tt.want {
 				t.Errorf("Admit(%d, size %d) = %v, want %v", tt.off, tt.size, got, tt.want)
 			}
 		})
@@ -85,12 +87,12 @@ func TestWindowConfirmFreesBudget(t *testing.T) {
 	w := NewWindow(2, 1000, time.Second, 2)
 	admitN(t, w, 1, 2, 10, 0)
 
-	if v := w.Admit(3, 7, 10, 0); v != Full {
+	if v := w.Admit(3, 7, 10, 0, sendOK); v != Full {
 		t.Fatalf("Admit(3) with full window = %v, want Full", v)
 	}
 
 	w.Confirm(1)
-	if v := w.Admit(3, 7, 10, 0); v != Admitted {
+	if v := w.Admit(3, 7, 10, 0, sendOK); v != Admitted {
 		t.Fatalf("Admit(3) after confirming 1 = %v, want Admitted", v)
 	}
 }
@@ -161,18 +163,43 @@ func TestWindowConfirmResetsRedeliveryAttempts(t *testing.T) {
 	}
 }
 
-func TestWindowRollback(t *testing.T) {
+func TestWindowRefusedAdmitCommitsNothing(t *testing.T) {
 	w := NewWindow(10, 1000, time.Second, 2)
-	admitN(t, w, 1, 2, 10, 0)
+	admitN(t, w, 1, 1, 10, 0)
 
-	w.Rollback(2)
-
-	if v := w.Admit(2, 7, 10, 0); v != Admitted {
-		t.Fatalf("Admit(2) after Rollback(2) = %v, want Admitted", v)
+	if v := w.Admit(2, 7, 10, 0, func() bool { return false }); v != Refused {
+		t.Fatalf("Admit(2) with failing send = %v, want Refused", v)
 	}
-	count, _ := w.Inflight()
+	count, bytes := w.Inflight()
+	if count != 1 || bytes != 10 {
+		t.Fatalf("Inflight after refused admit = (%d, %d), want (1, 10)", count, bytes)
+	}
+
+	if v := w.Admit(2, 7, 10, 0, sendOK); v != Admitted {
+		t.Fatalf("Admit(2) retry = %v, want Admitted", v)
+	}
+	count, _ = w.Inflight()
 	if count != 2 {
 		t.Fatalf("Inflight = %d, want 2", count)
+	}
+}
+
+func TestWindowResetDropsBaseline(t *testing.T) {
+	w := NewWindow(10, 1000, time.Second, 2)
+	admitN(t, w, 1, 3, 10, 0)
+
+	w.Reset()
+
+	count, bytes := w.Inflight()
+	if count != 0 || bytes != 0 {
+		t.Fatalf("Inflight after Reset = (%d, %d), want (0, 0)", count, bytes)
+	}
+	if v := w.Admit(42, 9, 10, 0, sendOK); v != Admitted {
+		t.Fatalf("Admit(42) after Reset = %v, want Admitted (re-baseline)", v)
+	}
+	from, epoch, _ := w.PumpPoint()
+	if from != 42 || epoch != 9 {
+		t.Fatalf("PumpPoint after re-baseline = (%d, %d), want (42, 9)", from, epoch)
 	}
 }
 

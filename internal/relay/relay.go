@@ -95,14 +95,7 @@ type Session struct {
 const redeliveryCheckInterval = 200 * time.Millisecond
 
 func (sess *Session) DeliverMessage(d engine.Delivery) bool {
-	if sess.qosc.Gate(d) == qos.Deferred {
-		return true
-	}
-	if !sess.produce(d) {
-		sess.qosc.Rollback(d.Channel, d.Offset)
-		return false
-	}
-	return true
+	return sess.qosc.Deliver(d)
 }
 
 func (sess *Session) produce(d engine.Delivery) bool {

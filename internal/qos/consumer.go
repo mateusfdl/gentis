@@ -12,16 +12,6 @@ import (
 // huge backlog never materializes as one giant slice.
 const pumpBatch = 64
 
-type Gate int
-
-const (
-	// SendNow: enqueue the delivery immediately.
-	SendNow Gate = iota
-	// Deferred: the delivery is parked (window full or out of order); the
-	// pump will fetch it from history later. Not a drop.
-	Deferred
-)
-
 // Recoverer is the slice of the engine the pump depends on.
 type Recoverer interface {
 	RecoverN(channel string, fromOffset, epoch uint64, max int) ([]engine.Delivery, bool)
@@ -106,26 +96,19 @@ func (c *Consumer) window(channel string) *Window {
 	return w
 }
 
-// Gate decides whether a live delivery may be sent right now. Deliveries
-// on channels without a window always pass through.
-func (c *Consumer) Gate(d engine.Delivery) Gate {
+// Deliver gates and enqueues a live delivery as one atomic step. Channels
+// without a window pass straight to the transport. Returns false only when
+// an admitted delivery could not be enqueued; deferred and duplicate
+// deliveries report true because the pump owns them.
+func (c *Consumer) Deliver(d engine.Delivery) bool {
 	w := c.window(d.Channel)
 	if w == nil {
-		return SendNow
+		return c.deliver(d)
 	}
-	switch w.Admit(d.Offset, d.Epoch, len(d.Data), time.Now().UnixNano()) {
-	case Admitted:
-		return SendNow
-	default:
-		return Deferred
-	}
-}
-
-// Rollback reverts a Gate admission whose transport enqueue failed.
-func (c *Consumer) Rollback(channel string, offset uint64) {
-	if w := c.window(channel); w != nil {
-		w.Rollback(offset)
-	}
+	v := w.Admit(d.Offset, d.Epoch, len(d.Data), time.Now().UnixNano(), func() bool {
+		return c.deliver(d)
+	})
+	return v != Refused
 }
 
 // Confirm applies a cumulative confirm and pumps any deliveries the freed
@@ -163,7 +146,11 @@ func (c *Consumer) pump(channel string, w *Window) {
 
 		batch, ok := c.rec.RecoverN(channel, from, epoch, room)
 		if !ok {
+			// History evicted the range; the engine contract says treat
+			// this as a full resync. Re-baseline on the next live delivery
+			// instead of retrying the same lost gap forever.
 			c.lostGaps.Add(1)
+			w.Reset()
 			return
 		}
 		if len(batch) == 0 {
@@ -172,15 +159,10 @@ func (c *Consumer) pump(channel string, w *Window) {
 
 		now := time.Now().UnixNano()
 		for _, d := range batch {
-			switch w.Admit(d.Offset, d.Epoch, len(d.Data), now) {
-			case Admitted:
-				if !c.deliver(d) {
-					w.Rollback(d.Offset)
-					return
-				}
-			case Dup:
+			switch w.Admit(d.Offset, d.Epoch, len(d.Data), now, func() bool { return c.deliver(d) }) {
+			case Admitted, Dup:
 				continue
-			case Full:
+			default:
 				return
 			}
 		}
@@ -215,9 +197,10 @@ func (c *Consumer) run() {
 				if action.Poisoned != 0 {
 					c.poisoned.Add(1)
 				}
-				if action.ResendFrom != 0 {
-					c.pump(ch, w)
-				}
+				// Pump unconditionally: a refused enqueue with an empty
+				// window leaves nothing inflight to time out, so the tick
+				// is the only thing that can resume delivery.
+				c.pump(ch, w)
 			}
 		}
 	}
