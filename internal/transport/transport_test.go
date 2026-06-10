@@ -91,9 +91,9 @@ func TestSessionStore_FlatBoundaryIDs(t *testing.T) {
 	first := &stubSender{}
 	last := &stubSender{}
 	afterLast := &stubSender{}
-	s.Register(base, first)            // idx 0 — in range
-	s.Register(base+cap-1, last)       // idx cap-1 — last flat slot
-	s.Register(base+cap, afterLast)    // one past — overflow
+	s.Register(base, first)         // idx 0 — in range
+	s.Register(base+cap-1, last)    // idx cap-1 — last flat slot
+	s.Register(base+cap, afterLast) // one past — overflow
 
 	if idx, ok := s.slotFor(base); !ok || idx != 0 {
 		t.Errorf("first boundary: want idx=0 ok=true, got idx=%d ok=%v", idx, ok)
