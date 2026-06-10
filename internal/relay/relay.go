@@ -677,6 +677,11 @@ func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 		return
 	}
 
+	if max := sess.relay.config.MaxMessageSize; max > 0 && len(req.Data) > max {
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_MESSAGE_TOO_LARGE, "message exceeds max size", reqID)
+		return
+	}
+
 	route := sess.relay.router.Route(req.Channel)
 
 	var result engine.PublishResult

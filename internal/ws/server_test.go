@@ -792,3 +792,44 @@ func TestTLSServer(t *testing.T) {
 		t.Fatalf("expected Connected over TLS, got %+v", resp)
 	}
 }
+
+func TestPublishMessageTooLarge(t *testing.T) {
+	eng := engine.New()
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0",
+		WithEngine(eng),
+		WithSessionStore(store),
+		WithMaxMessageSize(1024),
+	)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+	authenticate(t, conn)
+
+	big := make([]byte, 2048)
+	for i := range big {
+		big[i] = 'a'
+	}
+	sendJSON(t, conn, map[string]any{
+		"id":      "big",
+		"publish": map[string]any{"channel": "ch", "data": json.RawMessage(`"` + string(big) + `"`)},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeMessageTooLarge {
+		t.Fatalf("oversized publish: got %+v, want MESSAGE_TOO_LARGE", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{"id": "p", "ping": map[string]any{}})
+	readJSON(t, conn, &resp)
+	if resp.Pong == nil {
+		t.Fatalf("session should survive oversized publish, got %+v", resp)
+	}
+}

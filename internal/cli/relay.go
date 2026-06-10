@@ -43,6 +43,7 @@ func init() {
 	relayCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
 	f.Bool("upstream-tls", false, "dial the upstream over TLS")
 	f.String("upstream-ca", "", "CA bundle for upstream TLS verification (empty = system roots)")
+	f.Int("max-message-size", 65536, "maximum publish payload size in bytes")
 	addAuthFlags(relayCmd)
 	addWSFlags(relayCmd)
 
@@ -76,6 +77,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 	incomingBuffer, _ := cmd.Flags().GetInt("incoming-buffer")
 	relayFanoutWorkers, _ := cmd.Flags().GetInt("relay-fanout-workers")
 	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
+	maxMessageSize, _ := cmd.Flags().GetInt("max-message-size")
 
 	var obs *metrics.Observer
 	if metricsEnabled {
@@ -111,6 +113,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		relay.WithLogger(logger),
 		relay.WithVerifier(verifier),
 		relay.WithPingInterval(pingInterval),
+		relay.WithMaxMessageSize(maxMessageSize),
 	}
 	upstreamTLS, _ := cmd.Flags().GetBool("upstream-tls")
 	upstreamCA, _ := cmd.Flags().GetString("upstream-ca")

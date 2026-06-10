@@ -1263,3 +1263,45 @@ func TestTLSServerRejectsPlaintext(t *testing.T) {
 		}
 	}
 }
+
+func TestPublishMessageTooLarge(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithMaxMessageSize(1024))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer srv.Stop()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "big",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "ch", Data: make([]byte, 2048)},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_MESSAGE_TOO_LARGE {
+		t.Fatalf("oversized publish: got %v, want MESSAGE_TOO_LARGE", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "fits",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "ch", Data: make([]byte, 1024)},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetPublished() == nil {
+		t.Fatalf("max-size publish: got %v, want PublishResponse", msg.Message)
+	}
+}

@@ -251,6 +251,11 @@ func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 		return
 	}
 
+	if max := s.server.config.MaxMessageSize; max > 0 && len(req.Data) > max {
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_MESSAGE_TOO_LARGE, "message exceeds max size", reqID)
+		return
+	}
+
 	var result engine.PublishResult
 	if s.server.store != nil {
 		result = s.engine.Publish(req.Channel, req.Data, s.subID, s.server.store.Deliver)

@@ -21,6 +21,7 @@ type MessageHandler interface {
 	Verifier() auth.Verifier
 	Subject() string
 	ScheduleExpiry(exp time.Time)
+	MaxMessageSize() int
 	Send(msg *ServerMessage)
 	SendError(code string, message string, reqID string)
 }
@@ -29,7 +30,7 @@ type MessageHandler interface {
 // appropriate handler.
 func DispatchMessage(h MessageHandler, data []byte, readLimit int64) {
 	if int64(len(data)) > readLimit {
-		h.SendError(ErrorCodeInvalidPayload, "message too large", "")
+		h.SendError(ErrorCodeMessageTooLarge, "message too large", "")
 		return
 	}
 
@@ -169,6 +170,11 @@ func handlePublish(h MessageHandler, req *PublishRequest, reqID string) {
 
 	if !h.State().CanPublish(req.Channel) {
 		h.SendError(ErrorCodePermissionDenied, "publish not allowed on channel", reqID)
+		return
+	}
+
+	if max := h.MaxMessageSize(); max > 0 && len(req.Data) > max {
+		h.SendError(ErrorCodeMessageTooLarge, "message exceeds max size", reqID)
 		return
 	}
 

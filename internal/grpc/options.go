@@ -25,6 +25,10 @@ type Config struct {
 	TLSCertFile string
 	TLSKeyFile  string
 
+	// MaxMessageSize bounds the publish payload in bytes. Oversized
+	// publishes are rejected with MESSAGE_TOO_LARGE.
+	MaxMessageSize int
+
 	// PingInterval drives HTTP/2 transport keepalive: the server pings an
 	// idle connection every interval and closes it when the ack doesn't
 	// arrive within two more. Zero disables keepalive.
@@ -74,6 +78,12 @@ func WithEngine(e *engine.Engine) Option {
 func WithSessionStore(store *transport.SessionStore) Option {
 	return func(c *Config) {
 		c.SessionStore = store
+	}
+}
+
+func WithMaxMessageSize(n int) Option {
+	return func(c *Config) {
+		c.MaxMessageSize = n
 	}
 }
 
@@ -139,5 +149,6 @@ func defaultConfig(address string) *Config {
 		MetricsEnabled: false,
 		Verifier:       auth.InsecureVerifier{},
 		PingInterval:   25 * time.Second,
+		MaxMessageSize: 65536,
 	}
 }

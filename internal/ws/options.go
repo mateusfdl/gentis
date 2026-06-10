@@ -24,6 +24,10 @@ type Config struct {
 	TLSCertFile string
 	TLSKeyFile  string
 
+	// MaxMessageSize bounds the publish payload in bytes. Oversized
+	// publishes are rejected with MESSAGE_TOO_LARGE.
+	MaxMessageSize int
+
 	// PingInterval is the cadence of server-initiated protocol pings. A
 	// session is reaped when nothing arrives from the client for three
 	// consecutive intervals (two unanswered pings). Zero disables
@@ -46,6 +50,13 @@ func defaultConfig(address string) *Config {
 		SendBufferSize: 256,
 		Verifier:       auth.InsecureVerifier{},
 		PingInterval:   25 * time.Second,
+		MaxMessageSize: 65536,
+	}
+}
+
+func WithMaxMessageSize(n int) Option {
+	return func(c *Config) {
+		c.MaxMessageSize = n
 	}
 }
 

@@ -12,6 +12,7 @@ const (
 	ErrorCodeAlreadySubscribed = "ALREADY_SUBSCRIBED"
 	ErrorCodeNotSubscribed     = "NOT_SUBSCRIBED"
 	ErrorCodePermissionDenied  = "PERMISSION_DENIED"
+	ErrorCodeMessageTooLarge   = "MESSAGE_TOO_LARGE"
 )
 
 type ClientMessage struct {

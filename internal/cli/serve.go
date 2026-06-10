@@ -27,6 +27,7 @@ func init() {
 	serveCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
 	serveCmd.Flags().String("tls-cert", "", "TLS certificate file for gRPC and WebSocket listeners")
 	serveCmd.Flags().String("tls-key", "", "TLS private key file for gRPC and WebSocket listeners")
+	serveCmd.Flags().Int("max-message-size", 65536, "maximum publish payload size in bytes")
 	addAuthFlags(serveCmd)
 	addWSFlags(serveCmd)
 	rootCmd.AddCommand(serveCmd)
@@ -75,6 +76,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	wsSrv := buildWSServer(cmd, logger, eng, store, obs, verifier)
 
 	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
+	maxMessageSize, _ := cmd.Flags().GetInt("max-message-size")
 	tlsCert, _ := cmd.Flags().GetString("tls-cert")
 	tlsKey, _ := cmd.Flags().GetString("tls-key")
 	if (tlsCert == "") != (tlsKey == "") {
@@ -87,6 +89,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		grpcserver.WithLogger(logger),
 		grpcserver.WithVerifier(verifier),
 		grpcserver.WithPingInterval(pingInterval),
+		grpcserver.WithMaxMessageSize(maxMessageSize),
 	}
 	if tlsCert != "" {
 		grpcOpts = append(grpcOpts, grpcserver.WithTLS(tlsCert, tlsKey))

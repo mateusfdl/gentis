@@ -25,6 +25,10 @@ type Config struct {
 	Logger             *slog.Logger
 	Verifier           auth.Verifier
 
+	// MaxMessageSize bounds the publish payload in bytes. Oversized
+	// publishes are rejected with MESSAGE_TOO_LARGE.
+	MaxMessageSize int
+
 	// PingInterval drives HTTP/2 transport keepalive on the downstream
 	// listener: ping idle connections every interval, close after the ack
 	// misses two more. Zero disables keepalive.
@@ -99,6 +103,12 @@ func WithMetrics(addr string) Option {
 	return func(c *Config) {
 		c.MetricsAddr = addr
 		c.MetricsEnabled = true
+	}
+}
+
+func WithMaxMessageSize(n int) Option {
+	return func(c *Config) {
+		c.MaxMessageSize = n
 	}
 }
 
@@ -180,6 +190,7 @@ func defaultConfig() *Config {
 	return &Config{
 		Verifier:           auth.InsecureVerifier{},
 		PingInterval:       25 * time.Second,
+		MaxMessageSize:     65536,
 		ListenAddr:         "127.0.0.1:9001",
 		BufferSize:         256,
 		IncomingBufferSize: 4096,
