@@ -22,6 +22,7 @@ message ClientMessage {
     PublishRequest publish = 4;
     PingRequest ping = 5;
     RefreshRequest refresh = 6;
+    ConfirmRequest confirm = 7;
   }
 }
 
@@ -67,9 +68,27 @@ message RefreshResponse {
 
 // SubscribeRequest requests subscription to a channel. Setting recover asks
 // the server to replay publications missed since the given position.
+// Setting max_unconfirmed opts the subscription into at-least-once
+// delivery with a credit window (the channel's namespace must allow it).
 message SubscribeRequest {
   string channel = 1;
   RecoverPoint recover = 2;
+  UnconfirmedWindow max_unconfirmed = 3;
+}
+
+// UnconfirmedWindow is the consumer's advertised credit: how many
+// deliveries (and bytes) may be in flight unconfirmed before the server
+// stops sending. Zero count means a server-chosen default.
+message UnconfirmedWindow {
+  uint32 count = 1;
+  uint64 bytes = 2;
+}
+
+// ConfirmRequest acknowledges deliveries cumulatively: confirming offset N
+// confirms every delivery up to and including N on the channel.
+message ConfirmRequest {
+  string channel = 1;
+  uint64 offset = 2;
 }
 
 // RecoverPoint is the last position a client saw on a channel.

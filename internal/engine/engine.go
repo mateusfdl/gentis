@@ -414,6 +414,13 @@ func (e *Engine) Stop() {
 // requested range was evicted or expired. Callers must treat false as a
 // full-resync signal.
 func (e *Engine) Recover(channel string, fromOffset, epoch uint64) ([]Delivery, bool) {
+	return e.RecoverN(channel, fromOffset, epoch, 0)
+}
+
+// RecoverN is Recover with a result cap: at most max items are returned
+// (zero means unbounded). Used by the QoS pump to fetch only what the
+// credit window admits.
+func (e *Engine) RecoverN(channel string, fromOffset, epoch uint64, max int) ([]Delivery, bool) {
 	s := e.getShard(channel)
 	s.mu.RLock()
 	ch := s.channels[channel]
@@ -431,7 +438,7 @@ func (e *Engine) Recover(channel string, fromOffset, epoch uint64) ([]Delivery, 
 		return nil, false
 	}
 
-	items, ok := ch.hist.replay(fromOffset)
+	items, ok := ch.hist.replayN(fromOffset, max)
 	if !ok {
 		return nil, false
 	}

@@ -51,6 +51,11 @@ func (h *history) append(offset uint64, data []byte, now int64) {
 // tail (evicted or expired entries) or claims an offset the channel never
 // assigned.
 func (h *history) replay(fromOffset uint64) ([]historyItem, bool) {
+	return h.replayN(fromOffset, 0)
+}
+
+// replayN is replay capped to max items (zero means unbounded).
+func (h *history) replayN(fromOffset uint64, max int) ([]historyItem, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -70,8 +75,15 @@ func (h *history) replay(fromOffset uint64) ([]historyItem, bool) {
 		return nil, false
 	}
 
-	items := make([]historyItem, 0, h.lastOffset-fromOffset)
+	want := int(h.lastOffset - fromOffset)
+	if max > 0 && max < want {
+		want = max
+	}
+	items := make([]historyItem, 0, want)
 	for i := 0; i < h.count; i++ {
+		if max > 0 && len(items) >= max {
+			break
+		}
 		item := h.entries[(tail+i)%len(h.entries)]
 		if item.offset > fromOffset {
 			items = append(items, item)
