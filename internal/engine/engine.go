@@ -57,6 +57,9 @@ type Engine struct {
 	hashSeed      maphash.Seed
 	logger        *slog.Logger
 
+	sweepStop chan struct{}
+	sweepDone chan struct{}
+
 	channelCount      atomic.Int64
 	subscriptionCount atomic.Int64
 	subscribeOps      atomic.Int64
@@ -97,6 +100,12 @@ func New(opts ...Option) *Engine {
 		e.fanoutPool = newFanoutPool(cfg.fanoutWorkers)
 	}
 
+	if cfg.history.size > 0 && cfg.history.ttl > 0 {
+		e.sweepStop = make(chan struct{})
+		e.sweepDone = make(chan struct{})
+		go e.runHistorySweeper(cfg.history.ttl)
+	}
+
 	logger.Info("engine initialized",
 		"shards", cfg.numShards,
 		"fanout_threshold", cfg.fanoutThreshold,
@@ -116,6 +125,9 @@ func (e *Engine) Subscribe(id SubscriberID, channelName string) bool {
 	ch, ok := s.channels[channelName]
 	if !ok {
 		ch = NewChannel(channelName)
+		if e.config.history.size > 0 {
+			ch.hist = newHistory(e.config.history.size, e.config.history.ttl)
+		}
 		s.channels[channelName] = ch
 		if len(s.channels) > s.peak {
 			s.peak = len(s.channels)
@@ -228,6 +240,10 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	result.Offset = d.Offset
 	result.Epoch = d.Epoch
 
+	if ch.hist != nil {
+		ch.hist.append(d.Offset, data, time.Now().UnixNano())
+	}
+
 	subscribers := ch.Subscribers()
 
 	// Use parallel fan-out for high-subscriber channels to reduce
@@ -327,10 +343,89 @@ func (e *Engine) Stats() EngineStats {
 // Stop shuts down background goroutines (GC pacer, fanout workers).
 // Safe to call even if no background tasks are running.
 func (e *Engine) Stop() {
+	if e.sweepStop != nil {
+		close(e.sweepStop)
+		<-e.sweepDone
+		e.sweepStop = nil
+	}
 	if e.pacer != nil {
 		e.pacer.Stop()
 	}
 	if e.fanoutPool != nil {
 		e.fanoutPool.stop()
+	}
+}
+
+// Recover returns the publications a client missed since fromOffset on the
+// given channel, oldest first. ok is false when the gap cannot be served
+// exactly: history disabled, the channel is gone, the epoch changed, or the
+// requested range was evicted or expired. Callers must treat false as a
+// full-resync signal.
+func (e *Engine) Recover(channel string, fromOffset, epoch uint64) ([]Delivery, bool) {
+	s := e.getShard(channel)
+	s.mu.RLock()
+	ch := s.channels[channel]
+	if ch != nil {
+		ch.Acquire()
+	}
+	s.mu.RUnlock()
+
+	if ch == nil {
+		return nil, false
+	}
+	defer ch.Release()
+
+	if ch.hist == nil || ch.epoch != epoch {
+		return nil, false
+	}
+
+	items, ok := ch.hist.replay(fromOffset)
+	if !ok {
+		return nil, false
+	}
+
+	out := make([]Delivery, len(items))
+	for i, item := range items {
+		out[i] = Delivery{
+			Channel: channel,
+			Data:    item.data,
+			Offset:  item.offset,
+			Epoch:   ch.epoch,
+		}
+	}
+	return out, true
+}
+
+// runHistorySweeper trims expired history entries across all shards. One
+// goroutine for the whole engine: per-channel sweep work is a tail trim
+// under a short lock, so a single sweeper scales fine and avoids
+// per-channel timers.
+func (e *Engine) runHistorySweeper(ttl time.Duration) {
+	defer close(e.sweepDone)
+
+	interval := ttl / 2
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-e.sweepStop:
+			return
+		case <-ticker.C:
+			now := time.Now().UnixNano()
+			for i := range e.shards {
+				s := &e.shards[i]
+				s.mu.RLock()
+				for _, ch := range s.channels {
+					if ch.hist != nil {
+						ch.hist.sweep(now)
+					}
+				}
+				s.mu.RUnlock()
+			}
+		}
 	}
 }

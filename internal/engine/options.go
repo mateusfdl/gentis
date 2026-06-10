@@ -3,6 +3,7 @@ package engine
 import (
 	"log/slog"
 	"runtime"
+	"time"
 )
 
 type Option func(*config)
@@ -14,6 +15,12 @@ type config struct {
 	fanoutWorkers   int
 	gcPacer         gcPacerConfig
 	logger          *slog.Logger
+	history         historyConfig
+}
+
+type historyConfig struct {
+	size int
+	ttl  time.Duration
 }
 
 const (
@@ -68,6 +75,15 @@ func nextPowerOf2(n int) int {
 func WithObserver(obs MetricsObserver) Option {
 	return func(c *config) {
 		c.observer = obs
+	}
+}
+
+// WithHistory enables a bounded per-channel history ring of size entries.
+// A non-zero ttl additionally expires entries via a background sweep.
+// History is the basis for subscribe-time recovery by offset.
+func WithHistory(size int, ttl time.Duration) Option {
+	return func(c *config) {
+		c.history = historyConfig{size: size, ttl: ttl}
 	}
 }
 

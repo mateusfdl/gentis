@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -756,4 +757,91 @@ func TestPublishToMissingChannelAssignsNoIdentity(t *testing.T) {
 	if result.Epoch != 0 {
 		t.Errorf("expected zero epoch for missing channel, got %d", result.Epoch)
 	}
+}
+
+func TestRecoverReplaysMissedPublications(t *testing.T) {
+	e := New(WithHistory(8, 0))
+	defer e.Stop()
+
+	e.Subscribe(1, "hist-ch")
+
+	var lastEpoch uint64
+	for i := range 3 {
+		r := e.Publish("hist-ch", []byte(fmt.Sprintf("m-%d", i)), 0, func(SubscriberID, Delivery) bool { return true })
+		lastEpoch = r.Epoch
+	}
+
+	got, ok := e.Recover("hist-ch", 1, lastEpoch)
+	if !ok {
+		t.Fatal("Recover() ok = false, want true")
+	}
+	if len(got) != 2 {
+		t.Fatalf("Recover() returned %d deliveries, want 2", len(got))
+	}
+	for i, d := range got {
+		wantOffset := uint64(i + 2)
+		if d.Offset != wantOffset {
+			t.Errorf("delivery[%d].Offset = %d, want %d", i, d.Offset, wantOffset)
+		}
+		if d.Epoch != lastEpoch {
+			t.Errorf("delivery[%d].Epoch = %d, want %d", i, d.Epoch, lastEpoch)
+		}
+		if d.Channel != "hist-ch" {
+			t.Errorf("delivery[%d].Channel = %q, want %q", i, d.Channel, "hist-ch")
+		}
+		want := fmt.Sprintf("m-%d", i+1)
+		if string(d.Data) != want {
+			t.Errorf("delivery[%d].Data = %q, want %q", i, d.Data, want)
+		}
+	}
+}
+
+func TestRecoverRejectsEpochMismatch(t *testing.T) {
+	e := New(WithHistory(8, 0))
+	defer e.Stop()
+
+	e.Subscribe(1, "hist-ch")
+	r := e.Publish("hist-ch", []byte("x"), 0, func(SubscriberID, Delivery) bool { return true })
+
+	if _, ok := e.Recover("hist-ch", 0, r.Epoch+1); ok {
+		t.Fatal("Recover() with wrong epoch ok = true, want false")
+	}
+}
+
+func TestRecoverWithoutHistoryIsUnrecoverable(t *testing.T) {
+	e := New()
+	defer e.Stop()
+
+	e.Subscribe(1, "plain-ch")
+	r := e.Publish("plain-ch", []byte("x"), 0, func(SubscriberID, Delivery) bool { return true })
+
+	if _, ok := e.Recover("plain-ch", 0, r.Epoch); ok {
+		t.Fatal("Recover() without history ok = true, want false")
+	}
+}
+
+func TestRecoverMissingChannel(t *testing.T) {
+	e := New(WithHistory(8, 0))
+	defer e.Stop()
+
+	if _, ok := e.Recover("ghost", 0, 1); ok {
+		t.Fatal("Recover() on missing channel ok = true, want false")
+	}
+}
+
+func TestHistorySweeperExpiresEntries(t *testing.T) {
+	e := New(WithHistory(8, 50*time.Millisecond))
+	defer e.Stop()
+
+	e.Subscribe(1, "ttl-ch")
+	r := e.Publish("ttl-ch", []byte("x"), 0, func(SubscriberID, Delivery) bool { return true })
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := e.Recover("ttl-ch", 0, r.Epoch); !ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("history entry never expired via TTL sweep")
 }
