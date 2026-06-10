@@ -9,6 +9,7 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/pattern"
 )
 
 const (
@@ -275,6 +276,11 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 		return
 	}
 
+	if pattern.IsPattern(req.Channel) {
+		s.handleSubscribePattern(req, reqID)
+		return
+	}
+
 	if err := s.engine.SubscribePriority(s.subID, req.Channel, int(req.Priority)); err != nil {
 		s.sendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
@@ -314,6 +320,37 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 	s.logger.Debug("subscribed", "channel", req.Channel)
 }
 
+// handleSubscribePattern registers a wildcard subscription. Patterns are
+// broadcast-only and replayless, so credit windows and recovery points are
+// rejected up front.
+func (s *Session) handleSubscribePattern(req *gentisv1.SubscribeRequest, reqID string) {
+	if req.MaxUnconfirmed != nil || req.Recover != nil {
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "wildcard subscriptions do not support qos or recovery", reqID)
+		return
+	}
+
+	if err := s.engine.SubscribePattern(s.subID, req.Channel); err != nil {
+		s.sendError(subscribeErrorCode(err), err.Error(), reqID)
+		return
+	}
+
+	s.state.AddSubscription(req.Channel)
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Subscribed{
+			Subscribed: &gentisv1.SubscribedResponse{Channel: req.Channel},
+		},
+	})
+	s.logger.Debug("subscribed", "pattern", req.Channel)
+}
+
+func (s *Session) unsubscribe(channel string) bool {
+	if pattern.IsPattern(channel) {
+		return s.engine.UnsubscribePattern(s.subID, channel)
+	}
+	return s.engine.Unsubscribe(s.subID, channel)
+}
+
 func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
 		s.logger.Debug("invalid channel name", "channel", req.Channel)
@@ -321,7 +358,7 @@ func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID stri
 		return
 	}
 
-	if !s.engine.Unsubscribe(s.subID, req.Channel) {
+	if !s.unsubscribe(req.Channel) {
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED, "Not subscribed to channel", reqID)
 		return
 	}
@@ -413,6 +450,8 @@ func subscribeErrorCode(err error) gentisv1.ErrorCode {
 		return gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND
 	case errors.Is(err, engine.ErrChannelFull):
 		return gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT
+	case errors.Is(err, engine.ErrWildcardDenied):
+		return gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED
 	default:
 		return gentisv1.ErrorCode_ERROR_CODE_INTERNAL
 	}

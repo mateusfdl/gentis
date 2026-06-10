@@ -8,6 +8,7 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/pattern"
 	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
@@ -157,6 +158,11 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 		return
 	}
 
+	if pattern.IsPattern(req.Channel) {
+		handleSubscribePattern(h, req, reqID)
+		return
+	}
+
 	if err := h.Engine().SubscribePriority(engine.SubscriberID(h.ID()), req.Channel, int(req.Priority)); err != nil {
 		h.SendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
@@ -193,13 +199,41 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 	}
 }
 
+// handleSubscribePattern registers a wildcard subscription. Patterns are
+// broadcast-only and replayless, so credit windows and recovery points are
+// rejected up front.
+func handleSubscribePattern(h MessageHandler, req *SubscribeRequest, reqID string) {
+	if req.MaxUnconfirmed != nil || req.Recover != nil {
+		h.SendError(ErrorCodeInvalidPayload, "wildcard subscriptions do not support qos or recovery", reqID)
+		return
+	}
+
+	if err := h.Engine().SubscribePattern(engine.SubscriberID(h.ID()), req.Channel); err != nil {
+		h.SendError(subscribeErrorCode(err), err.Error(), reqID)
+		return
+	}
+
+	h.State().AddSubscription(req.Channel)
+	h.Send(&ServerMessage{
+		ID:         reqID,
+		Subscribed: &SubscribedResponse{Channel: req.Channel},
+	})
+}
+
+func unsubscribe(h MessageHandler, channel string) bool {
+	if pattern.IsPattern(channel) {
+		return h.Engine().UnsubscribePattern(engine.SubscriberID(h.ID()), channel)
+	}
+	return h.Engine().Unsubscribe(engine.SubscriberID(h.ID()), channel)
+}
+
 func handleUnsubscribe(h MessageHandler, req *UnsubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
 		h.SendError(ErrorCodeInvalidPayload, "invalid channel name", reqID)
 		return
 	}
 
-	if !h.Engine().Unsubscribe(engine.SubscriberID(h.ID()), req.Channel) {
+	if !unsubscribe(h, req.Channel) {
 		h.SendError(ErrorCodeNotSubscribed, "not subscribed to channel", reqID)
 		return
 	}

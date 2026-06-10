@@ -917,3 +917,84 @@ func TestUpstreamReconnectRecoversGap(t *testing.T) {
 		}
 	}
 }
+
+func TestRelayWildcardSubscribeViaUpstream(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	relayAddr, stopRelay := startRelay(t, upstreamAddr)
+	defer stopRelay()
+
+	relaySub, closeRelaySub := connectClient(t, relayAddr)
+	defer closeRelaySub()
+	authenticate(t, relaySub, "token")
+	relaySub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "metrics:*"},
+		},
+	})
+	subResp := recvWithTimeout(t, relaySub, 2*time.Second).GetSubscribed()
+	if subResp == nil {
+		t.Fatal("expected SubscribedResponse for pattern subscribe")
+	}
+	if subResp.Channel != "metrics:*" {
+		t.Fatalf("subscribed channel = %q, want metrics:*", subResp.Channel)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	upstreamPub, closeUpstreamPub := connectClient(t, upstreamAddr)
+	defer closeUpstreamPub()
+	authenticate(t, upstreamPub, "token")
+	upstreamPub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{
+				Channel: "metrics:cpu",
+				Data:    []byte("wild"),
+			},
+		},
+	})
+
+	msg := recvWithTimeout(t, relaySub, 3*time.Second)
+	chMsg := msg.GetChannelMessage()
+	if chMsg == nil {
+		t.Fatalf("relay subscriber: expected ChannelMessage, got %T", msg.Message)
+	}
+	if chMsg.Channel != "metrics:cpu" {
+		t.Errorf("expected channel metrics:cpu, got %q", chMsg.Channel)
+	}
+	if string(chMsg.Data) != "wild" {
+		t.Errorf("expected data 'wild', got %q", string(chMsg.Data))
+	}
+}
+
+func TestRelayWildcardUnsubscribe(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	relayAddr, stopRelay := startRelay(t, upstreamAddr)
+	defer stopRelay()
+
+	stream, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "metrics:*"},
+		},
+	})
+	recvWithTimeout(t, stream, 2*time.Second)
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Unsubscribe{
+			Unsubscribe: &gentisv1.UnsubscribeRequest{Channel: "metrics:*"},
+		},
+	})
+	unsub := recvWithTimeout(t, stream, 2*time.Second).GetUnsubscribed()
+	if unsub == nil {
+		t.Fatal("expected UnsubscribedResponse")
+	}
+	if unsub.Channel != "metrics:*" {
+		t.Fatalf("unsubscribed channel = %q, want metrics:*", unsub.Channel)
+	}
+}

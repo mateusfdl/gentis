@@ -1814,3 +1814,137 @@ func TestLegacyClientNeverSeesBatches(t *testing.T) {
 		}
 	}
 }
+
+func TestWildcardSubscribeDeliversMatchingChannels(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	sub, closeSub := connectClient(t, addr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "metrics:*"},
+		},
+	})
+	subResp := recvWithTimeout(t, sub, 2*time.Second).GetSubscribed()
+	if subResp == nil {
+		t.Fatal("expected SubscribedResponse for pattern subscribe")
+	}
+	if subResp.Channel != "metrics:*" {
+		t.Fatalf("subscribed channel = %q, want metrics:*", subResp.Channel)
+	}
+
+	pub, closePub := connectClient(t, addr)
+	defer closePub()
+	authenticate(t, pub, "token")
+	pub.Send(&gentisv1.ClientMessage{
+		Id: "p1",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "metrics:cpu", Data: []byte("v")},
+		},
+	})
+	ack := recvWithTimeout(t, pub, 2*time.Second).GetPublished()
+	if ack == nil {
+		t.Fatal("expected PublishResponse")
+	}
+	if ack.Delivered != 1 {
+		t.Fatalf("ack.Delivered = %d, want 1", ack.Delivered)
+	}
+
+	delivery := recvWithTimeout(t, sub, 2*time.Second).GetChannelMessage()
+	if delivery == nil {
+		t.Fatal("expected ChannelMessage")
+	}
+	if delivery.Channel != "metrics:cpu" {
+		t.Errorf("delivery channel = %q, want metrics:cpu", delivery.Channel)
+	}
+	if delivery.Offset != 1 {
+		t.Errorf("delivery offset = %d, want 1", delivery.Offset)
+	}
+	if string(delivery.Data) != "v" {
+		t.Errorf("delivery data = %q, want v", delivery.Data)
+	}
+}
+
+func TestWildcardUnsubscribeStopsDelivery(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	sub, closeSub := connectClient(t, addr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "metrics:*"},
+		},
+	})
+	recvWithTimeout(t, sub, 2*time.Second)
+
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Unsubscribe{
+			Unsubscribe: &gentisv1.UnsubscribeRequest{Channel: "metrics:*"},
+		},
+	})
+	unsub := recvWithTimeout(t, sub, 2*time.Second).GetUnsubscribed()
+	if unsub == nil {
+		t.Fatal("expected UnsubscribedResponse")
+	}
+	if unsub.Channel != "metrics:*" {
+		t.Fatalf("unsubscribed channel = %q, want metrics:*", unsub.Channel)
+	}
+
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Unsubscribe{
+			Unsubscribe: &gentisv1.UnsubscribeRequest{Channel: "metrics:*"},
+		},
+	})
+	errResp := recvWithTimeout(t, sub, 2*time.Second).GetError()
+	if errResp == nil {
+		t.Fatal("expected ErrorResponse for double unsubscribe")
+	}
+	if errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED {
+		t.Errorf("error code = %v, want NOT_SUBSCRIBED", errResp.Code)
+	}
+}
+
+func TestWildcardSubscribeRejectsQoSAndRecovery(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel:        "metrics:*",
+				MaxUnconfirmed: &gentisv1.UnconfirmedWindow{Count: 8},
+			},
+		},
+	})
+	errResp := recvWithTimeout(t, stream, 2*time.Second).GetError()
+	if errResp == nil {
+		t.Fatal("expected ErrorResponse for pattern subscribe with qos window")
+	}
+	if errResp.Code != gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD {
+		t.Errorf("error code = %v, want INVALID_PAYLOAD", errResp.Code)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel: "metrics:*",
+				Recover: &gentisv1.RecoverPoint{Offset: 1, Epoch: 1},
+			},
+		},
+	})
+	errResp = recvWithTimeout(t, stream, 2*time.Second).GetError()
+	if errResp == nil {
+		t.Fatal("expected ErrorResponse for pattern subscribe with recover")
+	}
+	if errResp.Code != gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD {
+		t.Errorf("error code = %v, want INVALID_PAYLOAD", errResp.Code)
+	}
+}

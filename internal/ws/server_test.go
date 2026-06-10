@@ -1236,3 +1236,94 @@ func TestLegacyWSClientNeverSeesArrayFrames(t *testing.T) {
 		}
 	}
 }
+
+func TestWildcardSubscribePublish(t *testing.T) {
+	addr, stop := startTestServer(t)
+	defer stop()
+
+	connA := dialWS(t, addr)
+	defer connA.Close()
+	authenticate(t, connA)
+	subscribe(t, connA, "metrics:*")
+
+	connB := dialWS(t, addr)
+	defer connB.Close()
+	authenticate(t, connB)
+
+	sendJSON(t, connB, map[string]any{
+		"id":      "pub-1",
+		"publish": map[string]any{"channel": "metrics:cpu", "data": "v"},
+	})
+
+	var msg ServerMessage
+	readJSON(t, connA, &msg)
+	if msg.ChannelMessage == nil {
+		t.Fatalf("expected ChannelMessage, got %+v", msg)
+	}
+	if msg.ChannelMessage.Channel != "metrics:cpu" {
+		t.Fatalf("channel = %q, want metrics:cpu", msg.ChannelMessage.Channel)
+	}
+	if string(msg.ChannelMessage.Data) != `"v"` {
+		t.Fatalf("data = %s, want \"v\"", msg.ChannelMessage.Data)
+	}
+}
+
+func TestWildcardUnsubscribe(t *testing.T) {
+	addr, stop := startTestServer(t)
+	defer stop()
+
+	conn := dialWS(t, addr)
+	defer conn.Close()
+	authenticate(t, conn)
+	subscribe(t, conn, "metrics:*")
+
+	sendJSON(t, conn, map[string]any{
+		"id":          "unsub-1",
+		"unsubscribe": map[string]any{"channel": "metrics:*"},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Unsubscribed == nil {
+		t.Fatalf("expected Unsubscribed, got %+v", resp)
+	}
+	if resp.Unsubscribed.Channel != "metrics:*" {
+		t.Fatalf("channel = %q, want metrics:*", resp.Unsubscribed.Channel)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id":          "unsub-2",
+		"unsubscribe": map[string]any{"channel": "metrics:*"},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil {
+		t.Fatalf("expected Error for double unsubscribe, got %+v", resp)
+	}
+	if resp.Error.Code != ErrorCodeNotSubscribed {
+		t.Fatalf("error code = %q, want %q", resp.Error.Code, ErrorCodeNotSubscribed)
+	}
+}
+
+func TestWildcardSubscribeRejectsQoS(t *testing.T) {
+	addr, stop := startTestServer(t)
+	defer stop()
+
+	conn := dialWS(t, addr)
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{
+		"id": "sub-1",
+		"subscribe": map[string]any{
+			"channel":         "metrics:*",
+			"max_unconfirmed": map[string]any{"count": 8},
+		},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Error == nil {
+		t.Fatalf("expected Error for pattern subscribe with qos, got %+v", resp)
+	}
+	if resp.Error.Code != ErrorCodeInvalidPayload {
+		t.Fatalf("error code = %q, want %q", resp.Error.Code, ErrorCodeInvalidPayload)
+	}
+}

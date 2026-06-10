@@ -18,6 +18,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
+	"github.com/mateusfdl/gentis/internal/pattern"
 	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/transport"
@@ -642,6 +643,11 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 		return
 	}
 
+	if pattern.IsPattern(req.Channel) {
+		sess.handleSubscribePattern(req, reqID)
+		return
+	}
+
 	route := sess.relay.router.Route(req.Channel)
 
 	if err := sess.relay.engine.SubscribePriority(sess.subID, req.Channel, int(req.Priority)); err != nil {
@@ -692,13 +698,54 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 	}
 }
 
+// handleSubscribePattern registers a wildcard subscription on the local
+// engine and forwards the pattern verbatim to the upstream, which resolves
+// it against its own channel space. Patterns are broadcast-only and
+// replayless, so credit windows and recovery points are rejected up front.
+func (sess *Session) handleSubscribePattern(req *gentisv1.SubscribeRequest, reqID string) {
+	if req.MaxUnconfirmed != nil || req.Recover != nil {
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "wildcard subscriptions do not support qos or recovery", reqID)
+		return
+	}
+
+	route := sess.relay.router.Route(req.Channel)
+
+	if err := sess.relay.engine.SubscribePattern(sess.subID, req.Channel); err != nil {
+		sess.sendError(subscribeErrorCode(err), err.Error(), reqID)
+		return
+	}
+
+	sess.state.AddSubscription(req.Channel)
+	sess.subsMu.Lock()
+	sess.channels[req.Channel] = struct{}{}
+	sess.subsMu.Unlock()
+
+	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
+		sess.relay.upstream.Subscribe(req.Channel)
+	}
+
+	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Subscribed{
+			Subscribed: &gentisv1.SubscribedResponse{Channel: req.Channel},
+		},
+	})
+}
+
+func (sess *Session) unsubscribe(channel string) bool {
+	if pattern.IsPattern(channel) {
+		return sess.relay.engine.UnsubscribePattern(sess.subID, channel)
+	}
+	return sess.relay.engine.Unsubscribe(sess.subID, channel)
+}
+
 func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID string) {
 	if !validateChannel(req.Channel) {
 		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
 
-	if !sess.relay.engine.Unsubscribe(sess.subID, req.Channel) {
+	if !sess.unsubscribe(req.Channel) {
 		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED, "Not subscribed to channel", reqID)
 		return
 	}
@@ -849,6 +896,8 @@ func subscribeErrorCode(err error) gentisv1.ErrorCode {
 		return gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND
 	case errors.Is(err, engine.ErrChannelFull):
 		return gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT
+	case errors.Is(err, engine.ErrWildcardDenied):
+		return gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED
 	default:
 		return gentisv1.ErrorCode_ERROR_CODE_INTERNAL
 	}
