@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"time"
+
 	"github.com/mateusfdl/gentis/internal/engine"
 	grpcserver "github.com/mateusfdl/gentis/internal/grpc"
 	"github.com/mateusfdl/gentis/internal/metrics"
@@ -22,6 +24,7 @@ func init() {
 	serveCmd.Flags().String("metrics-addr", ":8080", "metrics/health HTTP server address")
 	serveCmd.Flags().Bool("arena", false, "use mmap arena for session state (Linux only); applies to gRPC sessions")
 	serveCmd.Flags().Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
+	serveCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
 	addAuthFlags(serveCmd)
 	addWSFlags(serveCmd)
 	rootCmd.AddCommand(serveCmd)
@@ -69,11 +72,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// zero during a ws-only run.
 	wsSrv := buildWSServer(cmd, logger, eng, store, obs, verifier)
 
+	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
+
 	grpcOpts := []grpcserver.Option{
 		grpcserver.WithEngine(eng),
 		grpcserver.WithSessionStore(store),
 		grpcserver.WithLogger(logger),
 		grpcserver.WithVerifier(verifier),
+		grpcserver.WithPingInterval(pingInterval),
 	}
 	if arenaEnabled {
 		grpcOpts = append(grpcOpts,

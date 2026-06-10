@@ -19,6 +19,12 @@ type Config struct {
 	WriteTimeout   time.Duration
 	SendBufferSize int
 
+	// PingInterval is the cadence of server-initiated protocol pings. A
+	// session is reaped when nothing arrives from the client for three
+	// consecutive intervals (two unanswered pings). Zero disables
+	// keepalive entirely.
+	PingInterval time.Duration
+
 	// OnDeliveryLatency, when set, observes the server-side latency from
 	// message enqueue to socket write for delivered channel messages. nil
 	// disables the measurement.
@@ -34,6 +40,13 @@ func defaultConfig(address string) *Config {
 		WriteTimeout:   10 * time.Second,
 		SendBufferSize: 256,
 		Verifier:       auth.InsecureVerifier{},
+		PingInterval:   25 * time.Second,
+	}
+}
+
+func WithPingInterval(d time.Duration) Option {
+	return func(c *Config) {
+		c.PingInterval = d
 	}
 }
 

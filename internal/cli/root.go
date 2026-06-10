@@ -124,11 +124,14 @@ func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, 
 	writeTimeout, _ := cmd.Flags().GetDuration("ws-write-timeout")
 	sendBuffer, _ := cmd.Flags().GetInt("ws-send-buffer")
 
+	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
+
 	opts := []wsserver.Option{
 		wsserver.WithEngine(eng),
 		wsserver.WithSessionStore(store),
 		wsserver.WithLogger(logger),
 		wsserver.WithVerifier(verifier),
+		wsserver.WithPingInterval(pingInterval),
 		wsserver.WithReadLimit(readLimit),
 		wsserver.WithWriteTimeout(writeTimeout),
 		wsserver.WithSendBufferSize(sendBuffer),

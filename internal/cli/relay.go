@@ -40,6 +40,7 @@ func init() {
 	f.Bool("arena", false, "use mmap arena for session state (Linux only); applies to relay sessions")
 	f.Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
 
+	relayCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
 	addAuthFlags(relayCmd)
 	addWSFlags(relayCmd)
 
@@ -72,6 +73,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 	bufferSize, _ := cmd.Flags().GetInt("buffer-size")
 	incomingBuffer, _ := cmd.Flags().GetInt("incoming-buffer")
 	relayFanoutWorkers, _ := cmd.Flags().GetInt("relay-fanout-workers")
+	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
 
 	var obs *metrics.Observer
 	if metricsEnabled {
@@ -106,6 +108,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		relay.WithSessionStore(store),
 		relay.WithLogger(logger),
 		relay.WithVerifier(verifier),
+		relay.WithPingInterval(pingInterval),
 	}
 	if arenaEnabled {
 		opts = append(opts,

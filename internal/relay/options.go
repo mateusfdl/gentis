@@ -25,6 +25,11 @@ type Config struct {
 	Logger             *slog.Logger
 	Verifier           auth.Verifier
 
+	// PingInterval drives HTTP/2 transport keepalive on the downstream
+	// listener: ping idle connections every interval, close after the ack
+	// misses two more. Zero disables keepalive.
+	PingInterval time.Duration
+
 	// Arena-backed session state (linux only). Default off. When enabled,
 	// session state lives in an mmap arena slot instead of on the Go heap,
 	// removing per-session State objects from GC scanning and enabling a
@@ -92,6 +97,12 @@ func WithMetrics(addr string) Option {
 	}
 }
 
+func WithPingInterval(d time.Duration) Option {
+	return func(c *Config) {
+		c.PingInterval = d
+	}
+}
+
 func WithVerifier(v auth.Verifier) Option {
 	return func(c *Config) {
 		c.Verifier = v
@@ -154,6 +165,7 @@ func WithMaxSessions(n int) Option {
 func defaultConfig() *Config {
 	return &Config{
 		Verifier:           auth.InsecureVerifier{},
+		PingInterval:       25 * time.Second,
 		ListenAddr:         "127.0.0.1:9001",
 		BufferSize:         256,
 		IncomingBufferSize: 4096,

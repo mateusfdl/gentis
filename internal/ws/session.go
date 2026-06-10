@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/mateusfdl/gentis/internal/client"
@@ -21,6 +22,7 @@ type Session struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	expiryTimer *time.Timer
+	lastRecv    atomic.Int64
 }
 
 func (s *Session) DeliverMessage(d engine.Delivery) bool {
@@ -54,6 +56,7 @@ func (s *Server) createSession() *Session {
 		ctx:    ctx,
 		cancel: cancel,
 	}
+	sess.lastRecv.Store(time.Now().UnixNano())
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)

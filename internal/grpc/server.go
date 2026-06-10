@@ -7,9 +7,11 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/arena"
@@ -101,7 +103,7 @@ func (s *Server) Start() error {
 	}
 
 	s.listener = listener
-	s.grpcSrv = grpc.NewServer()
+	s.grpcSrv = grpc.NewServer(s.keepaliveOptions()...)
 	gentisv1.RegisterGentisServiceServer(s.grpcSrv, s)
 
 	if s.config.UseArena {
@@ -202,4 +204,20 @@ func (s sumConnCounter) ConnectionCount() int64 {
 		n += e.ConnectionCount()
 	}
 	return n
+}
+
+func (s *Server) keepaliveOptions() []grpc.ServerOption {
+	if s.config.PingInterval <= 0 {
+		return nil
+	}
+	return []grpc.ServerOption{
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    s.config.PingInterval,
+			Timeout: 2 * s.config.PingInterval,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	}
 }

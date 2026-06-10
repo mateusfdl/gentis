@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
@@ -18,6 +19,11 @@ type Config struct {
 	Observer       *metrics.Observer
 	Logger         *slog.Logger
 	Verifier       auth.Verifier
+
+	// PingInterval drives HTTP/2 transport keepalive: the server pings an
+	// idle connection every interval and closes it when the ack doesn't
+	// arrive within two more. Zero disables keepalive.
+	PingInterval time.Duration
 
 	// Arena-backed session state (linux only). Default off. When enabled,
 	// session state lives in an mmap arena slot instead of on the Go heap,
@@ -63,6 +69,12 @@ func WithEngine(e *engine.Engine) Option {
 func WithSessionStore(store *transport.SessionStore) Option {
 	return func(c *Config) {
 		c.SessionStore = store
+	}
+}
+
+func WithPingInterval(d time.Duration) Option {
+	return func(c *Config) {
+		c.PingInterval = d
 	}
 }
 
@@ -114,5 +126,6 @@ func defaultConfig(address string) *Config {
 		Address:        address,
 		MetricsEnabled: false,
 		Verifier:       auth.InsecureVerifier{},
+		PingInterval:   25 * time.Second,
 	}
 }

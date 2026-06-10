@@ -20,6 +20,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/transport"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 func sendRingCap(bufferSize int) int {
@@ -175,7 +176,7 @@ func (s *Server) Start() error {
 	}
 	s.listener = listener
 
-	s.grpcSrv = grpc.NewServer()
+	s.grpcSrv = grpc.NewServer(s.keepaliveOptions()...)
 	gentisv1.RegisterGentisServiceServer(s.grpcSrv, s)
 
 	if s.config.UseArena {
@@ -753,4 +754,20 @@ func (sess *Session) sendError(code gentisv1.ErrorCode, message string, reqID st
 			},
 		},
 	})
+}
+
+func (s *Server) keepaliveOptions() []grpc.ServerOption {
+	if s.config.PingInterval <= 0 {
+		return nil
+	}
+	return []grpc.ServerOption{
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    s.config.PingInterval,
+			Timeout: 2 * s.config.PingInterval,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	}
 }

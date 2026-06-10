@@ -664,3 +664,77 @@ func TestRefreshExtendsSession(t *testing.T) {
 		t.Fatalf("expected Pong after refresh outlived original expiry, got %+v", resp)
 	}
 }
+
+func startKeepaliveTestServer(t *testing.T, interval time.Duration) (*Server, string) {
+	t.Helper()
+
+	eng := engine.New()
+	store := transport.NewSessionStore()
+
+	srv := New("127.0.0.1:0",
+		WithEngine(eng),
+		WithSessionStore(store),
+		WithPingInterval(interval),
+	)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	return srv, srv.listener.Addr().String()
+}
+
+func waitForConnectionCount(t *testing.T, srv *Server, want int64, deadline time.Duration) {
+	t.Helper()
+	stop := time.Now().Add(deadline)
+	for time.Now().Before(stop) {
+		if srv.ConnectionCount() == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("ConnectionCount = %d, want %d after %v", srv.ConnectionCount(), want, deadline)
+}
+
+func TestKeepaliveReapsUnresponsiveClient(t *testing.T) {
+	srv, addr := startKeepaliveTestServer(t, 150*time.Millisecond)
+
+	conn := dialWS(t, addr)
+	defer conn.Close()
+	authenticate(t, conn)
+	waitForConnectionCount(t, srv, 1, time.Second)
+
+	// Stop reading entirely: pings go unanswered, the session must be
+	// reaped after the missed-pong budget.
+	waitForConnectionCount(t, srv, 0, 3*time.Second)
+}
+
+func TestKeepaliveKeepsResponsiveClientAlive(t *testing.T) {
+	srv, addr := startKeepaliveTestServer(t, 150*time.Millisecond)
+
+	conn := dialWS(t, addr)
+	defer conn.Close()
+	authenticate(t, conn)
+	waitForConnectionCount(t, srv, 1, time.Second)
+
+	// Reading with wsutil answers protocol pings with pongs, so the
+	// session must survive well past the reap budget.
+	deadline := time.Now().Add(900 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		wsutil.ReadServerData(conn)
+	}
+
+	if got := srv.ConnectionCount(); got != 1 {
+		t.Fatalf("ConnectionCount = %d, want 1 (responsive client reaped)", got)
+	}
+
+	sendJSON(t, conn, map[string]any{"id": "p1", "ping": map[string]any{}})
+	var resp ServerMessage
+	for resp.Pong == nil {
+		readJSON(t, conn, &resp)
+	}
+}

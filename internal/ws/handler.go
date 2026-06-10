@@ -43,7 +43,24 @@ func (s *Session) ScheduleExpiry(exp time.Time) {
 
 var _ MessageHandler = (*Session)(nil)
 
-func (s *Server) runReader(sess *Session, conn net.Conn) {
+// liveConn stamps the session's lastRecv on every successful read. Any
+// inbound bytes (data, pong replies, close frames) count as liveness, so
+// quiet-but-healthy subscribers answering protocol pings are never reaped.
+type liveConn struct {
+	net.Conn
+	sess *Session
+}
+
+func (c *liveConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		c.sess.lastRecv.Store(time.Now().UnixNano())
+	}
+	return n, err
+}
+
+func (s *Server) runReader(sess *Session, rawConn net.Conn) {
+	conn := &liveConn{Conn: rawConn, sess: sess}
 	for {
 		// using a short read deadline to check context cancellation periodically
 		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
@@ -75,8 +92,31 @@ func (s *Server) runReader(sess *Session, conn net.Conn) {
 }
 
 func (s *Server) runWriter(sess *Session, conn net.Conn) {
+	var pingCh <-chan time.Time
+	if s.config.PingInterval > 0 {
+		ticker := time.NewTicker(s.config.PingInterval)
+		defer ticker.Stop()
+		pingCh = ticker.C
+	}
+
 	for {
 		select {
+		case <-pingCh:
+			idle := time.Since(time.Unix(0, sess.lastRecv.Load()))
+			if idle >= 3*s.config.PingInterval {
+				s.logger.Warn("session reaped, keepalive timeout", "session_id", sess.id, "idle", idle)
+				sess.cancel()
+				continue
+			}
+			if idle < s.config.PingInterval {
+				continue
+			}
+			conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+			err := ws.WriteFrame(conn, ws.NewPingFrame(nil))
+			conn.SetWriteDeadline(time.Time{})
+			if err != nil {
+				sess.cancel()
+			}
 		case <-sess.ctx.Done():
 			closeBody := ws.NewCloseFrameBody(ws.StatusGoingAway, "server shutting down")
 			frame := ws.NewCloseFrame(closeBody)
