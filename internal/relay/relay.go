@@ -651,24 +651,29 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 
 	route := sess.relay.router.Route(req.Channel)
 
+	// The window is installed and pinned before live fanout starts:
+	// deliveries must never bypass the gate, and a live publish racing
+	// the replay must not baseline the window past the recover point.
+	if req.MaxUnconfirmed != nil {
+		enabled, timeout, maxRedeliveries := sess.relay.engine.QoSPolicy(req.Channel)
+		if !enabled {
+			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "namespace does not offer at-least-once delivery", reqID)
+			return
+		}
+		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
+		if req.Recover != nil {
+			w.Baseline(req.Recover.Offset, req.Recover.Epoch)
+		}
+		sess.qosc.Subscribe(req.Channel, w)
+	}
+
 	if err := sess.relay.engine.SubscribePriority(sess.subID, req.Channel, int(req.Priority)); err != nil {
+		sess.qosc.Unsubscribe(req.Channel)
 		sess.sendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}
 
 	sess.state.AddSubscription(req.Channel)
-
-	if req.MaxUnconfirmed != nil {
-		enabled, timeout, maxRedeliveries := sess.relay.engine.QoSPolicy(req.Channel)
-		if !enabled {
-			sess.relay.engine.Unsubscribe(sess.subID, req.Channel)
-			sess.state.RemoveSubscription(req.Channel)
-			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "namespace does not offer at-least-once delivery", reqID)
-			return
-		}
-		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
-		sess.qosc.Subscribe(req.Channel, w)
-	}
 
 	sess.subsMu.Lock()
 	sess.channels[req.Channel] = struct{}{}

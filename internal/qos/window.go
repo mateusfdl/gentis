@@ -113,6 +113,22 @@ func (w *Window) Admit(offset, epoch uint64, size int, now int64, send func() bo
 	return Admitted
 }
 
+// Baseline pins the window cursor to a recover point before any delivery
+// flows, so replay and live fanout serialize against it instead of racing
+// to set the baseline. No-op once the window is baselined.
+func (w *Window) Baseline(offset, epoch uint64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.baselined {
+		return
+	}
+	w.baselined = true
+	w.epoch = epoch
+	w.delivered = offset
+	w.confirmed = offset
+}
+
 // Reset drops the baseline after an unrecoverable gap so the next live
 // delivery re-baselines the window and the subscription keeps flowing.
 func (w *Window) Reset() {

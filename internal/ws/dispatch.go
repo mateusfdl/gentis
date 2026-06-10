@@ -163,24 +163,29 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 		return
 	}
 
+	// The window is installed and pinned before live fanout starts:
+	// deliveries must never bypass the gate, and a live publish racing
+	// the replay must not baseline the window past the recover point.
+	if req.MaxUnconfirmed != nil {
+		enabled, timeout, maxRedeliveries := h.Engine().QoSPolicy(req.Channel)
+		if !enabled {
+			h.SendError(ErrorCodePermissionDenied, "namespace does not offer at-least-once delivery", reqID)
+			return
+		}
+		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
+		if req.Recover != nil {
+			w.Baseline(req.Recover.Offset, req.Recover.Epoch)
+		}
+		h.Consumer().Subscribe(req.Channel, w)
+	}
+
 	if err := h.Engine().SubscribePriority(engine.SubscriberID(h.ID()), req.Channel, int(req.Priority)); err != nil {
+		h.Consumer().Unsubscribe(req.Channel)
 		h.SendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}
 
 	h.State().AddSubscription(req.Channel)
-
-	if req.MaxUnconfirmed != nil {
-		enabled, timeout, maxRedeliveries := h.Engine().QoSPolicy(req.Channel)
-		if !enabled {
-			h.Engine().Unsubscribe(engine.SubscriberID(h.ID()), req.Channel)
-			h.State().RemoveSubscription(req.Channel)
-			h.SendError(ErrorCodePermissionDenied, "namespace does not offer at-least-once delivery", reqID)
-			return
-		}
-		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
-		h.Consumer().Subscribe(req.Channel, w)
-	}
 
 	resp := &SubscribedResponse{Channel: req.Channel}
 	var replay []engine.Delivery

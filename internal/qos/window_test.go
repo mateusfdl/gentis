@@ -218,3 +218,32 @@ func TestWindowPumpPoint(t *testing.T) {
 		t.Fatalf("PumpPoint after confirm = (%d, _, %d), want (6, 3)", from, room)
 	}
 }
+
+func TestWindowBaselinePinsRecoverPoint(t *testing.T) {
+	w := NewWindow(10, 1000, time.Second, 2)
+	w.Baseline(5, 7)
+
+	if v := w.Admit(9, 7, 10, 0, sendOK); v != Full {
+		t.Fatalf("Admit(9) live ahead of recover point = %v, want Full (deferred to pump)", v)
+	}
+	admitN(t, w, 6, 9, 10, 0)
+
+	if v := w.Admit(10, 7, 10, 0, sendOK); v != Admitted {
+		t.Fatalf("Admit(10) after replay = %v, want Admitted", v)
+	}
+	from, epoch, _ := w.PumpPoint()
+	if from != 10 || epoch != 7 {
+		t.Fatalf("PumpPoint = (%d, %d), want (10, 7)", from, epoch)
+	}
+}
+
+func TestWindowBaselineIsFirstWriterWins(t *testing.T) {
+	w := NewWindow(10, 1000, time.Second, 2)
+	admitN(t, w, 3, 3, 10, 0)
+
+	w.Baseline(7, 9)
+
+	if v := w.Admit(4, 7, 10, 0, sendOK); v != Admitted {
+		t.Fatalf("Admit(4) = %v, want Admitted (late Baseline must not move the cursor)", v)
+	}
+}

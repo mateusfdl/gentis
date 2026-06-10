@@ -283,24 +283,29 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 		return
 	}
 
+	// The window is installed and pinned before live fanout starts:
+	// deliveries must never bypass the gate, and a live publish racing
+	// the replay must not baseline the window past the recover point.
+	if req.MaxUnconfirmed != nil {
+		enabled, timeout, maxRedeliveries := s.engine.QoSPolicy(req.Channel)
+		if !enabled {
+			s.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "namespace does not offer at-least-once delivery", reqID)
+			return
+		}
+		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
+		if req.Recover != nil {
+			w.Baseline(req.Recover.Offset, req.Recover.Epoch)
+		}
+		s.qosc.Subscribe(req.Channel, w)
+	}
+
 	if err := s.engine.SubscribePriority(s.subID, req.Channel, int(req.Priority)); err != nil {
+		s.qosc.Unsubscribe(req.Channel)
 		s.sendError(subscribeErrorCode(err), err.Error(), reqID)
 		return
 	}
 
 	s.state.AddSubscription(req.Channel)
-
-	if req.MaxUnconfirmed != nil {
-		enabled, timeout, maxRedeliveries := s.engine.QoSPolicy(req.Channel)
-		if !enabled {
-			s.engine.Unsubscribe(s.subID, req.Channel)
-			s.state.RemoveSubscription(req.Channel)
-			s.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "namespace does not offer at-least-once delivery", reqID)
-			return
-		}
-		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
-		s.qosc.Subscribe(req.Channel, w)
-	}
 
 	resp := &gentisv1.SubscribedResponse{Channel: req.Channel}
 	var replay []engine.Delivery
