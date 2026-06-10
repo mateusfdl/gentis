@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
+	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"github.com/mateusfdl/gentis/internal/transport"
@@ -1422,5 +1424,81 @@ func TestDrainBatchCapsFrameBytes(t *testing.T) {
 	}
 	if len(batch) >= maxBatchSize {
 		t.Fatalf("batch packed %d messages of 256KiB each; byte budget never applied", len(batch))
+	}
+}
+
+func TestWriteFrameSalvagesBatchAroundBadPayload(t *testing.T) {
+	srv := &Server{
+		config: &Config{WriteTimeout: time.Second},
+		logger: gentislog.Nop(),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &Session{id: 1, ctx: ctx, cancel: cancel}
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	batch := []*ServerMessage{
+		getWSMsg(engine.Delivery{Channel: "c", Data: []byte(`"ok-1"`), Offset: 1, Epoch: 7}),
+		getWSMsg(engine.Delivery{Channel: "c", Data: []byte("\xff not json"), Offset: 2, Epoch: 7}),
+		getWSMsg(engine.Delivery{Channel: "c", Data: []byte(`"ok-3"`), Offset: 3, Epoch: 7}),
+	}
+
+	done := make(chan bool, 1)
+	go func() { done <- srv.writeFrame(sess, server, batch) }()
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	data, err := wsutil.ReadServerText(client)
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
+	}
+	if ok := <-done; !ok {
+		t.Fatal("writeFrame = false, want true")
+	}
+
+	var got []ServerMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("frame is not a JSON array: %v (%q)", err, data)
+	}
+	if len(got) != 2 {
+		t.Fatalf("frame carries %d messages, want the 2 valid ones (got %q)", len(got), data)
+	}
+	if got[0].ChannelMessage.Offset != 1 || got[1].ChannelMessage.Offset != 3 {
+		t.Fatalf("salvaged offsets = (%d, %d), want (1, 3)", got[0].ChannelMessage.Offset, got[1].ChannelMessage.Offset)
+	}
+}
+
+type closeRecordingConn struct {
+	net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (c *closeRecordingConn) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+func (c *closeRecordingConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return nil
+}
+func (c *closeRecordingConn) SetWriteDeadline(time.Time) error { return nil }
+
+func TestRunWriterClosesConnOnWriteError(t *testing.T) {
+	srv := &Server{
+		config: &Config{WriteTimeout: time.Second},
+		logger: gentislog.Nop(),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &Session{id: 1, ctx: ctx, cancel: cancel, sendCh: make(chan *ServerMessage, 1)}
+	sess.send(&ServerMessage{ID: "x", Pong: &PongResponse{}})
+
+	conn := &closeRecordingConn{closed: make(chan struct{})}
+	go srv.runWriter(sess, conn)
+
+	select {
+	case <-conn.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection never closed after write error; fd leaks")
 	}
 }

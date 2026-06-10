@@ -126,6 +126,12 @@ func (s *Server) writeFrame(sess *Session, conn net.Conn, batch []*ServerMessage
 	var err error
 	if len(batch) >= 2 {
 		data, err = json.Marshal(batch)
+		if err != nil {
+			// One unmarshalable payload must not drop its batch
+			// neighbors: salvage the valid messages into the frame and
+			// drop only the poisoned ones.
+			data, err = s.marshalSalvaged(sess, batch)
+		}
 	} else {
 		data, err = json.Marshal(batch[0])
 	}
@@ -157,7 +163,38 @@ func (s *Server) writeFrame(sess *Session, conn net.Conn, batch []*ServerMessage
 	return true
 }
 
+// marshalSalvaged marshals each message of a failed batch individually,
+// dropping the unmarshalable ones with a warning, and packs the survivors
+// into one array frame.
+func (s *Server) marshalSalvaged(sess *Session, batch []*ServerMessage) ([]byte, error) {
+	parts := make([][]byte, 0, len(batch))
+	size := 1
+	for _, m := range batch {
+		p, err := json.Marshal(m)
+		if err != nil {
+			s.logger.Warn("message dropped, unmarshalable payload",
+				"session_id", sess.id, "channel", m.ChannelMessage.Channel, "offset", m.ChannelMessage.Offset)
+			continue
+		}
+		parts = append(parts, p)
+		size += len(p) + 1
+	}
+	if len(parts) == 0 {
+		return nil, errors.New("ws: no marshalable messages in batch")
+	}
+	data := make([]byte, 0, size)
+	data = append(data, '[')
+	for i, p := range parts {
+		if i > 0 {
+			data = append(data, ',')
+		}
+		data = append(data, p...)
+	}
+	return append(data, ']'), nil
+}
+
 func (s *Server) runWriter(sess *Session, conn net.Conn) {
+	defer conn.Close()
 	var pingCh <-chan time.Time
 	if s.config.PingInterval > 0 {
 		ticker := time.NewTicker(s.config.PingInterval)
@@ -187,7 +224,6 @@ func (s *Server) runWriter(sess *Session, conn net.Conn) {
 			closeBody := ws.NewCloseFrameBody(ws.StatusGoingAway, "server shutting down")
 			frame := ws.NewCloseFrame(closeBody)
 			ws.WriteFrame(conn, frame)
-			conn.Close()
 			return
 		case msg := <-sess.sendCh:
 			var batch []*ServerMessage
