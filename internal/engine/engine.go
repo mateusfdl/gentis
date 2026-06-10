@@ -180,6 +180,19 @@ func (e *Engine) channelSettings(channelName string) (namespace.Settings, bool) 
 	}, true
 }
 
+// QoSPolicy reports whether a channel's namespace offers at-least-once
+// delivery and with what redelivery parameters.
+func (e *Engine) QoSPolicy(channel string) (enabled bool, timeout time.Duration, maxRedeliveries int) {
+	if e.config.namespaces == nil {
+		return false, 0, 0
+	}
+	s, ok := e.config.namespaces.Resolve(channel)
+	if !ok || s.QoS != namespace.AtLeastOnce {
+		return false, 0, 0
+	}
+	return true, s.RedeliveryTimeout, s.MaxRedeliveries
+}
+
 // CheckPublish reports whether the namespace admits publishes on the
 // channel. Without a registry every publish is admitted at zero cost.
 func (e *Engine) CheckPublish(channel string) error {

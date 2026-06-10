@@ -9,11 +9,18 @@ import (
 	"github.com/mateusfdl/gentis/internal/arena"
 	"github.com/mateusfdl/gentis/internal/client"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
-const sendRingCapacity = 256
+const (
+	sendRingCapacity = 256
+
+	// redeliveryCheckInterval is how often a session scans its QoS
+	// windows for overdue unconfirmed deliveries.
+	redeliveryCheckInterval = 200 * time.Millisecond
+)
 
 type Session struct {
 	id       int
@@ -29,9 +36,24 @@ type Session struct {
 	cancel   context.CancelFunc
 
 	expiryTimer *time.Timer
+
+	// qosc gates deliveries for at-least-once subscriptions. Sessions
+	// without QoS1 windows pay a single atomic load per delivery.
+	qosc *qos.Consumer
 }
 
 func (s *Session) DeliverMessage(d engine.Delivery) bool {
+	if s.qosc.Gate(d) == qos.Deferred {
+		return true
+	}
+	if !s.produce(d) {
+		s.qosc.Rollback(d.Channel, d.Offset)
+		return false
+	}
+	return true
+}
+
+func (s *Session) produce(d engine.Delivery) bool {
 	msg := getServerMsg(d)
 	if !s.sendRing.TryProduce(msg) {
 		putServerMsg(msg)
@@ -120,6 +142,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval)
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)
@@ -132,6 +155,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 }
 
 func (s *Server) cleanupSession(sess *Session) {
+	sess.qosc.Stop()
 	if sess.expiryTimer != nil {
 		sess.expiryTimer.Stop()
 	}

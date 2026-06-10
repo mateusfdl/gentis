@@ -7,6 +7,7 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/client"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
@@ -23,9 +24,26 @@ type Session struct {
 	cancel      context.CancelFunc
 	expiryTimer *time.Timer
 	lastRecv    atomic.Int64
+
+	// qosc gates deliveries for at-least-once subscriptions. Sessions
+	// without QoS1 windows pay a single atomic load per delivery.
+	qosc *qos.Consumer
 }
 
+const redeliveryCheckInterval = 200 * time.Millisecond
+
 func (s *Session) DeliverMessage(d engine.Delivery) bool {
+	if s.qosc.Gate(d) == qos.Deferred {
+		return true
+	}
+	if !s.produce(d) {
+		s.qosc.Rollback(d.Channel, d.Offset)
+		return false
+	}
+	return true
+}
+
+func (s *Session) produce(d engine.Delivery) bool {
 	msg := getWSMsg(d)
 	if s.server.config.OnDeliveryLatency != nil {
 		msg.enqueuedAt = time.Now()
@@ -57,6 +75,7 @@ func (s *Server) createSession() *Session {
 		cancel: cancel,
 	}
 	sess.lastRecv.Store(time.Now().UnixNano())
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval)
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)
@@ -66,6 +85,7 @@ func (s *Server) createSession() *Session {
 }
 
 func (s *Server) cleanupSession(sess *Session) {
+	sess.qosc.Stop()
 	if sess.expiryTimer != nil {
 		sess.expiryTimer.Stop()
 	}

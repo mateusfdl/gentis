@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/mateusfdl/gentis/internal/qos"
+
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/engine"
 )
@@ -128,6 +130,8 @@ func (s *Session) handleMessage(msg *gentisv1.ClientMessage) {
 		switch m := msg.Message.(type) {
 		case *gentisv1.ClientMessage_Refresh:
 			s.handleRefresh(m.Refresh, reqID)
+		case *gentisv1.ClientMessage_Confirm:
+			s.qosc.Confirm(m.Confirm.Channel, m.Confirm.Offset)
 		case *gentisv1.ClientMessage_Subscribe:
 			s.handleSubscribe(m.Subscribe, reqID)
 		case *gentisv1.ClientMessage_Unsubscribe:
@@ -212,6 +216,18 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 
 	s.state.AddSubscription(req.Channel)
 
+	if req.MaxUnconfirmed != nil {
+		enabled, timeout, maxRedeliveries := s.engine.QoSPolicy(req.Channel)
+		if !enabled {
+			s.engine.Unsubscribe(s.subID, req.Channel)
+			s.state.RemoveSubscription(req.Channel)
+			s.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "namespace does not offer at-least-once delivery", reqID)
+			return
+		}
+		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
+		s.qosc.Subscribe(req.Channel, w)
+	}
+
 	resp := &gentisv1.SubscribedResponse{Channel: req.Channel}
 	var replay []engine.Delivery
 	if req.Recover != nil {
@@ -245,6 +261,7 @@ func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID stri
 	}
 
 	s.state.RemoveSubscription(req.Channel)
+	s.qosc.Unsubscribe(req.Channel)
 	s.send(&gentisv1.ServerMessage{
 		Id: reqID,
 		Message: &gentisv1.ServerMessage_Unsubscribed{

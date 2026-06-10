@@ -1,0 +1,10 @@
+strict: false
+namespaces:
+  jobs:
+    qos: at-least-once
+    history_size: 64
+    redelivery_timeout: 5s
+    max_redeliveries: 2
+  defaults:
+    qos: at-least-once
+    history_size: 16

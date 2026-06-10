@@ -16,11 +16,24 @@ import (
 
 var ErrInvalidConfig = errors.New("namespace: invalid config")
 
+type QoSLevel int
+
+const (
+	AtMostOnce QoSLevel = iota
+	AtLeastOnce
+)
+
 type Settings struct {
 	HistorySize    int
 	HistoryTTL     time.Duration
 	AllowPublish   bool
 	MaxSubscribers int
+
+	// QoS selects the delivery guarantee consumers may request in this
+	// namespace. AtLeastOnce requires history, which backs redelivery.
+	QoS               QoSLevel
+	RedeliveryTimeout time.Duration
+	MaxRedeliveries   int
 }
 
 type Config struct {
@@ -81,10 +94,13 @@ func (r *Registry) Resolve(channel string) (Settings, bool) {
 }
 
 type settingsYAML struct {
-	HistorySize    *int           `yaml:"history_size"`
-	HistoryTTL     *time.Duration `yaml:"history_ttl"`
-	AllowPublish   *bool          `yaml:"allow_publish"`
-	MaxSubscribers *int           `yaml:"max_subscribers"`
+	HistorySize       *int           `yaml:"history_size"`
+	HistoryTTL        *time.Duration `yaml:"history_ttl"`
+	AllowPublish      *bool          `yaml:"allow_publish"`
+	MaxSubscribers    *int           `yaml:"max_subscribers"`
+	QoS               *string        `yaml:"qos"`
+	RedeliveryTimeout *time.Duration `yaml:"redelivery_timeout"`
+	MaxRedeliveries   *int           `yaml:"max_redeliveries"`
 }
 
 type configYAML struct {
@@ -158,6 +174,39 @@ func toSettings(name string, raw settingsYAML) (Settings, error) {
 			return Settings{}, fmt.Errorf("%w: namespace %q max_subscribers must be >= 0", ErrInvalidConfig, name)
 		}
 		s.MaxSubscribers = *raw.MaxSubscribers
+	}
+	if raw.QoS != nil {
+		switch *raw.QoS {
+		case "at-most-once":
+			s.QoS = AtMostOnce
+		case "at-least-once":
+			s.QoS = AtLeastOnce
+		default:
+			return Settings{}, fmt.Errorf("%w: namespace %q qos must be at-most-once or at-least-once, got %q", ErrInvalidConfig, name, *raw.QoS)
+		}
+	}
+	if raw.RedeliveryTimeout != nil {
+		if *raw.RedeliveryTimeout <= 0 {
+			return Settings{}, fmt.Errorf("%w: namespace %q redelivery_timeout must be > 0", ErrInvalidConfig, name)
+		}
+		s.RedeliveryTimeout = *raw.RedeliveryTimeout
+	}
+	if raw.MaxRedeliveries != nil {
+		if *raw.MaxRedeliveries < 0 {
+			return Settings{}, fmt.Errorf("%w: namespace %q max_redeliveries must be >= 0", ErrInvalidConfig, name)
+		}
+		s.MaxRedeliveries = *raw.MaxRedeliveries
+	}
+	if s.QoS == AtLeastOnce {
+		if s.HistorySize <= 0 {
+			return Settings{}, fmt.Errorf("%w: namespace %q at-least-once qos requires history_size > 0", ErrInvalidConfig, name)
+		}
+		if s.RedeliveryTimeout == 0 {
+			s.RedeliveryTimeout = 30 * time.Second
+		}
+		if s.MaxRedeliveries == 0 {
+			s.MaxRedeliveries = 3
+		}
 	}
 	return s, nil
 }

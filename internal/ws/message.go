@@ -25,6 +25,7 @@ type ClientMessage struct {
 	Publish     *PublishRequest     `json:"publish,omitempty"`
 	Ping        *PingRequest        `json:"ping,omitempty"`
 	Refresh     *RefreshRequest     `json:"refresh,omitempty"`
+	Confirm     *ConfirmRequest     `json:"confirm,omitempty"`
 }
 
 type ConnectRequest struct {
@@ -32,8 +33,19 @@ type ConnectRequest struct {
 }
 
 type SubscribeRequest struct {
-	Channel string        `json:"channel"`
-	Recover *RecoverPoint `json:"recover,omitempty"`
+	Channel        string             `json:"channel"`
+	Recover        *RecoverPoint      `json:"recover,omitempty"`
+	MaxUnconfirmed *UnconfirmedWindow `json:"max_unconfirmed,omitempty"`
+}
+
+type UnconfirmedWindow struct {
+	Count uint32 `json:"count"`
+	Bytes uint64 `json:"bytes"`
+}
+
+type ConfirmRequest struct {
+	Channel string `json:"channel"`
+	Offset  uint64 `json:"offset"`
 }
 
 type RecoverPoint struct {

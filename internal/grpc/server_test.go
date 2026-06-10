@@ -1562,3 +1562,115 @@ func TestNamespacePolicies(t *testing.T) {
 		t.Fatalf("publish read-only namespace: got %v, want PERMISSION_DENIED", msg.Message)
 	}
 }
+
+func TestQoSSlowConsumerNoDrops(t *testing.T) {
+	reg := namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"jobs": {
+				AllowPublish:      true,
+				HistorySize:       64,
+				QoS:               namespace.AtLeastOnce,
+				RedeliveryTimeout: 200 * time.Millisecond,
+				MaxRedeliveries:   3,
+			},
+		},
+		Strict: false,
+	})
+	eng := engine.New(engine.WithNamespaces(reg))
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithEngine(eng))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		srv.Stop()
+		eng.Stop()
+	}()
+
+	sub, closeSub := connectClient(t, addr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel:        "jobs:emails",
+				MaxUnconfirmed: &gentisv1.UnconfirmedWindow{Count: 2},
+			},
+		},
+	})
+	if recvWithTimeout(t, sub, 2*time.Second).GetSubscribed() == nil {
+		t.Fatal("subscribe failed")
+	}
+
+	pub, closePub := connectClient(t, addr)
+	defer closePub()
+	authenticate(t, pub, "token")
+	for i := 1; i <= 10; i++ {
+		pub.Send(&gentisv1.ClientMessage{
+			Id: fmt.Sprintf("p%d", i),
+			Message: &gentisv1.ClientMessage_Publish{
+				Publish: &gentisv1.PublishRequest{Channel: "jobs:emails", Data: []byte(fmt.Sprintf("job-%d", i))},
+			},
+		})
+		if recvWithTimeout(t, pub, 2*time.Second).GetPublished() == nil {
+			t.Fatalf("publish %d not acked", i)
+		}
+	}
+
+	var got []uint64
+	for len(got) < 10 {
+		msg := recvWithTimeout(t, sub, 3*time.Second)
+		cm := msg.GetChannelMessage()
+		if cm == nil {
+			continue
+		}
+		if string(cm.Data) != fmt.Sprintf("job-%d", cm.Offset) {
+			t.Fatalf("delivery offset %d carries %q, want job-%d", cm.Offset, cm.Data, cm.Offset)
+		}
+		got = append(got, cm.Offset)
+
+		sub.Send(&gentisv1.ClientMessage{
+			Message: &gentisv1.ClientMessage_Confirm{
+				Confirm: &gentisv1.ConfirmRequest{Channel: "jobs:emails", Offset: cm.Offset},
+			},
+		})
+	}
+
+	for i, off := range got {
+		if off != uint64(i+1) {
+			t.Fatalf("deliveries = %v, want 1..10 in order without gaps or dups", got)
+		}
+	}
+}
+
+func TestQoSRejectedOutsideNamespace(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "s1",
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel:        "plain",
+				MaxUnconfirmed: &gentisv1.UnconfirmedWindow{Count: 4},
+			},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED {
+		t.Fatalf("qos subscribe without namespace support: got %v, want PERMISSION_DENIED", msg.Message)
+	}
+}

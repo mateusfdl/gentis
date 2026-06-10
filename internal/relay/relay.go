@@ -18,6 +18,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
+	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/transport"
 	"google.golang.org/grpc"
@@ -83,10 +84,27 @@ type Session struct {
 
 	expiryTimer *time.Timer
 
+	// qosc gates deliveries for at-least-once subscriptions. Sessions
+	// without QoS1 windows pay a single atomic load per delivery.
+	qosc *qos.Consumer
+
 	dropsFull atomic.Int64
 }
 
+const redeliveryCheckInterval = 200 * time.Millisecond
+
 func (sess *Session) DeliverMessage(d engine.Delivery) bool {
+	if sess.qosc.Gate(d) == qos.Deferred {
+		return true
+	}
+	if !sess.produce(d) {
+		sess.qosc.Rollback(d.Channel, d.Offset)
+		return false
+	}
+	return true
+}
+
+func (sess *Session) produce(d engine.Delivery) bool {
 	msg := getServerMsg(d)
 	if !sess.sendRing.TryProduce(msg) {
 		putServerMsg(msg)
@@ -386,6 +404,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		cancel:   cancel,
 		channels: make(map[string]struct{}),
 	}
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval)
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)
@@ -398,6 +417,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 }
 
 func (s *Server) cleanupSession(sess *Session) {
+	sess.qosc.Stop()
 	if sess.expiryTimer != nil {
 		sess.expiryTimer.Stop()
 	}
@@ -525,6 +545,8 @@ func (sess *Session) handleMessage(msg *gentisv1.ClientMessage) {
 		switch m := msg.Message.(type) {
 		case *gentisv1.ClientMessage_Refresh:
 			sess.handleRefresh(m.Refresh, reqID)
+		case *gentisv1.ClientMessage_Confirm:
+			sess.qosc.Confirm(m.Confirm.Channel, m.Confirm.Offset)
 		case *gentisv1.ClientMessage_Subscribe:
 			sess.handleSubscribe(m.Subscribe, reqID)
 		case *gentisv1.ClientMessage_Unsubscribe:
@@ -629,6 +651,18 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 
 	sess.state.AddSubscription(req.Channel)
 
+	if req.MaxUnconfirmed != nil {
+		enabled, timeout, maxRedeliveries := sess.relay.engine.QoSPolicy(req.Channel)
+		if !enabled {
+			sess.relay.engine.Unsubscribe(sess.subID, req.Channel)
+			sess.state.RemoveSubscription(req.Channel)
+			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "namespace does not offer at-least-once delivery", reqID)
+			return
+		}
+		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
+		sess.qosc.Subscribe(req.Channel, w)
+	}
+
 	sess.subsMu.Lock()
 	sess.channels[req.Channel] = struct{}{}
 	sess.subsMu.Unlock()
@@ -670,6 +704,7 @@ func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID s
 	}
 
 	sess.state.RemoveSubscription(req.Channel)
+	sess.qosc.Unsubscribe(req.Channel)
 
 	sess.subsMu.Lock()
 	delete(sess.channels, req.Channel)

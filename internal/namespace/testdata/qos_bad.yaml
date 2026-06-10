@@ -1,0 +1,3 @@
+namespaces:
+  jobs:
+    qos: exactly-once

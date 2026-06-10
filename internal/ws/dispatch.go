@@ -8,6 +8,7 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
@@ -25,6 +26,7 @@ type MessageHandler interface {
 	MaxMessageSize() int
 	MaxSubscriptions() int
 	Deliver(d engine.Delivery)
+	Consumer() *qos.Consumer
 	Send(msg *ServerMessage)
 	SendError(code string, message string, reqID string)
 }
@@ -62,6 +64,8 @@ func dispatchParsed(h MessageHandler, msg *ClientMessage) {
 		switch {
 		case msg.Refresh != nil:
 			handleRefresh(h, msg.Refresh, reqID)
+		case msg.Confirm != nil:
+			h.Consumer().Confirm(msg.Confirm.Channel, msg.Confirm.Offset)
 		case msg.Subscribe != nil:
 			handleSubscribe(h, msg.Subscribe, reqID)
 		case msg.Unsubscribe != nil:
@@ -143,6 +147,18 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 
 	h.State().AddSubscription(req.Channel)
 
+	if req.MaxUnconfirmed != nil {
+		enabled, timeout, maxRedeliveries := h.Engine().QoSPolicy(req.Channel)
+		if !enabled {
+			h.Engine().Unsubscribe(engine.SubscriberID(h.ID()), req.Channel)
+			h.State().RemoveSubscription(req.Channel)
+			h.SendError(ErrorCodePermissionDenied, "namespace does not offer at-least-once delivery", reqID)
+			return
+		}
+		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
+		h.Consumer().Subscribe(req.Channel, w)
+	}
+
 	resp := &SubscribedResponse{Channel: req.Channel}
 	var replay []engine.Delivery
 	if req.Recover != nil {
@@ -172,6 +188,7 @@ func handleUnsubscribe(h MessageHandler, req *UnsubscribeRequest, reqID string) 
 	}
 
 	h.State().RemoveSubscription(req.Channel)
+	h.Consumer().Unsubscribe(req.Channel)
 	h.Send(&ServerMessage{
 		ID: reqID,
 		Unsubscribed: &UnsubscribedResponse{

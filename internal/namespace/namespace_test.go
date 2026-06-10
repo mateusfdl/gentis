@@ -173,3 +173,41 @@ func TestLoadFileMissing(t *testing.T) {
 		t.Fatal("LoadFile on missing file must fail")
 	}
 }
+
+func TestLoadFileQoS(t *testing.T) {
+	reg, err := LoadFile("testdata/qos.yaml")
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	got, ok := reg.Resolve("jobs:emails")
+	if !ok {
+		t.Fatal("jobs namespace not loaded")
+	}
+	if got.QoS != AtLeastOnce {
+		t.Errorf("QoS = %v, want AtLeastOnce", got.QoS)
+	}
+	if got.RedeliveryTimeout != 5*time.Second {
+		t.Errorf("RedeliveryTimeout = %v, want 5s", got.RedeliveryTimeout)
+	}
+	if got.MaxRedeliveries != 2 {
+		t.Errorf("MaxRedeliveries = %d, want 2", got.MaxRedeliveries)
+	}
+
+	got, _ = reg.Resolve("defaults:x")
+	if got.QoS != AtLeastOnce || got.RedeliveryTimeout != 30*time.Second || got.MaxRedeliveries != 3 {
+		t.Errorf("defaults namespace = %+v, want at-least-once with 30s/3 defaults", got)
+	}
+}
+
+func TestLoadFileQoSRequiresHistory(t *testing.T) {
+	if _, err := LoadFile("testdata/qos_no_history.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("at-least-once without history: err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestLoadFileQoSBadValue(t *testing.T) {
+	if _, err := LoadFile("testdata/qos_bad.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("bad qos value: err = %v, want ErrInvalidConfig", err)
+	}
+}

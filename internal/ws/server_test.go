@@ -1041,3 +1041,79 @@ func TestNamespacePolicies(t *testing.T) {
 		t.Fatalf("publish unknown namespace: got %+v, want CHANNEL_NOT_FOUND", resp)
 	}
 }
+
+func TestQoSSlowConsumerNoDrops(t *testing.T) {
+	reg := namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"jobs": {
+				AllowPublish:      true,
+				HistorySize:       64,
+				QoS:               namespace.AtLeastOnce,
+				RedeliveryTimeout: 200 * time.Millisecond,
+				MaxRedeliveries:   3,
+			},
+		},
+	})
+	eng := engine.New(engine.WithNamespaces(reg))
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+	addr := srv.listener.Addr().String()
+
+	sub := dialWS(t, addr)
+	defer sub.Close()
+	authenticate(t, sub)
+	sendJSON(t, sub, map[string]any{
+		"id": "s",
+		"subscribe": map[string]any{
+			"channel":         "jobs:emails",
+			"max_unconfirmed": map[string]any{"count": 2},
+		},
+	})
+	var resp ServerMessage
+	readJSON(t, sub, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("subscribe failed: %+v", resp)
+	}
+
+	pub := dialWS(t, addr)
+	defer pub.Close()
+	authenticate(t, pub)
+	for i := 1; i <= 6; i++ {
+		sendJSON(t, pub, map[string]any{
+			"id":      fmt.Sprintf("p%d", i),
+			"publish": map[string]any{"channel": "jobs:emails", "data": json.RawMessage(fmt.Sprintf(`"job-%d"`, i))},
+		})
+		var ack ServerMessage
+		readJSON(t, pub, &ack)
+		if ack.Published == nil {
+			t.Fatalf("publish %d not acked: %+v", i, ack)
+		}
+	}
+
+	var got []uint64
+	for len(got) < 6 {
+		readJSON(t, sub, &resp)
+		cm := resp.ChannelMessage
+		if cm == nil {
+			continue
+		}
+		got = append(got, cm.Offset)
+		sendJSON(t, sub, map[string]any{
+			"confirm": map[string]any{"channel": "jobs:emails", "offset": cm.Offset},
+		})
+	}
+
+	for i, off := range got {
+		if off != uint64(i+1) {
+			t.Fatalf("deliveries = %v, want 1..6 in order without gaps or dups", got)
+		}
+	}
+}

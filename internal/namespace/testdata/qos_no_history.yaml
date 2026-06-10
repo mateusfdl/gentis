@@ -1,0 +1,3 @@
+namespaces:
+  jobs:
+    qos: at-least-once
