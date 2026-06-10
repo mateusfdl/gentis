@@ -94,6 +94,10 @@ func handleConnect(h MessageHandler, req *ConnectRequest, reqID string) {
 		h.SendError(ErrorCodeNotAuthenticated, "authentication failed", reqID)
 		return
 	}
+	if h.State().IsAuthenticated() && claims.Subject != h.Subject() {
+		h.SendError(ErrorCodeNotAuthenticated, "connect subject mismatch", reqID)
+		return
+	}
 	h.State().Authenticate(claims)
 	h.ScheduleExpiry(claims.ExpiresAt)
 

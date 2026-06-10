@@ -572,6 +572,10 @@ func (sess *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "authentication failed", reqID)
 		return
 	}
+	if sess.state.IsAuthenticated() && claims.Subject != sess.state.Subject() {
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "connect subject mismatch", reqID)
+		return
+	}
 	sess.state.Authenticate(claims)
 	sess.scheduleExpiry(claims.ExpiresAt)
 

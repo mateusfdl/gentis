@@ -1993,3 +1993,46 @@ func TestSendDoesNotBlockAfterSenderDies(t *testing.T) {
 		t.Fatal("send() blocked after sender death; dispatch loop would wedge")
 	}
 }
+
+func TestConnectRejectsSubjectChange(t *testing.T) {
+	secret := []byte("grpc-secret")
+	addr, cleanup := startVerifierServer(t, secret)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	authenticate(t, stream, auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}))
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "c2",
+		Message: &gentisv1.ClientMessage_Connect{
+			Connect: &gentisv1.ConnectRequest{AuthToken: auth.SignHS256(secret, auth.Claims{
+				Subject:   "user-2",
+				ExpiresAt: time.Now().Add(time.Hour),
+			})},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED {
+		t.Fatalf("expected NOT_AUTHENTICATED on connect subject change, got %v", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "c3",
+		Message: &gentisv1.ClientMessage_Connect{
+			Connect: &gentisv1.ConnectRequest{AuthToken: auth.SignHS256(secret, auth.Claims{
+				Subject:   "user-1",
+				ExpiresAt: time.Now().Add(time.Hour),
+			})},
+		},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetConnected() == nil {
+		t.Fatalf("same-subject reconnect must stay idempotent, got %v", msg.Message)
+	}
+}

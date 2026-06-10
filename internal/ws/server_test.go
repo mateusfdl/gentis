@@ -1327,3 +1327,47 @@ func TestWildcardSubscribeRejectsQoS(t *testing.T) {
 		t.Fatalf("error code = %q, want %q", resp.Error.Code, ErrorCodeInvalidPayload)
 	}
 }
+
+func TestConnectRejectsSubjectChange(t *testing.T) {
+	secret := []byte("ws-secret")
+	addr := startVerifierTestServer(t, secret)
+	conn := dialWS(t, addr)
+	defer conn.Close()
+
+	sendJSON(t, conn, map[string]any{
+		"id": "c1",
+		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+			Subject:   "user-1",
+			ExpiresAt: time.Now().Add(time.Hour),
+		})},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("expected Connected, got %+v", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id": "c2",
+		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+			Subject:   "user-2",
+			ExpiresAt: time.Now().Add(time.Hour),
+		})},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeNotAuthenticated {
+		t.Fatalf("expected NOT_AUTHENTICATED on connect subject change, got %+v", resp)
+	}
+
+	sendJSON(t, conn, map[string]any{
+		"id": "c3",
+		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+			Subject:   "user-1",
+			ExpiresAt: time.Now().Add(time.Hour),
+		})},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("same-subject reconnect must stay idempotent, got %+v", resp)
+	}
+}
