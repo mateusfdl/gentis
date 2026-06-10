@@ -834,7 +834,9 @@ func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
 	}
 
 	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
-		sess.relay.upstream.Publish(req.Channel, req.Data)
+		if err := sess.relay.upstream.Publish(req.Channel, req.Data); err != nil {
+			sess.relay.logger.Warn("publish dropped, upstream unavailable", "channel", req.Channel, "err", err)
+		}
 	}
 
 	// Acks are opt-in via the correlation id and describe the relay-local

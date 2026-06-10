@@ -1199,3 +1199,31 @@ func TestRelayTLSListener(t *testing.T) {
 		t.Fatalf("expected Pong over TLS relay listener, got %T", msg.Message)
 	}
 }
+
+type fakeClientStream struct {
+	gentisv1.GentisService_StreamClient
+}
+
+func TestHandleDisconnectIgnoresStaleStream(t *testing.T) {
+	u := NewUpstream(
+		UpstreamConfig{Address: "127.0.0.1:1"},
+		ReconnectPolicy{InitialDelay: time.Hour, MaxDelay: time.Hour, Multiplier: 2},
+		nil,
+		gentislog.Nop(),
+	)
+	fresh := &fakeClientStream{}
+	stale := &fakeClientStream{}
+	u.stream = fresh
+	u.connected.Store(true)
+
+	u.handleDisconnect(stale)
+
+	if !u.connected.Load() {
+		t.Fatal("stale stream error must not mark the fresh connection down")
+	}
+	u.streamMu.Lock()
+	defer u.streamMu.Unlock()
+	if u.stream != fresh {
+		t.Fatal("stale stream error must not null the fresh stream")
+	}
+}

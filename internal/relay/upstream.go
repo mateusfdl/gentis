@@ -50,6 +50,16 @@ type Upstream struct {
 
 	connected    atomic.Bool
 	reconnecting atomic.Bool
+
+	// lastEstablished/lastDelay let a reconnect resume the backoff where
+	// the previous cycle left it when the upstream flaps.
+	lastEstablished atomic.Int64
+	lastDelay       atomic.Int64
+
+	// pendingRecovers tracks channels whose resubscribe carried a recover
+	// point, so a Recovered=false ack is distinguishable from a plain
+	// subscribe ack and the lost gap is surfaced.
+	pendingRecovers sync.Map
 }
 
 type subscriptionRef struct {
@@ -246,6 +256,7 @@ func (u *Upstream) establishStream() error {
 		if val, ok := u.lastSeen.Load(channel); ok {
 			rp := val.(recoverPoint)
 			sub.Recover = &gentisv1.RecoverPoint{Offset: rp.offset, Epoch: rp.epoch}
+			u.pendingRecovers.Store(channel, struct{}{})
 		}
 		u.enqueue(&gentisv1.ClientMessage{
 			Message: &gentisv1.ClientMessage_Subscribe{
@@ -287,7 +298,7 @@ func (u *Upstream) receiveLoop() {
 			// EOF included: a server-side close is a disconnect to
 			// recover from, not a reason to stop receiving forever.
 			u.logger.Warn("upstream receive error, reconnecting", "err", err)
-			u.handleDisconnect()
+			u.handleDisconnect(stream)
 			continue
 		}
 
@@ -308,12 +319,13 @@ func (u *Upstream) sendLoop() {
 			u.streamMu.Unlock()
 
 			if stream == nil {
+				u.logger.Warn("upstream message dropped, no active stream")
 				continue
 			}
 
 			if err := stream.Send(msg); err != nil {
 				u.logger.Warn("upstream send error, reconnecting", "err", err)
-				u.handleDisconnect()
+				u.handleDisconnect(stream)
 			}
 		}
 	}
@@ -335,8 +347,12 @@ func (u *Upstream) handleMessage(msg *gentisv1.ServerMessage) {
 			u.handler(cm.Channel, cm.Data, cm.Offset, cm.Epoch)
 		}
 	case *gentisv1.ServerMessage_Subscribed:
-		if m.Subscribed.Recovered {
-			u.logger.Info("upstream gap recovered", "channel", m.Subscribed.Channel)
+		if _, pending := u.pendingRecovers.LoadAndDelete(m.Subscribed.Channel); pending {
+			if m.Subscribed.Recovered {
+				u.logger.Info("upstream gap recovered", "channel", m.Subscribed.Channel)
+			} else {
+				u.logger.Warn("upstream gap unrecoverable, history evicted or epoch changed", "channel", m.Subscribed.Channel)
+			}
 		}
 	case *gentisv1.ServerMessage_Connected:
 		u.logger.Info("connected to upstream", "connection_id", m.Connected.ConnectionId)
@@ -345,12 +361,19 @@ func (u *Upstream) handleMessage(msg *gentisv1.ServerMessage) {
 	}
 }
 
-func (u *Upstream) handleDisconnect() {
-	u.connected.Store(false)
-
+// handleDisconnect tears down the stream the caller observed failing. A
+// late error from an already-replaced stream is ignored, so one disconnect
+// cannot cancel the reconnect that just succeeded.
+func (u *Upstream) handleDisconnect(failed gentisv1.GentisService_StreamClient) {
 	u.streamMu.Lock()
+	if u.stream != failed {
+		u.streamMu.Unlock()
+		return
+	}
 	u.stream = nil
 	u.streamMu.Unlock()
+
+	u.connected.Store(false)
 
 	if u.reconnecting.CompareAndSwap(false, true) {
 		go u.reconnect()
@@ -361,6 +384,14 @@ func (u *Upstream) reconnect() {
 	defer u.reconnecting.Store(false)
 
 	delay := u.policy.InitialDelay
+	// A stream that dies right after establishing never exercised the
+	// in-loop backoff; resume from the previous delay so a flapping
+	// upstream cannot pin the relay at the initial reconnect rate.
+	if last := u.lastEstablished.Load(); last != 0 && time.Since(time.Unix(0, last)) < u.policy.MaxDelay {
+		if prev := time.Duration(u.lastDelay.Load()); prev > delay {
+			delay = prev
+		}
+	}
 	attempts := 0
 
 	for {
@@ -381,9 +412,12 @@ func (u *Upstream) reconnect() {
 		if err := u.establishStream(); err != nil {
 			u.logger.Warn("upstream reconnect failed", "attempt", attempts, "err", err)
 			delay = min(time.Duration(float64(delay)*u.policy.Multiplier), u.policy.MaxDelay)
+			u.lastDelay.Store(int64(delay))
 			continue
 		}
 
+		u.lastEstablished.Store(time.Now().UnixNano())
+		u.lastDelay.Store(int64(min(time.Duration(float64(delay)*u.policy.Multiplier), u.policy.MaxDelay)))
 		u.logger.Info("reconnected to upstream", "attempts", attempts)
 		return
 	}
