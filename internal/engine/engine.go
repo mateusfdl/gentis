@@ -163,7 +163,9 @@ func (e *Engine) Unsubscribe(id SubscriberID, channelName string) bool {
 		return false
 	}
 
-	if ch.SubscriberCount() == 0 {
+	// Channels with history outlive their last subscriber so reconnecting
+	// clients can recover; the TTL sweeper reaps them once drained.
+	if ch.SubscriberCount() == 0 && ch.hist == nil {
 		delete(s.channels, channelName)
 		e.channelCount.Add(-1)
 		s.maybeRebuild()
@@ -189,7 +191,7 @@ func (e *Engine) UnsubscribeAll(id SubscriberID) {
 			if ch.Unsubscribe(id) {
 				e.subscriptionCount.Add(-1)
 			}
-			if ch.SubscriberCount() == 0 {
+			if ch.SubscriberCount() == 0 && ch.hist == nil {
 				delete(s.channels, channelName)
 				e.channelCount.Add(-1)
 				s.maybeRebuild()
@@ -418,13 +420,34 @@ func (e *Engine) runHistorySweeper(ttl time.Duration) {
 			now := time.Now().UnixNano()
 			for i := range e.shards {
 				s := &e.shards[i]
+				var drained []string
 				s.mu.RLock()
-				for _, ch := range s.channels {
-					if ch.hist != nil {
-						ch.hist.sweep(now)
+				for name, ch := range s.channels {
+					if ch.hist == nil {
+						continue
+					}
+					ch.hist.sweep(now)
+					if ch.SubscriberCount() == 0 && ch.hist.size() == 0 {
+						drained = append(drained, name)
 					}
 				}
 				s.mu.RUnlock()
+
+				if len(drained) == 0 {
+					continue
+				}
+				s.mu.Lock()
+				for _, name := range drained {
+					ch, ok := s.channels[name]
+					if !ok || ch.SubscriberCount() != 0 || ch.hist.size() != 0 {
+						continue
+					}
+					delete(s.channels, name)
+					e.channelCount.Add(-1)
+					s.maybeRebuild()
+					recycleChannel(ch)
+				}
+				s.mu.Unlock()
 			}
 		}
 	}

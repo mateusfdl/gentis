@@ -210,14 +210,24 @@ func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) 
 	}
 
 	s.state.AddSubscription(req.Channel)
+
+	resp := &gentisv1.SubscribedResponse{Channel: req.Channel}
+	var replay []engine.Delivery
+	if req.Recover != nil {
+		deliveries, ok := s.engine.Recover(req.Channel, req.Recover.Offset, req.Recover.Epoch)
+		resp.Recovered = ok
+		replay = deliveries
+	}
+
 	s.send(&gentisv1.ServerMessage{
 		Id: reqID,
 		Message: &gentisv1.ServerMessage_Subscribed{
-			Subscribed: &gentisv1.SubscribedResponse{
-				Channel: req.Channel,
-			},
+			Subscribed: resp,
 		},
 	})
+	for _, d := range replay {
+		s.DeliverMessage(d)
+	}
 	s.logger.Debug("subscribed", "channel", req.Channel)
 }
 

@@ -31,7 +31,13 @@ type ConnectRequest struct {
 }
 
 type SubscribeRequest struct {
-	Channel string `json:"channel"`
+	Channel string        `json:"channel"`
+	Recover *RecoverPoint `json:"recover,omitempty"`
+}
+
+type RecoverPoint struct {
+	Offset uint64 `json:"offset"`
+	Epoch  uint64 `json:"epoch,string"`
 }
 
 type UnsubscribeRequest struct {
@@ -68,7 +74,8 @@ type ConnectedResponse struct {
 }
 
 type SubscribedResponse struct {
-	Channel string `json:"channel"`
+	Channel   string `json:"channel"`
+	Recovered *bool  `json:"recovered,omitempty"`
 }
 
 type UnsubscribedResponse struct {

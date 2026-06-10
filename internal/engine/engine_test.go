@@ -845,3 +845,43 @@ func TestHistorySweeperExpiresEntries(t *testing.T) {
 	}
 	t.Fatal("history entry never expired via TTL sweep")
 }
+
+func TestHistoryChannelSurvivesLastUnsubscribe(t *testing.T) {
+	e := New(WithHistory(8, 0))
+	defer e.Stop()
+
+	e.Subscribe(1, "sticky-ch")
+	r1 := e.Publish("sticky-ch", []byte("before"), 0, func(SubscriberID, Delivery) bool { return true })
+	e.Unsubscribe(1, "sticky-ch")
+
+	r2 := e.Publish("sticky-ch", []byte("after"), 0, func(SubscriberID, Delivery) bool { return true })
+	if r2.Epoch != r1.Epoch {
+		t.Fatalf("epoch changed across empty period: %d != %d", r2.Epoch, r1.Epoch)
+	}
+	if r2.Offset != 2 {
+		t.Fatalf("offset = %d, want 2 (continuity across empty period)", r2.Offset)
+	}
+
+	got, ok := e.Recover("sticky-ch", 0, r1.Epoch)
+	if !ok || len(got) != 2 {
+		t.Fatalf("Recover = %d items ok=%v, want 2 items ok=true", len(got), ok)
+	}
+}
+
+func TestSweeperReapsDrainedEmptyChannels(t *testing.T) {
+	e := New(WithHistory(8, 30*time.Millisecond))
+	defer e.Stop()
+
+	e.Subscribe(1, "reap-ch")
+	e.Publish("reap-ch", []byte("x"), 0, func(SubscriberID, Delivery) bool { return true })
+	e.Unsubscribe(1, "reap-ch")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if e.Stats().Channels == 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("drained empty channel never reaped, channels = %d", e.Stats().Channels)
+}

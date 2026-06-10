@@ -54,6 +54,8 @@ func init() {
 	pf.Int("shards", 0, "engine shard count (0 = auto, rounded to power-of-2)")
 	pf.Int("fanout-threshold", 100_000, "subscriber count to trigger parallel fanout")
 	pf.Int("fanout-workers", 4, "parallel fanout goroutine count")
+	pf.Int("history-size", 0, "per-channel history ring size for recovery, 0 to disable")
+	pf.Duration("history-ttl", 0, "history entry TTL, 0 keeps entries until evicted by size")
 
 	rootCmd.SetVersionTemplate("gentis {{.Version}}\n")
 }
@@ -94,6 +96,12 @@ func buildEngineOpts(cmd *cobra.Command, logger *slog.Logger, obs *metrics.Obser
 
 	fanoutWorkers, _ := cmd.Flags().GetInt("fanout-workers")
 	opts = append(opts, engine.WithFanoutWorkers(fanoutWorkers))
+
+	historySize, _ := cmd.Flags().GetInt("history-size")
+	if historySize > 0 {
+		historyTTL, _ := cmd.Flags().GetDuration("history-ttl")
+		opts = append(opts, engine.WithHistory(historySize, historyTTL))
+	}
 
 	if obs != nil {
 		opts = append(opts, engine.WithObserver(obs))

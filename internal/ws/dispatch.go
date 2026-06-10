@@ -23,6 +23,7 @@ type MessageHandler interface {
 	ScheduleExpiry(exp time.Time)
 	MaxMessageSize() int
 	MaxSubscriptions() int
+	Deliver(d engine.Delivery)
 	Send(msg *ServerMessage)
 	SendError(code string, message string, reqID string)
 }
@@ -140,12 +141,22 @@ func handleSubscribe(h MessageHandler, req *SubscribeRequest, reqID string) {
 	}
 
 	h.State().AddSubscription(req.Channel)
+
+	resp := &SubscribedResponse{Channel: req.Channel}
+	var replay []engine.Delivery
+	if req.Recover != nil {
+		deliveries, ok := h.Engine().Recover(req.Channel, req.Recover.Offset, req.Recover.Epoch)
+		resp.Recovered = &ok
+		replay = deliveries
+	}
+
 	h.Send(&ServerMessage{
-		ID: reqID,
-		Subscribed: &SubscribedResponse{
-			Channel: req.Channel,
-		},
+		ID:         reqID,
+		Subscribed: resp,
 	})
+	for _, d := range replay {
+		h.Deliver(d)
+	}
 }
 
 func handleUnsubscribe(h MessageHandler, req *UnsubscribeRequest, reqID string) {

@@ -65,14 +65,25 @@ message RefreshResponse {
   uint64 expires_at = 1;
 }
 
-// SubscribeRequest requests subscription to a channel.
+// SubscribeRequest requests subscription to a channel. Setting recover asks
+// the server to replay publications missed since the given position.
 message SubscribeRequest {
   string channel = 1;
+  RecoverPoint recover = 2;
 }
 
-// SubscribedResponse confirms subscription.
+// RecoverPoint is the last position a client saw on a channel.
+message RecoverPoint {
+  uint64 offset = 1;
+  uint64 epoch = 2;
+}
+
+// SubscribedResponse confirms subscription. When recovery was requested,
+// recovered tells whether the gap was replayed exactly; false means the
+// client must resync its state from scratch.
 message SubscribedResponse {
   string channel = 1;
+  bool recovered = 2;
 }
 
 // UnsubscribeRequest requests unsubscription from a channel.

@@ -10,6 +10,7 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/auth"
+	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -1366,5 +1367,142 @@ func TestSubscriptionLimit(t *testing.T) {
 	msg = recvWithTimeout(t, stream, 2*time.Second)
 	if msg.GetSubscribed() == nil {
 		t.Fatalf("subscribe after freeing slot: got %v, want Subscribed", msg.Message)
+	}
+}
+
+func startHistoryServer(t *testing.T) (string, func()) {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	eng := engine.New(engine.WithHistory(64, 0))
+	srv := New(addr, WithEngine(eng))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	return addr, func() {
+		srv.Stop()
+		eng.Stop()
+	}
+}
+
+func TestSubscribeWithRecovery(t *testing.T) {
+	addr, cleanup := startHistoryServer(t)
+	defer cleanup()
+
+	pub, closePub := connectClient(t, addr)
+	defer closePub()
+	authenticate(t, pub, "token")
+
+	sub, closeSub := connectClient(t, addr)
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "rec-ch"},
+		},
+	})
+	recvWithTimeout(t, sub, 2*time.Second)
+
+	pub.Send(&gentisv1.ClientMessage{
+		Id: "p1",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "rec-ch", Data: []byte("m-1")},
+		},
+	})
+	first := recvWithTimeout(t, sub, 2*time.Second).GetChannelMessage()
+	if first == nil || first.Offset != 1 {
+		t.Fatalf("expected live delivery offset 1, got %+v", first)
+	}
+	epoch := first.Epoch
+
+	closeSub()
+	ack := recvWithTimeout(t, pub, 2*time.Second).GetPublished()
+	if ack == nil {
+		t.Fatalf("expected publish ack")
+	}
+
+	for i := 2; i <= 3; i++ {
+		pub.Send(&gentisv1.ClientMessage{
+			Id: fmt.Sprintf("p%d", i),
+			Message: &gentisv1.ClientMessage_Publish{
+				Publish: &gentisv1.PublishRequest{Channel: "rec-ch", Data: []byte(fmt.Sprintf("m-%d", i))},
+			},
+		})
+		if recvWithTimeout(t, pub, 2*time.Second).GetPublished() == nil {
+			t.Fatalf("publish %d not acked", i)
+		}
+	}
+
+	sub2, closeSub2 := connectClient(t, addr)
+	defer closeSub2()
+	authenticate(t, sub2, "token")
+	sub2.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel: "rec-ch",
+				Recover: &gentisv1.RecoverPoint{Offset: 1, Epoch: epoch},
+			},
+		},
+	})
+
+	msg := recvWithTimeout(t, sub2, 2*time.Second)
+	subscribed := msg.GetSubscribed()
+	if subscribed == nil {
+		t.Fatalf("expected Subscribed, got %v", msg.Message)
+	}
+	if !subscribed.Recovered {
+		t.Fatal("Subscribed.Recovered = false, want true")
+	}
+
+	for i := 2; i <= 3; i++ {
+		cm := recvWithTimeout(t, sub2, 2*time.Second).GetChannelMessage()
+		if cm == nil {
+			t.Fatalf("expected replayed ChannelMessage %d", i)
+		}
+		if cm.Channel != "rec-ch" || cm.Offset != uint64(i) || cm.Epoch != epoch || string(cm.Data) != fmt.Sprintf("m-%d", i) {
+			t.Errorf("replay %d = {channel:%q offset:%d epoch:%d data:%q}, want {rec-ch %d %d m-%d}",
+				i, cm.Channel, cm.Offset, cm.Epoch, cm.Data, i, epoch, i)
+		}
+	}
+}
+
+func TestSubscribeWithRecoveryEpochMismatch(t *testing.T) {
+	addr, cleanup := startHistoryServer(t)
+	defer cleanup()
+
+	pub, closePub := connectClient(t, addr)
+	defer closePub()
+	authenticate(t, pub, "token")
+	pub.Send(&gentisv1.ClientMessage{
+		Id: "p1",
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "mismatch-ch", Data: []byte("x")},
+		},
+	})
+
+	sub, closeSub := connectClient(t, addr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{
+				Channel: "mismatch-ch",
+				Recover: &gentisv1.RecoverPoint{Offset: 0, Epoch: 12345},
+			},
+		},
+	})
+
+	msg := recvWithTimeout(t, sub, 2*time.Second)
+	subscribed := msg.GetSubscribed()
+	if subscribed == nil {
+		t.Fatalf("expected Subscribed, got %v", msg.Message)
+	}
+	if subscribed.Recovered {
+		t.Fatal("Subscribed.Recovered = true with wrong epoch, want false")
 	}
 }

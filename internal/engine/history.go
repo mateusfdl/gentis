@@ -99,3 +99,9 @@ func (h *history) sweep(now int64) {
 		h.count--
 	}
 }
+
+func (h *history) size() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.count
+}

@@ -632,18 +632,29 @@ func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID strin
 	sess.channels[req.Channel] = struct{}{}
 	sess.subsMu.Unlock()
 
+	var replay []engine.Delivery
+	recovered := false
+	if req.Recover != nil {
+		replay, recovered = sess.relay.engine.Recover(req.Channel, req.Recover.Offset, req.Recover.Epoch)
+	}
+
 	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
 		sess.relay.upstream.Subscribe(req.Channel)
 	}
 
+	resp := &gentisv1.SubscribedResponse{Channel: req.Channel}
+	if req.Recover != nil {
+		resp.Recovered = recovered
+	}
 	sess.send(&gentisv1.ServerMessage{
 		Id: reqID,
 		Message: &gentisv1.ServerMessage_Subscribed{
-			Subscribed: &gentisv1.SubscribedResponse{
-				Channel: req.Channel,
-			},
+			Subscribed: resp,
 		},
 	})
+	for _, d := range replay {
+		sess.DeliverMessage(d)
+	}
 }
 
 func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID string) {

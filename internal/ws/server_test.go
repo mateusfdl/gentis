@@ -867,3 +867,121 @@ func TestSubscriptionLimit(t *testing.T) {
 		t.Fatalf("over-limit subscribe: got %+v, want SUBSCRIPTION_LIMIT", resp)
 	}
 }
+
+func TestSubscribeWithRecovery(t *testing.T) {
+	eng := engine.New(engine.WithHistory(64, 0))
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+	addr := srv.listener.Addr().String()
+
+	pub := dialWS(t, addr)
+	defer pub.Close()
+	authenticate(t, pub)
+
+	sub := dialWS(t, addr)
+	authenticate(t, sub)
+	sendJSON(t, sub, map[string]any{"id": "s", "subscribe": map[string]any{"channel": "rec-ws"}})
+	var resp ServerMessage
+	readJSON(t, sub, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("subscribe failed: %+v", resp)
+	}
+
+	sendJSON(t, pub, map[string]any{
+		"id":      "p1",
+		"publish": map[string]any{"channel": "rec-ws", "data": json.RawMessage(`"m-1"`)},
+	})
+	readJSON(t, sub, &resp)
+	if resp.ChannelMessage == nil || resp.ChannelMessage.Offset != 1 {
+		t.Fatalf("expected live delivery offset 1, got %+v", resp)
+	}
+	epoch := resp.ChannelMessage.Epoch
+	sub.Close()
+
+	var ack ServerMessage
+	readJSON(t, pub, &ack)
+	if ack.Published == nil {
+		t.Fatalf("expected ack, got %+v", ack)
+	}
+
+	for i := 2; i <= 3; i++ {
+		sendJSON(t, pub, map[string]any{
+			"id":      fmt.Sprintf("p%d", i),
+			"publish": map[string]any{"channel": "rec-ws", "data": json.RawMessage(fmt.Sprintf(`"m-%d"`, i))},
+		})
+		readJSON(t, pub, &ack)
+		if ack.Published == nil {
+			t.Fatalf("publish %d not acked: %+v", i, ack)
+		}
+	}
+
+	sub2 := dialWS(t, addr)
+	defer sub2.Close()
+	authenticate(t, sub2)
+	sendJSON(t, sub2, map[string]any{
+		"id": "s2",
+		"subscribe": map[string]any{
+			"channel": "rec-ws",
+			"recover": map[string]any{"offset": 1, "epoch": fmt.Sprintf("%d", epoch)},
+		},
+	})
+
+	readJSON(t, sub2, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("expected Subscribed, got %+v", resp)
+	}
+	if resp.Subscribed.Recovered == nil || !*resp.Subscribed.Recovered {
+		t.Fatalf("Subscribed.Recovered = %v, want true", resp.Subscribed.Recovered)
+	}
+
+	for i := 2; i <= 3; i++ {
+		readJSON(t, sub2, &resp)
+		cm := resp.ChannelMessage
+		if cm == nil {
+			t.Fatalf("expected replayed message %d, got %+v", i, resp)
+		}
+		if cm.Channel != "rec-ws" || cm.Offset != uint64(i) || cm.Epoch != epoch || string(cm.Data) != fmt.Sprintf(`"m-%d"`, i) {
+			t.Errorf("replay %d = %+v, want offset %d epoch %d data \"m-%d\"", i, cm, i, epoch, i)
+		}
+	}
+}
+
+func TestSubscribeWithRecoveryUnrecoverable(t *testing.T) {
+	eng := engine.New(engine.WithHistory(64, 0))
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{
+		"id": "s",
+		"subscribe": map[string]any{
+			"channel": "ghost-ch",
+			"recover": map[string]any{"offset": 5, "epoch": "999"},
+		},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("expected Subscribed, got %+v", resp)
+	}
+	if resp.Subscribed.Recovered == nil || *resp.Subscribed.Recovered {
+		t.Fatalf("Subscribed.Recovered = %v, want false", resp.Subscribed.Recovered)
+	}
+}

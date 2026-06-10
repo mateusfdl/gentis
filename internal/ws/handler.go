@@ -23,6 +23,7 @@ func (s *Session) Verifier() auth.Verifier               { return s.server.confi
 func (s *Session) Subject() string                       { return s.state.Subject() }
 func (s *Session) MaxMessageSize() int                   { return s.server.config.MaxMessageSize }
 func (s *Session) MaxSubscriptions() int                 { return s.server.config.MaxSubscriptions }
+func (s *Session) Deliver(d engine.Delivery)             { s.DeliverMessage(d) }
 func (s *Session) Send(msg *ServerMessage)               { s.send(msg) }
 func (s *Session) SendError(code, message, reqID string) { s.sendError(code, message, reqID) }
 
