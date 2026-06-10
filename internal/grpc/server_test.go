@@ -1043,3 +1043,145 @@ func TestPermissionChecks(t *testing.T) {
 		t.Fatalf("publish inside pub allowlist: got %v, want PublishResponse", msg.Message)
 	}
 }
+
+func TestExpiredSessionDisconnects(t *testing.T) {
+	secret := []byte("grpc-secret")
+	addr, cleanup := startVerifierServer(t, secret)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Second),
+	})
+	authenticate(t, stream, token)
+
+	deadline := time.After(4 * time.Second)
+	done := make(chan error, 1)
+	go func() {
+		for {
+			if _, err := stream.Recv(); err != nil {
+				done <- err
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-deadline:
+		t.Fatal("session not disconnected after token expiry")
+	}
+}
+
+func TestRefreshExtendsSession(t *testing.T) {
+	secret := []byte("grpc-secret")
+	addr, cleanup := startVerifierServer(t, secret)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	short := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(2 * time.Second),
+	})
+	authenticate(t, stream, short)
+
+	renewedExp := time.Now().Add(time.Hour)
+	renewed := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: renewedExp,
+	})
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "r1",
+		Message: &gentisv1.ClientMessage_Refresh{
+			Refresh: &gentisv1.RefreshRequest{AuthToken: renewed},
+		},
+	})
+
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	refreshed := msg.GetRefreshed()
+	if refreshed == nil {
+		t.Fatalf("expected RefreshResponse, got %v", msg.Message)
+	}
+	if refreshed.ExpiresAt != uint64(renewedExp.Unix()) {
+		t.Errorf("expires_at = %d, want %d", refreshed.ExpiresAt, renewedExp.Unix())
+	}
+
+	time.Sleep(2500 * time.Millisecond)
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetPong() == nil {
+		t.Fatalf("expected Pong after refresh outlived original expiry, got %v", msg.Message)
+	}
+}
+
+func TestRefreshRejectsBadToken(t *testing.T) {
+	secret := []byte("grpc-secret")
+	addr, cleanup := startVerifierServer(t, secret)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	authenticate(t, stream, token)
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "r1",
+		Message: &gentisv1.ClientMessage_Refresh{
+			Refresh: &gentisv1.RefreshRequest{AuthToken: "garbage"},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED {
+		t.Fatalf("expected NOT_AUTHENTICATED, got %v", msg.Message)
+	}
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
+	})
+	msg = recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetPong() == nil {
+		t.Fatalf("session should survive failed refresh, got %v", msg.Message)
+	}
+}
+
+func TestRefreshRejectsSubjectChange(t *testing.T) {
+	secret := []byte("grpc-secret")
+	addr, cleanup := startVerifierServer(t, secret)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	authenticate(t, stream, auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}))
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id: "r1",
+		Message: &gentisv1.ClientMessage_Refresh{
+			Refresh: &gentisv1.RefreshRequest{AuthToken: auth.SignHS256(secret, auth.Claims{
+				Subject:   "user-2",
+				ExpiresAt: time.Now().Add(time.Hour),
+			})},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil || errResp.Code != gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED {
+		t.Fatalf("expected NOT_AUTHENTICATED on subject change, got %v", msg.Message)
+	}
+}

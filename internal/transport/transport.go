@@ -18,6 +18,7 @@ type Sender interface {
 type SessionState interface {
 	IsAuthenticated() bool
 	Authenticate(c auth.Claims) error
+	Subject() string
 	CanSubscribe(channel string) bool
 	CanPublish(channel string) bool
 	AddSubscription(channel string)

@@ -21,6 +21,7 @@ message ClientMessage {
     UnsubscribeRequest unsubscribe = 3;
     PublishRequest publish = 4;
     PingRequest ping = 5;
+    RefreshRequest refresh = 6;
   }
 }
 
@@ -38,6 +39,7 @@ message ServerMessage {
     PongResponse pong = 5;
     ErrorResponse error = 6;
     PublishResponse published = 7;
+    RefreshResponse refreshed = 8;
   }
 }
 
@@ -49,6 +51,18 @@ message ConnectRequest {
 // ConnectedResponse confirms successful authentication.
 message ConnectedResponse {
   string connection_id = 1;
+}
+
+// RefreshRequest renews the session credentials before they expire.
+message RefreshRequest {
+  string auth_token = 1;
+}
+
+// RefreshResponse confirms credential renewal.
+message RefreshResponse {
+  // Unix seconds at which the renewed credentials expire. Zero means the
+  // session never expires.
+  uint64 expires_at = 1;
 }
 
 // SubscribeRequest requests subscription to a channel.

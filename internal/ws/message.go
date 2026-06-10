@@ -21,6 +21,7 @@ type ClientMessage struct {
 	Unsubscribe *UnsubscribeRequest `json:"unsubscribe,omitempty"`
 	Publish     *PublishRequest     `json:"publish,omitempty"`
 	Ping        *PingRequest        `json:"ping,omitempty"`
+	Refresh     *RefreshRequest     `json:"refresh,omitempty"`
 }
 
 type ConnectRequest struct {
@@ -42,6 +43,10 @@ type PublishRequest struct {
 
 type PingRequest struct{}
 
+type RefreshRequest struct {
+	AuthToken string `json:"auth_token"`
+}
+
 type ServerMessage struct {
 	ID             string                 `json:"id,omitempty"`
 	Connected      *ConnectedResponse     `json:"connected,omitempty"`
@@ -51,6 +56,7 @@ type ServerMessage struct {
 	Pong           *PongResponse          `json:"pong,omitempty"`
 	Error          *ErrorResponse         `json:"error,omitempty"`
 	Published      *PublishResponse       `json:"published,omitempty"`
+	Refreshed      *RefreshResponse       `json:"refreshed,omitempty"`
 
 	enqueuedAt time.Time
 }
@@ -80,6 +86,10 @@ type ChannelMessagePayload struct {
 	Data    json.RawMessage `json:"data"`
 	Offset  uint64          `json:"offset,omitempty"`
 	Epoch   uint64          `json:"epoch,omitempty,string"`
+}
+
+type RefreshResponse struct {
+	ExpiresAt uint64 `json:"expires_at"`
 }
 
 type PongResponse struct{}

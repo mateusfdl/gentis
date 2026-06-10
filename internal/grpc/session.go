@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/arena"
@@ -26,6 +27,8 @@ type Session struct {
 	logger   *slog.Logger
 	ctx      context.Context
 	cancel   context.CancelFunc
+
+	expiryTimer *time.Timer
 }
 
 func (s *Session) DeliverMessage(d engine.Delivery) bool {
@@ -40,6 +43,23 @@ func (s *Session) DeliverMessage(d engine.Delivery) bool {
 		s.logger.Debug("ring produce", "channel", d.Channel, "ring_len", s.sendRing.Len(), "ring_cap", s.sendRing.Cap())
 	}
 	return true
+}
+
+// scheduleExpiry arms (or re-arms) the timer that cancels the session when
+// its credentials lapse. Only the dispatch loop calls this, so no locking
+// is needed. A zero expiry disables enforcement.
+func (s *Session) scheduleExpiry(exp time.Time) {
+	if s.expiryTimer != nil {
+		s.expiryTimer.Stop()
+		s.expiryTimer = nil
+	}
+	if exp.IsZero() {
+		return
+	}
+	s.expiryTimer = time.AfterFunc(time.Until(exp), func() {
+		s.logger.Debug("session credentials expired")
+		s.cancel()
+	})
 }
 
 var _ transport.Sender = (*Session)(nil)
@@ -112,6 +132,9 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 }
 
 func (s *Server) cleanupSession(sess *Session) {
+	if sess.expiryTimer != nil {
+		sess.expiryTimer.Stop()
+	}
 	sess.cancel()
 	s.sessions.Delete(sess.id)
 	s.connectionCount.Add(-1)

@@ -590,3 +590,77 @@ func TestPermissionChecks(t *testing.T) {
 		t.Fatalf("publish inside pub allowlist: got %+v, want Published ack", resp)
 	}
 }
+
+func TestExpiredSessionDisconnects(t *testing.T) {
+	secret := []byte("ws-secret")
+	addr := startVerifierTestServer(t, secret)
+	conn := dialWS(t, addr)
+	defer conn.Close()
+
+	token := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Second),
+	})
+	sendJSON(t, conn, map[string]any{
+		"id":      "c1",
+		"connect": map[string]any{"auth_token": token},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("expected Connected, got %+v", resp)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(4 * time.Second))
+	for {
+		if _, _, err := wsutil.ReadServerData(conn); err != nil {
+			return
+		}
+	}
+}
+
+func TestRefreshExtendsSession(t *testing.T) {
+	secret := []byte("ws-secret")
+	addr := startVerifierTestServer(t, secret)
+	conn := dialWS(t, addr)
+	defer conn.Close()
+
+	short := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(2 * time.Second),
+	})
+	sendJSON(t, conn, map[string]any{
+		"id":      "c1",
+		"connect": map[string]any{"auth_token": short},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Connected == nil {
+		t.Fatalf("expected Connected, got %+v", resp)
+	}
+
+	renewedExp := time.Now().Add(time.Hour)
+	renewed := auth.SignHS256(secret, auth.Claims{
+		Subject:   "user-1",
+		ExpiresAt: renewedExp,
+	})
+	sendJSON(t, conn, map[string]any{
+		"id":      "r1",
+		"refresh": map[string]any{"auth_token": renewed},
+	})
+	readJSON(t, conn, &resp)
+	if resp.Refreshed == nil {
+		t.Fatalf("expected Refreshed, got %+v", resp)
+	}
+	if resp.Refreshed.ExpiresAt != uint64(renewedExp.Unix()) {
+		t.Errorf("expires_at = %d, want %d", resp.Refreshed.ExpiresAt, renewedExp.Unix())
+	}
+
+	time.Sleep(2500 * time.Millisecond)
+
+	sendJSON(t, conn, map[string]any{"id": "p1", "ping": map[string]any{}})
+	readJSON(t, conn, &resp)
+	if resp.Pong == nil {
+		t.Fatalf("expected Pong after refresh outlived original expiry, got %+v", resp)
+	}
+}

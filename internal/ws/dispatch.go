@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
@@ -18,6 +19,8 @@ type MessageHandler interface {
 	Engine() *engine.Engine
 	Store() *transport.SessionStore
 	Verifier() auth.Verifier
+	Subject() string
+	ScheduleExpiry(exp time.Time)
 	Send(msg *ServerMessage)
 	SendError(code string, message string, reqID string)
 }
@@ -53,6 +56,8 @@ func dispatchParsed(h MessageHandler, msg *ClientMessage) {
 		}
 
 		switch {
+		case msg.Refresh != nil:
+			handleRefresh(h, msg.Refresh, reqID)
 		case msg.Subscribe != nil:
 			handleSubscribe(h, msg.Subscribe, reqID)
 		case msg.Unsubscribe != nil:
@@ -72,11 +77,35 @@ func handleConnect(h MessageHandler, req *ConnectRequest, reqID string) {
 		return
 	}
 	h.State().Authenticate(claims)
+	h.ScheduleExpiry(claims.ExpiresAt)
 	h.Send(&ServerMessage{
 		ID: reqID,
 		Connected: &ConnectedResponse{
 			ConnectionID: fmt.Sprintf("ws-conn-%d", h.ID()),
 		},
+	})
+}
+
+func handleRefresh(h MessageHandler, req *RefreshRequest, reqID string) {
+	claims, err := h.Verifier().Verify(req.AuthToken)
+	if err != nil {
+		h.SendError(ErrorCodeNotAuthenticated, "authentication failed", reqID)
+		return
+	}
+	if claims.Subject != h.Subject() {
+		h.SendError(ErrorCodeNotAuthenticated, "refresh subject mismatch", reqID)
+		return
+	}
+	h.State().Authenticate(claims)
+	h.ScheduleExpiry(claims.ExpiresAt)
+
+	var exp uint64
+	if !claims.ExpiresAt.IsZero() {
+		exp = uint64(claims.ExpiresAt.Unix())
+	}
+	h.Send(&ServerMessage{
+		ID:        reqID,
+		Refreshed: &RefreshResponse{ExpiresAt: exp},
 	})
 }
 

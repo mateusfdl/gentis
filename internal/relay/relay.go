@@ -79,6 +79,8 @@ type Session struct {
 	subsMu   sync.RWMutex
 	channels map[string]struct{}
 
+	expiryTimer *time.Timer
+
 	dropsFull atomic.Int64
 }
 
@@ -256,7 +258,11 @@ func (s *Server) Stop() error {
 }
 
 func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
-	sess := s.createSession(stream.Context())
+	// Session contexts are rooted in the server context, not the stream
+	// context: client cancellation must surface through Recv so in-flight
+	// messages drain in order, while ctx.Done stays reserved for
+	// server-initiated closes (credential expiry, shutdown).
+	sess := s.createSession(s.ctx)
 	if sess == nil {
 		return fmt.Errorf("failed to create session")
 	}
@@ -264,16 +270,55 @@ func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
 
 	go sess.runSender(stream)
 
-	for {
-		msg, err := stream.Recv()
-		if err == io.EOF {
-			return nil
+	// Recv runs in its own goroutine so the dispatch loop can also exit
+	// on session cancellation (credential expiry). Returning from this
+	// handler cancels the stream context, which unblocks Recv.
+	recvCh := make(chan *gentisv1.ClientMessage)
+	recvErr := make(chan error, 1)
+	go func() {
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				recvErr <- err
+				return
+			}
+			select {
+			case recvCh <- msg:
+			case <-sess.ctx.Done():
+				return
+			}
 		}
-		if err != nil {
-			return err
+	}()
+
+	for {
+		// Drain pending traffic before honoring cancellation so a client
+		// that publishes and immediately closes doesn't lose its last
+		// writes to the select race.
+		select {
+		case msg := <-recvCh:
+			sess.handleMessage(msg)
+			continue
+		default:
 		}
 
-		sess.handleMessage(msg)
+		select {
+		case <-sess.ctx.Done():
+			for {
+				select {
+				case msg := <-recvCh:
+					sess.handleMessage(msg)
+				default:
+					return nil
+				}
+			}
+		case err := <-recvErr:
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		case msg := <-recvCh:
+			sess.handleMessage(msg)
+		}
 	}
 }
 
@@ -344,6 +389,9 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 }
 
 func (s *Server) cleanupSession(sess *Session) {
+	if sess.expiryTimer != nil {
+		sess.expiryTimer.Stop()
+	}
 	sess.cancel()
 	s.sessions.Delete(sess.id)
 	s.connectionCount.Add(-1)
@@ -423,8 +471,10 @@ func (sess *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 				break
 			}
 			if err := stream.Send(msg); err != nil {
+				// Outbound is dead but inbound may still hold client
+				// messages; let the dispatch loop drain them until Recv
+				// errors instead of cancelling the whole session.
 				putServerMsgIfPooled(msg)
-				sess.cancel()
 				return
 			}
 			putServerMsgIfPooled(msg)
@@ -464,6 +514,8 @@ func (sess *Session) handleMessage(msg *gentisv1.ClientMessage) {
 		}
 
 		switch m := msg.Message.(type) {
+		case *gentisv1.ClientMessage_Refresh:
+			sess.handleRefresh(m.Refresh, reqID)
 		case *gentisv1.ClientMessage_Subscribe:
 			sess.handleSubscribe(m.Subscribe, reqID)
 		case *gentisv1.ClientMessage_Unsubscribe:
@@ -488,6 +540,7 @@ func (sess *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 		return
 	}
 	sess.state.Authenticate(claims)
+	sess.scheduleExpiry(claims.ExpiresAt)
 
 	sess.send(&gentisv1.ServerMessage{
 		Id: reqID,
@@ -495,6 +548,49 @@ func (sess *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 			Connected: &gentisv1.ConnectedResponse{
 				ConnectionId: fmt.Sprintf("relay-conn-%d", sess.id),
 			},
+		},
+	})
+}
+
+// scheduleExpiry arms (or re-arms) the timer that cancels the session when
+// its credentials lapse. Only the dispatch loop calls this, so no locking
+// is needed. A zero expiry disables enforcement.
+func (sess *Session) scheduleExpiry(exp time.Time) {
+	if sess.expiryTimer != nil {
+		sess.expiryTimer.Stop()
+		sess.expiryTimer = nil
+	}
+	if exp.IsZero() {
+		return
+	}
+	sess.expiryTimer = time.AfterFunc(time.Until(exp), func() {
+		sess.relay.logger.Debug("session credentials expired", "session_id", sess.id)
+		sess.cancel()
+	})
+}
+
+func (sess *Session) handleRefresh(req *gentisv1.RefreshRequest, reqID string) {
+	claims, err := sess.relay.config.Verifier.Verify(req.AuthToken)
+	if err != nil {
+		sess.relay.logger.Debug("refresh failed", "err", err)
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "authentication failed", reqID)
+		return
+	}
+	if claims.Subject != sess.state.Subject() {
+		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "refresh subject mismatch", reqID)
+		return
+	}
+	sess.state.Authenticate(claims)
+	sess.scheduleExpiry(claims.ExpiresAt)
+
+	var exp uint64
+	if !claims.ExpiresAt.IsZero() {
+		exp = uint64(claims.ExpiresAt.Unix())
+	}
+	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Refreshed{
+			Refreshed: &gentisv1.RefreshResponse{ExpiresAt: exp},
 		},
 	})
 }

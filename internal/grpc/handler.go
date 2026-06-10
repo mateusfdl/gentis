@@ -11,7 +11,11 @@ import (
 const maxChannelNameLen = 256
 
 func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
-	sess := s.createSession(stream.Context())
+	// Session contexts are rooted in the server context, not the stream
+	// context: client cancellation must surface through Recv so in-flight
+	// messages drain in order, while ctx.Done stays reserved for
+	// server-initiated closes (credential expiry, shutdown).
+	sess := s.createSession(s.ctx)
 	if sess == nil {
 		return fmt.Errorf("failed to create session")
 	}
@@ -19,16 +23,55 @@ func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
 
 	go sess.runSender(stream)
 
-	for {
-		msg, err := stream.Recv()
-		if err == io.EOF {
-			return nil
+	// Recv runs in its own goroutine so the dispatch loop can also exit
+	// on session cancellation (credential expiry). Returning from this
+	// handler cancels the stream context, which unblocks Recv.
+	recvCh := make(chan *gentisv1.ClientMessage)
+	recvErr := make(chan error, 1)
+	go func() {
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				recvErr <- err
+				return
+			}
+			select {
+			case recvCh <- msg:
+			case <-sess.ctx.Done():
+				return
+			}
 		}
-		if err != nil {
-			return err
+	}()
+
+	for {
+		// Drain pending traffic before honoring cancellation so a client
+		// that publishes and immediately closes doesn't lose its last
+		// writes to the select race.
+		select {
+		case msg := <-recvCh:
+			sess.handleMessage(msg)
+			continue
+		default:
 		}
 
-		sess.handleMessage(msg)
+		select {
+		case <-sess.ctx.Done():
+			for {
+				select {
+				case msg := <-recvCh:
+					sess.handleMessage(msg)
+				default:
+					return nil
+				}
+			}
+		case err := <-recvErr:
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		case msg := <-recvCh:
+			sess.handleMessage(msg)
+		}
 	}
 }
 
@@ -41,8 +84,10 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 				break
 			}
 			if err := stream.Send(msg); err != nil {
+				// Outbound is dead but inbound may still hold client
+				// messages; let the dispatch loop drain them until Recv
+				// errors instead of cancelling the whole session.
 				putServerMsgIfPooled(msg)
-				s.cancel()
 				return
 			}
 			putServerMsgIfPooled(msg)
@@ -80,6 +125,8 @@ func (s *Session) handleMessage(msg *gentisv1.ClientMessage) {
 		}
 
 		switch m := msg.Message.(type) {
+		case *gentisv1.ClientMessage_Refresh:
+			s.handleRefresh(m.Refresh, reqID)
 		case *gentisv1.ClientMessage_Subscribe:
 			s.handleSubscribe(m.Subscribe, reqID)
 		case *gentisv1.ClientMessage_Unsubscribe:
@@ -100,6 +147,7 @@ func (s *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 		return
 	}
 	s.state.Authenticate(claims)
+	s.scheduleExpiry(claims.ExpiresAt)
 
 	connID := fmt.Sprintf("conn-%d", s.id)
 	s.send(&gentisv1.ServerMessage{
@@ -111,6 +159,32 @@ func (s *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 		},
 	})
 	s.logger.Debug("client connected", "connection_id", connID)
+}
+
+func (s *Session) handleRefresh(req *gentisv1.RefreshRequest, reqID string) {
+	claims, err := s.server.config.Verifier.Verify(req.AuthToken)
+	if err != nil {
+		s.logger.Debug("refresh failed", "err", err)
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "authentication failed", reqID)
+		return
+	}
+	if claims.Subject != s.state.Subject() {
+		s.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "refresh subject mismatch", reqID)
+		return
+	}
+	s.state.Authenticate(claims)
+	s.scheduleExpiry(claims.ExpiresAt)
+
+	var exp uint64
+	if !claims.ExpiresAt.IsZero() {
+		exp = uint64(claims.ExpiresAt.Unix())
+	}
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Refreshed{
+			Refreshed: &gentisv1.RefreshResponse{ExpiresAt: exp},
+		},
+	})
 }
 
 func (s *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) {

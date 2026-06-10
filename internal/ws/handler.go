@@ -20,8 +20,26 @@ func (s *Session) State() transport.SessionState         { return s.state }
 func (s *Session) Engine() *engine.Engine                { return s.engine }
 func (s *Session) Store() *transport.SessionStore        { return s.store }
 func (s *Session) Verifier() auth.Verifier               { return s.server.config.Verifier }
+func (s *Session) Subject() string                       { return s.state.Subject() }
 func (s *Session) Send(msg *ServerMessage)               { s.send(msg) }
 func (s *Session) SendError(code, message, reqID string) { s.sendError(code, message, reqID) }
+
+// ScheduleExpiry arms (or re-arms) the timer that force-closes the session
+// when its credentials lapse. Only the dispatch goroutine calls this, so no
+// locking is needed. A zero expiry disables enforcement.
+func (s *Session) ScheduleExpiry(exp time.Time) {
+	if s.expiryTimer != nil {
+		s.expiryTimer.Stop()
+		s.expiryTimer = nil
+	}
+	if exp.IsZero() {
+		return
+	}
+	s.expiryTimer = time.AfterFunc(time.Until(exp), func() {
+		s.server.logger.Debug("session credentials expired", "session_id", s.id)
+		s.cancel()
+	})
+}
 
 var _ MessageHandler = (*Session)(nil)
 

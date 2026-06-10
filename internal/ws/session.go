@@ -12,14 +12,15 @@ import (
 const wsIDOffset int64 = 1 << 31
 
 type Session struct {
-	id     int
-	state  *client.State
-	sendCh chan *ServerMessage
-	engine *engine.Engine
-	store  *transport.SessionStore
-	server *Server
-	ctx    context.Context
-	cancel context.CancelFunc
+	id          int
+	state       *client.State
+	sendCh      chan *ServerMessage
+	engine      *engine.Engine
+	store       *transport.SessionStore
+	server      *Server
+	ctx         context.Context
+	cancel      context.CancelFunc
+	expiryTimer *time.Timer
 }
 
 func (s *Session) DeliverMessage(d engine.Delivery) bool {
@@ -62,6 +63,9 @@ func (s *Server) createSession() *Session {
 }
 
 func (s *Server) cleanupSession(sess *Session) {
+	if sess.expiryTimer != nil {
+		sess.expiryTimer.Stop()
+	}
 	sess.cancel()
 	s.sessions.Delete(sess.id)
 	s.connectionCount.Add(-1)
