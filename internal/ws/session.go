@@ -28,6 +28,10 @@ type Session struct {
 	// qosc gates deliveries for at-least-once subscriptions. Sessions
 	// without QoS1 windows pay a single atomic load per delivery.
 	qosc *qos.Consumer
+
+	// protoVersion is the negotiated protocol: 1 sends one message per
+	// frame, 2 may pack consecutive deliveries into array frames.
+	protoVersion atomic.Uint32
 }
 
 const redeliveryCheckInterval = 200 * time.Millisecond

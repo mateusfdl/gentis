@@ -286,6 +286,7 @@ type ServerMessage struct {
 	//	*ServerMessage_Error
 	//	*ServerMessage_Published
 	//	*ServerMessage_Refreshed
+	//	*ServerMessage_Batch
 	Message       isServerMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -407,6 +408,15 @@ func (x *ServerMessage) GetRefreshed() *RefreshResponse {
 	return nil
 }
 
+func (x *ServerMessage) GetBatch() *BatchMessage {
+	if x != nil {
+		if x, ok := x.Message.(*ServerMessage_Batch); ok {
+			return x.Batch
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Message interface {
 	isServerMessage_Message()
 }
@@ -443,6 +453,10 @@ type ServerMessage_Refreshed struct {
 	Refreshed *RefreshResponse `protobuf:"bytes,8,opt,name=refreshed,proto3,oneof"`
 }
 
+type ServerMessage_Batch struct {
+	Batch *BatchMessage `protobuf:"bytes,9,opt,name=batch,proto3,oneof"`
+}
+
 func (*ServerMessage_Connected) isServerMessage_Message() {}
 
 func (*ServerMessage_Subscribed) isServerMessage_Message() {}
@@ -459,12 +473,17 @@ func (*ServerMessage_Published) isServerMessage_Message() {}
 
 func (*ServerMessage_Refreshed) isServerMessage_Message() {}
 
-// ConnectRequest authenticates the client.
+func (*ServerMessage_Batch) isServerMessage_Message() {}
+
+// ConnectRequest authenticates the client. protocol_version advertises the
+// highest protocol the client understands; 0 or 1 means the original
+// one-message-per-frame protocol, 2 adds batched deliveries.
 type ConnectRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AuthToken     string                 `protobuf:"bytes,1,opt,name=auth_token,json=authToken,proto3" json:"auth_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AuthToken       string                 `protobuf:"bytes,1,opt,name=auth_token,json=authToken,proto3" json:"auth_token,omitempty"`
+	ProtocolVersion uint32                 `protobuf:"varint,2,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ConnectRequest) Reset() {
@@ -504,12 +523,22 @@ func (x *ConnectRequest) GetAuthToken() string {
 	return ""
 }
 
-// ConnectedResponse confirms successful authentication.
+func (x *ConnectRequest) GetProtocolVersion() uint32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
+}
+
+// ConnectedResponse confirms successful authentication. protocol_version
+// is the version the server will speak on this stream, never higher than
+// what the client advertised.
 type ConnectedResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ConnectionId  string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ConnectionId    string                 `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	ProtocolVersion uint32                 `protobuf:"varint,2,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ConnectedResponse) Reset() {
@@ -549,6 +578,60 @@ func (x *ConnectedResponse) GetConnectionId() string {
 	return ""
 }
 
+func (x *ConnectedResponse) GetProtocolVersion() uint32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
+}
+
+// BatchMessage packs consecutive channel deliveries into one frame to
+// amortize per-message overhead under fanout load. Only sent to clients
+// that negotiated protocol_version >= 2.
+type BatchMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Messages      []*ChannelMessage      `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchMessage) Reset() {
+	*x = BatchMessage{}
+	mi := &file_gentis_v1_gentis_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchMessage) ProtoMessage() {}
+
+func (x *BatchMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_gentis_v1_gentis_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchMessage.ProtoReflect.Descriptor instead.
+func (*BatchMessage) Descriptor() ([]byte, []int) {
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *BatchMessage) GetMessages() []*ChannelMessage {
+	if x != nil {
+		return x.Messages
+	}
+	return nil
+}
+
 // RefreshRequest renews the session credentials before they expire.
 type RefreshRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -559,7 +642,7 @@ type RefreshRequest struct {
 
 func (x *RefreshRequest) Reset() {
 	*x = RefreshRequest{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[4]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -571,7 +654,7 @@ func (x *RefreshRequest) String() string {
 func (*RefreshRequest) ProtoMessage() {}
 
 func (x *RefreshRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[4]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -584,7 +667,7 @@ func (x *RefreshRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshRequest.ProtoReflect.Descriptor instead.
 func (*RefreshRequest) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{4}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RefreshRequest) GetAuthToken() string {
@@ -606,7 +689,7 @@ type RefreshResponse struct {
 
 func (x *RefreshResponse) Reset() {
 	*x = RefreshResponse{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[5]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -618,7 +701,7 @@ func (x *RefreshResponse) String() string {
 func (*RefreshResponse) ProtoMessage() {}
 
 func (x *RefreshResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[5]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -631,7 +714,7 @@ func (x *RefreshResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshResponse.ProtoReflect.Descriptor instead.
 func (*RefreshResponse) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{5}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RefreshResponse) GetExpiresAt() uint64 {
@@ -656,7 +739,7 @@ type SubscribeRequest struct {
 
 func (x *SubscribeRequest) Reset() {
 	*x = SubscribeRequest{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[6]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -668,7 +751,7 @@ func (x *SubscribeRequest) String() string {
 func (*SubscribeRequest) ProtoMessage() {}
 
 func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[6]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -681,7 +764,7 @@ func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{6}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SubscribeRequest) GetChannel() string {
@@ -718,7 +801,7 @@ type UnconfirmedWindow struct {
 
 func (x *UnconfirmedWindow) Reset() {
 	*x = UnconfirmedWindow{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[7]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -730,7 +813,7 @@ func (x *UnconfirmedWindow) String() string {
 func (*UnconfirmedWindow) ProtoMessage() {}
 
 func (x *UnconfirmedWindow) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[7]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -743,7 +826,7 @@ func (x *UnconfirmedWindow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnconfirmedWindow.ProtoReflect.Descriptor instead.
 func (*UnconfirmedWindow) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{7}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UnconfirmedWindow) GetCount() uint32 {
@@ -772,7 +855,7 @@ type ConfirmRequest struct {
 
 func (x *ConfirmRequest) Reset() {
 	*x = ConfirmRequest{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[8]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -784,7 +867,7 @@ func (x *ConfirmRequest) String() string {
 func (*ConfirmRequest) ProtoMessage() {}
 
 func (x *ConfirmRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[8]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -797,7 +880,7 @@ func (x *ConfirmRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfirmRequest.ProtoReflect.Descriptor instead.
 func (*ConfirmRequest) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{8}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ConfirmRequest) GetChannel() string {
@@ -825,7 +908,7 @@ type RecoverPoint struct {
 
 func (x *RecoverPoint) Reset() {
 	*x = RecoverPoint{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[9]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -837,7 +920,7 @@ func (x *RecoverPoint) String() string {
 func (*RecoverPoint) ProtoMessage() {}
 
 func (x *RecoverPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[9]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -850,7 +933,7 @@ func (x *RecoverPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoverPoint.ProtoReflect.Descriptor instead.
 func (*RecoverPoint) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{9}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RecoverPoint) GetOffset() uint64 {
@@ -880,7 +963,7 @@ type SubscribedResponse struct {
 
 func (x *SubscribedResponse) Reset() {
 	*x = SubscribedResponse{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[10]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -892,7 +975,7 @@ func (x *SubscribedResponse) String() string {
 func (*SubscribedResponse) ProtoMessage() {}
 
 func (x *SubscribedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[10]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -905,7 +988,7 @@ func (x *SubscribedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribedResponse.ProtoReflect.Descriptor instead.
 func (*SubscribedResponse) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{10}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SubscribedResponse) GetChannel() string {
@@ -932,7 +1015,7 @@ type UnsubscribeRequest struct {
 
 func (x *UnsubscribeRequest) Reset() {
 	*x = UnsubscribeRequest{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[11]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -944,7 +1027,7 @@ func (x *UnsubscribeRequest) String() string {
 func (*UnsubscribeRequest) ProtoMessage() {}
 
 func (x *UnsubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[11]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -957,7 +1040,7 @@ func (x *UnsubscribeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsubscribeRequest.ProtoReflect.Descriptor instead.
 func (*UnsubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{11}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UnsubscribeRequest) GetChannel() string {
@@ -977,7 +1060,7 @@ type UnsubscribedResponse struct {
 
 func (x *UnsubscribedResponse) Reset() {
 	*x = UnsubscribedResponse{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[12]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -989,7 +1072,7 @@ func (x *UnsubscribedResponse) String() string {
 func (*UnsubscribedResponse) ProtoMessage() {}
 
 func (x *UnsubscribedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[12]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1002,7 +1085,7 @@ func (x *UnsubscribedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsubscribedResponse.ProtoReflect.Descriptor instead.
 func (*UnsubscribedResponse) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{12}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *UnsubscribedResponse) GetChannel() string {
@@ -1023,7 +1106,7 @@ type PublishRequest struct {
 
 func (x *PublishRequest) Reset() {
 	*x = PublishRequest{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[13]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1035,7 +1118,7 @@ func (x *PublishRequest) String() string {
 func (*PublishRequest) ProtoMessage() {}
 
 func (x *PublishRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[13]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1048,7 +1131,7 @@ func (x *PublishRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishRequest.ProtoReflect.Descriptor instead.
 func (*PublishRequest) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{13}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *PublishRequest) GetChannel() string {
@@ -1084,7 +1167,7 @@ type PublishResponse struct {
 
 func (x *PublishResponse) Reset() {
 	*x = PublishResponse{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[14]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1096,7 +1179,7 @@ func (x *PublishResponse) String() string {
 func (*PublishResponse) ProtoMessage() {}
 
 func (x *PublishResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[14]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1109,7 +1192,7 @@ func (x *PublishResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishResponse.ProtoReflect.Descriptor instead.
 func (*PublishResponse) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{14}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *PublishResponse) GetChannel() string {
@@ -1162,7 +1245,7 @@ type ChannelMessage struct {
 
 func (x *ChannelMessage) Reset() {
 	*x = ChannelMessage{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[15]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1174,7 +1257,7 @@ func (x *ChannelMessage) String() string {
 func (*ChannelMessage) ProtoMessage() {}
 
 func (x *ChannelMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[15]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1187,7 +1270,7 @@ func (x *ChannelMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelMessage.ProtoReflect.Descriptor instead.
 func (*ChannelMessage) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{15}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ChannelMessage) GetChannel() string {
@@ -1227,7 +1310,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[16]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1239,7 +1322,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[16]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1252,7 +1335,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{16}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{17}
 }
 
 // PongResponse is a keep-alive pong.
@@ -1264,7 +1347,7 @@ type PongResponse struct {
 
 func (x *PongResponse) Reset() {
 	*x = PongResponse{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[17]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1276,7 +1359,7 @@ func (x *PongResponse) String() string {
 func (*PongResponse) ProtoMessage() {}
 
 func (x *PongResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[17]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1289,7 +1372,7 @@ func (x *PongResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PongResponse.ProtoReflect.Descriptor instead.
 func (*PongResponse) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{17}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{18}
 }
 
 // ErrorResponse reports an error.
@@ -1303,7 +1386,7 @@ type ErrorResponse struct {
 
 func (x *ErrorResponse) Reset() {
 	*x = ErrorResponse{}
-	mi := &file_gentis_v1_gentis_proto_msgTypes[18]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1315,7 +1398,7 @@ func (x *ErrorResponse) String() string {
 func (*ErrorResponse) ProtoMessage() {}
 
 func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gentis_v1_gentis_proto_msgTypes[18]
+	mi := &file_gentis_v1_gentis_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1328,7 +1411,7 @@ func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorResponse.ProtoReflect.Descriptor instead.
 func (*ErrorResponse) Descriptor() ([]byte, []int) {
-	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{18}
+	return file_gentis_v1_gentis_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ErrorResponse) GetCode() ErrorCode {
@@ -1360,7 +1443,7 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\x04ping\x18\x05 \x01(\v2\x16.gentis.v1.PingRequestH\x00R\x04ping\x125\n" +
 	"\arefresh\x18\x06 \x01(\v2\x19.gentis.v1.RefreshRequestH\x00R\arefresh\x125\n" +
 	"\aconfirm\x18\a \x01(\v2\x19.gentis.v1.ConfirmRequestH\x00R\aconfirmB\t\n" +
-	"\amessage\"\x8f\x04\n" +
+	"\amessage\"\xc0\x04\n" +
 	"\rServerMessage\x12\x0e\n" +
 	"\x02id\x18\n" +
 	" \x01(\tR\x02id\x12<\n" +
@@ -1373,13 +1456,18 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\x04pong\x18\x05 \x01(\v2\x17.gentis.v1.PongResponseH\x00R\x04pong\x120\n" +
 	"\x05error\x18\x06 \x01(\v2\x18.gentis.v1.ErrorResponseH\x00R\x05error\x12:\n" +
 	"\tpublished\x18\a \x01(\v2\x1a.gentis.v1.PublishResponseH\x00R\tpublished\x12:\n" +
-	"\trefreshed\x18\b \x01(\v2\x1a.gentis.v1.RefreshResponseH\x00R\trefreshedB\t\n" +
-	"\amessage\"/\n" +
+	"\trefreshed\x18\b \x01(\v2\x1a.gentis.v1.RefreshResponseH\x00R\trefreshed\x12/\n" +
+	"\x05batch\x18\t \x01(\v2\x17.gentis.v1.BatchMessageH\x00R\x05batchB\t\n" +
+	"\amessage\"Z\n" +
 	"\x0eConnectRequest\x12\x1d\n" +
 	"\n" +
-	"auth_token\x18\x01 \x01(\tR\tauthToken\"8\n" +
+	"auth_token\x18\x01 \x01(\tR\tauthToken\x12)\n" +
+	"\x10protocol_version\x18\x02 \x01(\rR\x0fprotocolVersion\"c\n" +
 	"\x11ConnectedResponse\x12#\n" +
-	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\"/\n" +
+	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12)\n" +
+	"\x10protocol_version\x18\x02 \x01(\rR\x0fprotocolVersion\"E\n" +
+	"\fBatchMessage\x125\n" +
+	"\bmessages\x18\x01 \x03(\v2\x19.gentis.v1.ChannelMessageR\bmessages\"/\n" +
 	"\x0eRefreshRequest\x12\x1d\n" +
 	"\n" +
 	"auth_token\x18\x01 \x01(\tR\tauthToken\"0\n" +
@@ -1455,55 +1543,58 @@ func file_gentis_v1_gentis_proto_rawDescGZIP() []byte {
 }
 
 var file_gentis_v1_gentis_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_gentis_v1_gentis_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_gentis_v1_gentis_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_gentis_v1_gentis_proto_goTypes = []any{
 	(ErrorCode)(0),               // 0: gentis.v1.ErrorCode
 	(*ClientMessage)(nil),        // 1: gentis.v1.ClientMessage
 	(*ServerMessage)(nil),        // 2: gentis.v1.ServerMessage
 	(*ConnectRequest)(nil),       // 3: gentis.v1.ConnectRequest
 	(*ConnectedResponse)(nil),    // 4: gentis.v1.ConnectedResponse
-	(*RefreshRequest)(nil),       // 5: gentis.v1.RefreshRequest
-	(*RefreshResponse)(nil),      // 6: gentis.v1.RefreshResponse
-	(*SubscribeRequest)(nil),     // 7: gentis.v1.SubscribeRequest
-	(*UnconfirmedWindow)(nil),    // 8: gentis.v1.UnconfirmedWindow
-	(*ConfirmRequest)(nil),       // 9: gentis.v1.ConfirmRequest
-	(*RecoverPoint)(nil),         // 10: gentis.v1.RecoverPoint
-	(*SubscribedResponse)(nil),   // 11: gentis.v1.SubscribedResponse
-	(*UnsubscribeRequest)(nil),   // 12: gentis.v1.UnsubscribeRequest
-	(*UnsubscribedResponse)(nil), // 13: gentis.v1.UnsubscribedResponse
-	(*PublishRequest)(nil),       // 14: gentis.v1.PublishRequest
-	(*PublishResponse)(nil),      // 15: gentis.v1.PublishResponse
-	(*ChannelMessage)(nil),       // 16: gentis.v1.ChannelMessage
-	(*PingRequest)(nil),          // 17: gentis.v1.PingRequest
-	(*PongResponse)(nil),         // 18: gentis.v1.PongResponse
-	(*ErrorResponse)(nil),        // 19: gentis.v1.ErrorResponse
+	(*BatchMessage)(nil),         // 5: gentis.v1.BatchMessage
+	(*RefreshRequest)(nil),       // 6: gentis.v1.RefreshRequest
+	(*RefreshResponse)(nil),      // 7: gentis.v1.RefreshResponse
+	(*SubscribeRequest)(nil),     // 8: gentis.v1.SubscribeRequest
+	(*UnconfirmedWindow)(nil),    // 9: gentis.v1.UnconfirmedWindow
+	(*ConfirmRequest)(nil),       // 10: gentis.v1.ConfirmRequest
+	(*RecoverPoint)(nil),         // 11: gentis.v1.RecoverPoint
+	(*SubscribedResponse)(nil),   // 12: gentis.v1.SubscribedResponse
+	(*UnsubscribeRequest)(nil),   // 13: gentis.v1.UnsubscribeRequest
+	(*UnsubscribedResponse)(nil), // 14: gentis.v1.UnsubscribedResponse
+	(*PublishRequest)(nil),       // 15: gentis.v1.PublishRequest
+	(*PublishResponse)(nil),      // 16: gentis.v1.PublishResponse
+	(*ChannelMessage)(nil),       // 17: gentis.v1.ChannelMessage
+	(*PingRequest)(nil),          // 18: gentis.v1.PingRequest
+	(*PongResponse)(nil),         // 19: gentis.v1.PongResponse
+	(*ErrorResponse)(nil),        // 20: gentis.v1.ErrorResponse
 }
 var file_gentis_v1_gentis_proto_depIdxs = []int32{
 	3,  // 0: gentis.v1.ClientMessage.connect:type_name -> gentis.v1.ConnectRequest
-	7,  // 1: gentis.v1.ClientMessage.subscribe:type_name -> gentis.v1.SubscribeRequest
-	12, // 2: gentis.v1.ClientMessage.unsubscribe:type_name -> gentis.v1.UnsubscribeRequest
-	14, // 3: gentis.v1.ClientMessage.publish:type_name -> gentis.v1.PublishRequest
-	17, // 4: gentis.v1.ClientMessage.ping:type_name -> gentis.v1.PingRequest
-	5,  // 5: gentis.v1.ClientMessage.refresh:type_name -> gentis.v1.RefreshRequest
-	9,  // 6: gentis.v1.ClientMessage.confirm:type_name -> gentis.v1.ConfirmRequest
+	8,  // 1: gentis.v1.ClientMessage.subscribe:type_name -> gentis.v1.SubscribeRequest
+	13, // 2: gentis.v1.ClientMessage.unsubscribe:type_name -> gentis.v1.UnsubscribeRequest
+	15, // 3: gentis.v1.ClientMessage.publish:type_name -> gentis.v1.PublishRequest
+	18, // 4: gentis.v1.ClientMessage.ping:type_name -> gentis.v1.PingRequest
+	6,  // 5: gentis.v1.ClientMessage.refresh:type_name -> gentis.v1.RefreshRequest
+	10, // 6: gentis.v1.ClientMessage.confirm:type_name -> gentis.v1.ConfirmRequest
 	4,  // 7: gentis.v1.ServerMessage.connected:type_name -> gentis.v1.ConnectedResponse
-	11, // 8: gentis.v1.ServerMessage.subscribed:type_name -> gentis.v1.SubscribedResponse
-	13, // 9: gentis.v1.ServerMessage.unsubscribed:type_name -> gentis.v1.UnsubscribedResponse
-	16, // 10: gentis.v1.ServerMessage.channel_message:type_name -> gentis.v1.ChannelMessage
-	18, // 11: gentis.v1.ServerMessage.pong:type_name -> gentis.v1.PongResponse
-	19, // 12: gentis.v1.ServerMessage.error:type_name -> gentis.v1.ErrorResponse
-	15, // 13: gentis.v1.ServerMessage.published:type_name -> gentis.v1.PublishResponse
-	6,  // 14: gentis.v1.ServerMessage.refreshed:type_name -> gentis.v1.RefreshResponse
-	10, // 15: gentis.v1.SubscribeRequest.recover:type_name -> gentis.v1.RecoverPoint
-	8,  // 16: gentis.v1.SubscribeRequest.max_unconfirmed:type_name -> gentis.v1.UnconfirmedWindow
-	0,  // 17: gentis.v1.ErrorResponse.code:type_name -> gentis.v1.ErrorCode
-	1,  // 18: gentis.v1.GentisService.Stream:input_type -> gentis.v1.ClientMessage
-	2,  // 19: gentis.v1.GentisService.Stream:output_type -> gentis.v1.ServerMessage
-	19, // [19:20] is the sub-list for method output_type
-	18, // [18:19] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	12, // 8: gentis.v1.ServerMessage.subscribed:type_name -> gentis.v1.SubscribedResponse
+	14, // 9: gentis.v1.ServerMessage.unsubscribed:type_name -> gentis.v1.UnsubscribedResponse
+	17, // 10: gentis.v1.ServerMessage.channel_message:type_name -> gentis.v1.ChannelMessage
+	19, // 11: gentis.v1.ServerMessage.pong:type_name -> gentis.v1.PongResponse
+	20, // 12: gentis.v1.ServerMessage.error:type_name -> gentis.v1.ErrorResponse
+	16, // 13: gentis.v1.ServerMessage.published:type_name -> gentis.v1.PublishResponse
+	7,  // 14: gentis.v1.ServerMessage.refreshed:type_name -> gentis.v1.RefreshResponse
+	5,  // 15: gentis.v1.ServerMessage.batch:type_name -> gentis.v1.BatchMessage
+	17, // 16: gentis.v1.BatchMessage.messages:type_name -> gentis.v1.ChannelMessage
+	11, // 17: gentis.v1.SubscribeRequest.recover:type_name -> gentis.v1.RecoverPoint
+	9,  // 18: gentis.v1.SubscribeRequest.max_unconfirmed:type_name -> gentis.v1.UnconfirmedWindow
+	0,  // 19: gentis.v1.ErrorResponse.code:type_name -> gentis.v1.ErrorCode
+	1,  // 20: gentis.v1.GentisService.Stream:input_type -> gentis.v1.ClientMessage
+	2,  // 21: gentis.v1.GentisService.Stream:output_type -> gentis.v1.ServerMessage
+	21, // [21:22] is the sub-list for method output_type
+	20, // [20:21] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_gentis_v1_gentis_proto_init() }
@@ -1529,6 +1620,7 @@ func file_gentis_v1_gentis_proto_init() {
 		(*ServerMessage_Error)(nil),
 		(*ServerMessage_Published)(nil),
 		(*ServerMessage_Refreshed)(nil),
+		(*ServerMessage_Batch)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1536,7 +1628,7 @@ func file_gentis_v1_gentis_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gentis_v1_gentis_proto_rawDesc), len(file_gentis_v1_gentis_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   19,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -11,7 +11,15 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 )
 
-const maxChannelNameLen = 256
+const (
+	maxChannelNameLen = 256
+
+	// serverProtocolVersion is the highest protocol this server speaks.
+	serverProtocolVersion = 2
+
+	// maxBatchSize caps how many deliveries one BatchMessage frame packs.
+	maxBatchSize = 64
+)
 
 func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
 	// Session contexts are rooted in the server context, not the stream
@@ -80,11 +88,26 @@ func (s *Server) Stream(stream gentisv1.GentisService_StreamServer) error {
 
 func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 	defer s.drainSendRing()
+	var pending []*gentisv1.ServerMessage
 	for {
+		batching := s.protoVersion.Load() >= 2
 		for {
 			msg, ok := s.sendRing.TryConsume()
 			if !ok {
 				break
+			}
+			if batching && msg.GetChannelMessage() != nil && msg.Id == "" {
+				pending = append(pending, msg)
+				if len(pending) >= maxBatchSize {
+					if !s.flushPending(stream, &pending) {
+						return
+					}
+				}
+				continue
+			}
+			if !s.flushPending(stream, &pending) {
+				putServerMsgIfPooled(msg)
+				return
 			}
 			if err := stream.Send(msg); err != nil {
 				// Outbound is dead but inbound may still hold client
@@ -96,12 +119,48 @@ func (s *Session) runSender(stream gentisv1.GentisService_StreamServer) {
 			putServerMsgIfPooled(msg)
 			s.signalDrain()
 		}
+		if !s.flushPending(stream, &pending) {
+			return
+		}
 		select {
 		case <-s.ctx.Done():
 			return
 		case <-s.wakeCh:
 		}
 	}
+}
+
+// flushPending sends accumulated consecutive deliveries: as-is when there
+// is one, packed into a single BatchMessage frame when there are more.
+func (s *Session) flushPending(stream gentisv1.GentisService_StreamServer, pending *[]*gentisv1.ServerMessage) bool {
+	msgs := *pending
+	switch len(msgs) {
+	case 0:
+		return true
+	case 1:
+		err := stream.Send(msgs[0])
+		putServerMsgIfPooled(msgs[0])
+		*pending = msgs[:0]
+		if err != nil {
+			return false
+		}
+		s.signalDrain()
+		return true
+	}
+
+	env := getBatchMsg()
+	batch := env.GetBatch()
+	for _, m := range msgs {
+		batch.Messages = append(batch.Messages, m.GetChannelMessage())
+	}
+	err := stream.Send(env)
+	for _, m := range msgs {
+		putServerMsgIfPooled(m)
+		s.signalDrain()
+	}
+	putBatchMsg(env)
+	*pending = msgs[:0]
+	return err == nil
 }
 
 func (s *Session) drainSendRing() {
@@ -154,12 +213,19 @@ func (s *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 	s.state.Authenticate(claims)
 	s.scheduleExpiry(claims.ExpiresAt)
 
+	version := min(req.ProtocolVersion, serverProtocolVersion)
+	if version == 0 {
+		version = 1
+	}
+	s.protoVersion.Store(version)
+
 	connID := fmt.Sprintf("conn-%d", s.id)
 	s.send(&gentisv1.ServerMessage{
 		Id: reqID,
 		Message: &gentisv1.ServerMessage_Connected{
 			Connected: &gentisv1.ConnectedResponse{
-				ConnectionId: connID,
+				ConnectionId:    connID,
+				ProtocolVersion: version,
 			},
 		},
 	})

@@ -1674,3 +1674,143 @@ func TestQoSRejectedOutsideNamespace(t *testing.T) {
 		t.Fatalf("qos subscribe without namespace support: got %v, want PERMISSION_DENIED", msg.Message)
 	}
 }
+
+func connectWithVersion(t *testing.T, stream gentisv1.GentisService_StreamClient, version uint32) uint32 {
+	t.Helper()
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Connect{
+			Connect: &gentisv1.ConnectRequest{AuthToken: "token", ProtocolVersion: version},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	connected := msg.GetConnected()
+	if connected == nil {
+		t.Fatalf("expected ConnectedResponse, got %T", msg.Message)
+	}
+	return connected.ProtocolVersion
+}
+
+func TestProtocolVersionNegotiation(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	tests := []struct {
+		name      string
+		advertise uint32
+		want      uint32
+	}{
+		{name: "legacy client without version", advertise: 0, want: 1},
+		{name: "version 1 client", advertise: 1, want: 1},
+		{name: "version 2 client", advertise: 2, want: 2},
+		{name: "future client capped at server max", advertise: 9, want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream, closeClient := connectClient(t, addr)
+			defer closeClient()
+			if got := connectWithVersion(t, stream, tt.advertise); got != tt.want {
+				t.Errorf("negotiated version = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBatchedDelivery(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	sub, closeSub := connectClient(t, addr)
+	defer closeSub()
+	if v := connectWithVersion(t, sub, 2); v != 2 {
+		t.Fatalf("negotiated %d, want 2", v)
+	}
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "burst"},
+		},
+	})
+	recvWithTimeout(t, sub, 2*time.Second)
+
+	pub, closePub := connectClient(t, addr)
+	defer closePub()
+	authenticate(t, pub, "token")
+
+	const total = 50
+	for i := 1; i <= total; i++ {
+		pub.Send(&gentisv1.ClientMessage{
+			Message: &gentisv1.ClientMessage_Publish{
+				Publish: &gentisv1.PublishRequest{Channel: "burst", Data: []byte(fmt.Sprintf("m-%d", i))},
+			},
+		})
+	}
+
+	received := 0
+	batches := 0
+	var offsets []uint64
+	for received < total {
+		msg := recvWithTimeout(t, sub, 3*time.Second)
+		if b := msg.GetBatch(); b != nil {
+			if len(b.Messages) < 2 {
+				t.Fatalf("batch frame with %d messages, batches must hold 2+", len(b.Messages))
+			}
+			batches++
+			for _, cm := range b.Messages {
+				offsets = append(offsets, cm.Offset)
+				received++
+			}
+			continue
+		}
+		if cm := msg.GetChannelMessage(); cm != nil {
+			offsets = append(offsets, cm.Offset)
+			received++
+		}
+	}
+
+	if batches == 0 {
+		t.Fatal("burst of 50 produced zero batch frames for a v2 client")
+	}
+	for i, off := range offsets {
+		if off != uint64(i+1) {
+			t.Fatalf("offsets = %v..., want 1..%d in order", offsets[:i+1], total)
+		}
+	}
+}
+
+func TestLegacyClientNeverSeesBatches(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	sub, closeSub := connectClient(t, addr)
+	defer closeSub()
+	authenticate(t, sub, "token")
+	sub.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "legacy-burst"},
+		},
+	})
+	recvWithTimeout(t, sub, 2*time.Second)
+
+	pub, closePub := connectClient(t, addr)
+	defer closePub()
+	authenticate(t, pub, "token")
+
+	const total = 30
+	for i := 1; i <= total; i++ {
+		pub.Send(&gentisv1.ClientMessage{
+			Message: &gentisv1.ClientMessage_Publish{
+				Publish: &gentisv1.PublishRequest{Channel: "legacy-burst", Data: []byte("x")},
+			},
+		})
+	}
+
+	for received := 0; received < total; {
+		msg := recvWithTimeout(t, sub, 3*time.Second)
+		if msg.GetBatch() != nil {
+			t.Fatal("legacy client received a batch frame")
+		}
+		if msg.GetChannelMessage() != nil {
+			received++
+		}
+	}
+}

@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
@@ -40,6 +41,10 @@ type Session struct {
 	// qosc gates deliveries for at-least-once subscriptions. Sessions
 	// without QoS1 windows pay a single atomic load per delivery.
 	qosc *qos.Consumer
+
+	// protoVersion is the negotiated protocol: 1 sends one message per
+	// frame, 2 may pack consecutive deliveries into BatchMessage frames.
+	protoVersion atomic.Uint32
 }
 
 func (s *Session) DeliverMessage(d engine.Delivery) bool {

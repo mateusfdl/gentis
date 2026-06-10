@@ -29,7 +29,8 @@ type ClientMessage struct {
 }
 
 type ConnectRequest struct {
-	AuthToken string `json:"auth_token"`
+	AuthToken       string `json:"auth_token"`
+	ProtocolVersion uint32 `json:"protocol_version,omitempty"`
 }
 
 type SubscribeRequest struct {
@@ -83,7 +84,8 @@ type ServerMessage struct {
 }
 
 type ConnectedResponse struct {
-	ConnectionID string `json:"connection_id"`
+	ConnectionID    string `json:"connection_id"`
+	ProtocolVersion uint32 `json:"protocol_version"`
 }
 
 type SubscribedResponse struct {

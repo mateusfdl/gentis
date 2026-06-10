@@ -41,3 +41,26 @@ func putServerMsgIfPooled(msg *gentisv1.ServerMessage) {
 		putServerMsg(msg)
 	}
 }
+
+var batchMsgPool = sync.Pool{
+	New: func() any {
+		return &gentisv1.ServerMessage{
+			Message: &gentisv1.ServerMessage_Batch{
+				Batch: &gentisv1.BatchMessage{},
+			},
+		}
+	},
+}
+
+func getBatchMsg() *gentisv1.ServerMessage {
+	return batchMsgPool.Get().(*gentisv1.ServerMessage)
+}
+
+func putBatchMsg(msg *gentisv1.ServerMessage) {
+	batch := msg.GetBatch()
+	for i := range batch.Messages {
+		batch.Messages[i] = nil
+	}
+	batch.Messages = batch.Messages[:0]
+	batchMsgPool.Put(msg)
+}

@@ -41,17 +41,31 @@ message ServerMessage {
     ErrorResponse error = 6;
     PublishResponse published = 7;
     RefreshResponse refreshed = 8;
+    BatchMessage batch = 9;
   }
 }
 
-// ConnectRequest authenticates the client.
+// ConnectRequest authenticates the client. protocol_version advertises the
+// highest protocol the client understands; 0 or 1 means the original
+// one-message-per-frame protocol, 2 adds batched deliveries.
 message ConnectRequest {
   string auth_token = 1;
+  uint32 protocol_version = 2;
 }
 
-// ConnectedResponse confirms successful authentication.
+// ConnectedResponse confirms successful authentication. protocol_version
+// is the version the server will speak on this stream, never higher than
+// what the client advertised.
 message ConnectedResponse {
   string connection_id = 1;
+  uint32 protocol_version = 2;
+}
+
+// BatchMessage packs consecutive channel deliveries into one frame to
+// amortize per-message overhead under fanout load. Only sent to clients
+// that negotiated protocol_version >= 2.
+message BatchMessage {
+  repeated ChannelMessage messages = 1;
 }
 
 // RefreshRequest renews the session credentials before they expire.

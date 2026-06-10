@@ -26,6 +26,7 @@ func (s *Session) MaxMessageSize() int                   { return s.server.confi
 func (s *Session) MaxSubscriptions() int                 { return s.server.config.MaxSubscriptions }
 func (s *Session) Deliver(d engine.Delivery)             { s.DeliverMessage(d) }
 func (s *Session) Consumer() *qos.Consumer               { return s.qosc }
+func (s *Session) SetProtocolVersion(v uint32)           { s.protoVersion.Store(v) }
 func (s *Session) Send(msg *ServerMessage)               { s.send(msg) }
 func (s *Session) SendError(code, message, reqID string) { s.sendError(code, message, reqID) }
 
@@ -96,6 +97,64 @@ func (s *Server) runReader(sess *Session, rawConn net.Conn) {
 	}
 }
 
+// drainBatch opportunistically collects more deliveries already queued in
+// the send channel so they ship as one array frame. A non-delivery message
+// stops the drain and is returned separately so control responses keep
+// their own frame, in order.
+func drainBatch(sess *Session, first *ServerMessage) (batch []*ServerMessage, trailing *ServerMessage) {
+	batch = []*ServerMessage{first}
+	for len(batch) < maxBatchSize {
+		select {
+		case next := <-sess.sendCh:
+			if next.ChannelMessage == nil || next.ID != "" {
+				return batch, next
+			}
+			batch = append(batch, next)
+		default:
+			return batch, nil
+		}
+	}
+	return batch, nil
+}
+
+// writeFrame marshals one or more messages (an array frame when 2+) and
+// writes them as a single websocket text frame.
+func (s *Server) writeFrame(sess *Session, conn net.Conn, batch []*ServerMessage) bool {
+	var data []byte
+	var err error
+	if len(batch) >= 2 {
+		data, err = json.Marshal(batch)
+	} else {
+		data, err = json.Marshal(batch[0])
+	}
+
+	enqueuedAt := batch[0].enqueuedAt
+	deliveries := 0
+	for _, m := range batch {
+		if m.ChannelMessage != nil {
+			deliveries++
+			putWSMsg(m)
+		}
+	}
+	if err != nil {
+		s.logger.Error("websocket marshal error", "session_id", sess.id, "err", err)
+		return true
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+	err = wsutil.WriteServerMessage(conn, ws.OpText, data)
+	conn.SetWriteDeadline(time.Time{})
+	if err != nil {
+		sess.cancel()
+		return false
+	}
+
+	if deliveries > 0 && s.config.OnDeliveryLatency != nil && !enqueuedAt.IsZero() {
+		s.config.OnDeliveryLatency(time.Since(enqueuedAt))
+	}
+	return true
+}
+
 func (s *Server) runWriter(sess *Session, conn net.Conn) {
 	var pingCh <-chan time.Time
 	if s.config.PingInterval > 0 {
@@ -129,28 +188,21 @@ func (s *Server) runWriter(sess *Session, conn net.Conn) {
 			conn.Close()
 			return
 		case msg := <-sess.sendCh:
-			data, err := json.Marshal(msg)
-			isChannelMsg := msg.ChannelMessage != nil
-			enqueuedAt := msg.enqueuedAt
-			if isChannelMsg {
-				putWSMsg(msg)
-			}
-			if err != nil {
-				s.logger.Error("websocket marshal error", "session_id", sess.id, "err", err)
-				continue
+			var batch []*ServerMessage
+			var trailing *ServerMessage
+			if sess.protoVersion.Load() >= 2 && msg.ChannelMessage != nil && msg.ID == "" {
+				batch, trailing = drainBatch(sess, msg)
+			} else {
+				batch = []*ServerMessage{msg}
 			}
 
-			conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
-			err = wsutil.WriteServerMessage(conn, ws.OpText, data)
-			conn.SetWriteDeadline(time.Time{})
-
-			if err != nil {
-				sess.cancel()
+			if !s.writeFrame(sess, conn, batch) {
 				return
 			}
-
-			if isChannelMsg && s.config.OnDeliveryLatency != nil && !enqueuedAt.IsZero() {
-				s.config.OnDeliveryLatency(time.Since(enqueuedAt))
+			if trailing != nil {
+				if !s.writeFrame(sess, conn, []*ServerMessage{trailing}) {
+					return
+				}
 			}
 		}
 	}

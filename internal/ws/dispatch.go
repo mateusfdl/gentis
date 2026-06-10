@@ -12,7 +12,15 @@ import (
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
-const maxChannelNameLen = 256
+const (
+	maxChannelNameLen = 256
+
+	// serverProtocolVersion is the highest protocol this server speaks.
+	serverProtocolVersion = 2
+
+	// maxBatchSize caps how many deliveries one array frame packs.
+	maxBatchSize = 64
+)
 
 // MessageHandler is the minimal interface needed by DispatchMessage.
 type MessageHandler interface {
@@ -27,6 +35,7 @@ type MessageHandler interface {
 	MaxSubscriptions() int
 	Deliver(d engine.Delivery)
 	Consumer() *qos.Consumer
+	SetProtocolVersion(v uint32)
 	Send(msg *ServerMessage)
 	SendError(code string, message string, reqID string)
 }
@@ -86,10 +95,18 @@ func handleConnect(h MessageHandler, req *ConnectRequest, reqID string) {
 	}
 	h.State().Authenticate(claims)
 	h.ScheduleExpiry(claims.ExpiresAt)
+
+	version := min(req.ProtocolVersion, serverProtocolVersion)
+	if version == 0 {
+		version = 1
+	}
+	h.SetProtocolVersion(version)
+
 	h.Send(&ServerMessage{
 		ID: reqID,
 		Connected: &ConnectedResponse{
-			ConnectionID: fmt.Sprintf("ws-conn-%d", h.ID()),
+			ConnectionID:    fmt.Sprintf("ws-conn-%d", h.ID()),
+			ProtocolVersion: version,
 		},
 	})
 }

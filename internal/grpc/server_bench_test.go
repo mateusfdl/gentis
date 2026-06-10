@@ -523,3 +523,87 @@ func BenchmarkGRPCGCPauseUnderTraffic(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkBurstDelivery(b *testing.B) {
+	for _, version := range []uint32{1, 2} {
+		b.Run(fmt.Sprintf("v%d", version), func(b *testing.B) {
+			lis, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				b.Fatalf("listen: %v", err)
+			}
+			addr := lis.Addr().String()
+			lis.Close()
+
+			srv := New(addr)
+			if err := srv.Start(); err != nil {
+				b.Fatalf("start: %v", err)
+			}
+			defer srv.Stop()
+
+			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				b.Fatalf("dial: %v", err)
+			}
+			defer conn.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sub, err := gentisv1.NewGentisServiceClient(conn).Stream(ctx)
+			if err != nil {
+				b.Fatalf("stream: %v", err)
+			}
+			sub.Send(&gentisv1.ClientMessage{
+				Message: &gentisv1.ClientMessage_Connect{
+					Connect: &gentisv1.ConnectRequest{AuthToken: "t", ProtocolVersion: version},
+				},
+			})
+			sub.Recv()
+			sub.Send(&gentisv1.ClientMessage{
+				Message: &gentisv1.ClientMessage_Subscribe{
+					Subscribe: &gentisv1.SubscribeRequest{Channel: "bench-burst"},
+				},
+			})
+			sub.Recv()
+
+			pub, err := gentisv1.NewGentisServiceClient(conn).Stream(ctx)
+			if err != nil {
+				b.Fatalf("pub stream: %v", err)
+			}
+			pub.Send(&gentisv1.ClientMessage{
+				Message: &gentisv1.ClientMessage_Connect{
+					Connect: &gentisv1.ConnectRequest{AuthToken: "t"},
+				},
+			})
+			pub.Recv()
+
+			const burst = 64
+			payload := make([]byte, 256)
+			frames := 0
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < burst; j++ {
+					pub.Send(&gentisv1.ClientMessage{
+						Message: &gentisv1.ClientMessage_Publish{
+							Publish: &gentisv1.PublishRequest{Channel: "bench-burst", Data: payload},
+						},
+					})
+				}
+				received := 0
+				for received < burst {
+					msg, err := sub.Recv()
+					if err != nil {
+						b.Fatalf("recv: %v", err)
+					}
+					frames++
+					if batch := msg.GetBatch(); batch != nil {
+						received += len(batch.Messages)
+					} else if msg.GetChannelMessage() != nil {
+						received++
+					}
+				}
+			}
+			b.StopTimer()
+			b.ReportMetric(float64(frames)/float64(b.N), "frames/burst")
+		})
+	}
+}

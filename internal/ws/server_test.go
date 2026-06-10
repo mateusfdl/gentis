@@ -1117,3 +1117,122 @@ func TestQoSSlowConsumerNoDrops(t *testing.T) {
 		}
 	}
 }
+
+func TestBatchedDelivery(t *testing.T) {
+	addr, _ := startTestServer(t)
+
+	sub := dialWS(t, addr)
+	defer sub.Close()
+	sendJSON(t, sub, map[string]any{
+		"id":      "c1",
+		"connect": map[string]any{"auth_token": "t", "protocol_version": 2},
+	})
+	var resp ServerMessage
+	readJSON(t, sub, &resp)
+	if resp.Connected == nil || resp.Connected.ProtocolVersion != 2 {
+		t.Fatalf("expected protocol_version 2, got %+v", resp)
+	}
+	sendJSON(t, sub, map[string]any{"id": "s", "subscribe": map[string]any{"channel": "ws-burst"}})
+	readJSON(t, sub, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("subscribe failed: %+v", resp)
+	}
+
+	pub := dialWS(t, addr)
+	defer pub.Close()
+	authenticate(t, pub)
+	const total = 40
+	for i := 1; i <= total; i++ {
+		sendJSON(t, pub, map[string]any{
+			"publish": map[string]any{"channel": "ws-burst", "data": json.RawMessage(fmt.Sprintf(`"m-%d"`, i))},
+		})
+	}
+
+	received := 0
+	arrays := 0
+	var offsets []uint64
+	for received < total {
+		sub.SetReadDeadline(time.Now().Add(3 * time.Second))
+		data, _, err := wsutil.ReadServerData(sub)
+		if err != nil {
+			t.Fatalf("read: %v (received %d)", err, received)
+		}
+		if len(data) > 0 && data[0] == '[' {
+			var batch []ServerMessage
+			if err := json.Unmarshal(data, &batch); err != nil {
+				t.Fatalf("unmarshal array frame: %v", err)
+			}
+			if len(batch) < 2 {
+				t.Fatalf("array frame with %d messages, batches must hold 2+", len(batch))
+			}
+			arrays++
+			for _, m := range batch {
+				if m.ChannelMessage == nil {
+					t.Fatalf("array frame contains non-delivery: %+v", m)
+				}
+				offsets = append(offsets, m.ChannelMessage.Offset)
+				received++
+			}
+			continue
+		}
+		var m ServerMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if m.ChannelMessage != nil {
+			offsets = append(offsets, m.ChannelMessage.Offset)
+			received++
+		}
+	}
+
+	if arrays == 0 {
+		t.Fatal("burst of 40 produced zero array frames for a v2 client")
+	}
+	for i, off := range offsets {
+		if off != uint64(i+1) {
+			t.Fatalf("offsets = %v..., want 1..%d in order", offsets[:i+1], total)
+		}
+	}
+}
+
+func TestLegacyWSClientNeverSeesArrayFrames(t *testing.T) {
+	addr, _ := startTestServer(t)
+
+	sub := dialWS(t, addr)
+	defer sub.Close()
+	authenticate(t, sub)
+	sendJSON(t, sub, map[string]any{"id": "s", "subscribe": map[string]any{"channel": "ws-legacy"}})
+	var resp ServerMessage
+	readJSON(t, sub, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("subscribe failed: %+v", resp)
+	}
+
+	pub := dialWS(t, addr)
+	defer pub.Close()
+	authenticate(t, pub)
+	const total = 20
+	for i := 1; i <= total; i++ {
+		sendJSON(t, pub, map[string]any{
+			"publish": map[string]any{"channel": "ws-legacy", "data": json.RawMessage(`"x"`)},
+		})
+	}
+
+	for received := 0; received < total; {
+		sub.SetReadDeadline(time.Now().Add(3 * time.Second))
+		data, _, err := wsutil.ReadServerData(sub)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if len(data) > 0 && data[0] == '[' {
+			t.Fatal("legacy client received an array frame")
+		}
+		var m ServerMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if m.ChannelMessage != nil {
+			received++
+		}
+	}
+}
