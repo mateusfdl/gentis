@@ -21,12 +21,14 @@ export default async function () {
   let subscribedOk = false;
   let unsubscribedOk = false;
   let selfEchoes = 0;
+  const acks = [];
 
   const conn = openStream(client, 'smoke-test', {
     onData(msg) {
       if (msg.subscribed) subscribedOk = true;
       if (msg.unsubscribed) unsubscribedOk = true;
       if (msg.channelMessage && msg.channelMessage.channel === channel) selfEchoes++;
+      if (msg.published && msg.published.channel === channel) acks.push(msg.published);
     },
     onError(err) {
       const s = String(err);
@@ -48,7 +50,7 @@ export default async function () {
   await delay(300);
 
   for (let i = 0; i < 3; i++) {
-    publish(conn.stream, channel, `smoke-msg-${i}`);
+    publish(conn.stream, channel, `smoke-msg-${i}`, `pub-${i}`);
     await delay(100);
   }
 
@@ -61,6 +63,11 @@ export default async function () {
     'subscribed confirmation received': () => subscribedOk,
     'unsubscribed confirmation received': () => unsubscribedOk,
     'publisher excluded from own publish': () => selfEchoes === 0,
+    'every publish acked': () => acks.length === 3,
+    'ack offsets are monotonic per channel': () =>
+      acks.every((a, i) => Number(a.offset) === i + 1),
+    'acks share one epoch': () =>
+      acks.length > 0 && acks.every((a) => a.epoch === acks[0].epoch && Number(a.epoch) !== 0),
   });
 
   closeStream(client, conn.stream);

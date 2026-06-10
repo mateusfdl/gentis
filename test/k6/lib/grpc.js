@@ -45,8 +45,8 @@ export function unsubscribe(stream, channel) {
   stream.write({ unsubscribe: { channel } });
 }
 
-export function publish(stream, channel, body) {
-  stream.write({ publish: { channel, data: encoding.b64encode(String(body)) } });
+export function publish(stream, channel, body, id = '') {
+  stream.write({ id, publish: { channel, data: encoding.b64encode(String(body)) } });
 }
 
 export function ping(stream) {

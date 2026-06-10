@@ -21,6 +21,7 @@ export default async function () {
   let subscribedOk = false;
   let unsubscribedOk = false;
   let selfEchoes = 0;
+  const acks = [];
 
   let ws;
   try {
@@ -29,6 +30,7 @@ export default async function () {
         if (msg.subscribed) subscribedOk = true;
         if (msg.unsubscribed) unsubscribedOk = true;
         if (msg.channel_message && msg.channel_message.channel === channel) selfEchoes++;
+        if (msg.published && msg.published.channel === channel) acks.push(msg.published);
       },
     });
   } catch (e) {
@@ -56,6 +58,11 @@ export default async function () {
     'subscribed confirmation received': () => subscribedOk,
     'unsubscribed confirmation received': () => unsubscribedOk,
     'publisher excluded from own publish': () => selfEchoes === 0,
+    'every publish acked': () => acks.length === 3,
+    'ack offsets are monotonic per channel': () =>
+      acks.every((a, i) => Number(a.offset) === i + 1),
+    'acks share one epoch': () =>
+      acks.length > 0 && acks.every((a) => a.epoch === acks[0].epoch && Number(a.epoch) !== 0),
   });
 
   close(ws);
