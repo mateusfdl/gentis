@@ -72,7 +72,7 @@ func (s *Server) createSession() *Session {
 		cancel: cancel,
 	}
 	sess.lastRecv.Store(time.Now().UnixNano())
-	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval)
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, s.logger.With("session_id", id))
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)

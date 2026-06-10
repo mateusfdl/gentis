@@ -56,7 +56,7 @@ func newQoSEngine(t *testing.T) *engine.Engine {
 func TestSlowConsumerNeverDrops(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 10*time.Millisecond)
+	c := NewConsumer(e, s.deliver, 10*time.Millisecond, nil)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -94,7 +94,7 @@ func TestSlowConsumerNeverDrops(t *testing.T) {
 func TestRedeliveryAfterTimeout(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond)
+	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -122,7 +122,7 @@ func TestRedeliveryAfterTimeout(t *testing.T) {
 func TestPoisonAfterMaxRedeliveries(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond)
+	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -146,7 +146,7 @@ func TestPoisonAfterMaxRedeliveries(t *testing.T) {
 func TestUnsubscribeRemovesWindow(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, time.Hour)
+	c := NewConsumer(e, s.deliver, time.Hour, nil)
 	defer c.Stop()
 
 	c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
@@ -164,7 +164,7 @@ func TestUnsubscribeRemovesWindow(t *testing.T) {
 func TestDeliverWithoutWindowsIsPassthrough(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, time.Hour)
+	c := NewConsumer(e, s.deliver, time.Hour, nil)
 	defer c.Stop()
 
 	d := engine.Delivery{Channel: "any", Data: []byte("x"), Offset: 9, Epoch: 1}
@@ -182,7 +182,7 @@ func TestConcurrentConfirmKeepsStrictOrder(t *testing.T) {
 	e := engine.New(engine.WithHistory(total, 0))
 	t.Cleanup(e.Stop)
 	s := &sink{failEvery: 7}
-	c := NewConsumer(e, s.deliver, 2*time.Millisecond)
+	c := NewConsumer(e, s.deliver, 2*time.Millisecond, nil)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -225,7 +225,7 @@ func TestConcurrentConfirmKeepsStrictOrder(t *testing.T) {
 func TestTickerPumpResumesAfterRefusedDelivery(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond)
+	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -253,7 +253,7 @@ func TestLostGapResetsWindowAndKeepsFlowing(t *testing.T) {
 	e := engine.New(engine.WithHistory(2, 0))
 	t.Cleanup(e.Stop)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond)
+	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")

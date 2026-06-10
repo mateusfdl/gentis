@@ -36,10 +36,10 @@ type Session struct {
 	senderDone chan struct{}
 
 	engine *engine.Engine
-	server   *Server
-	logger   *slog.Logger
-	ctx      context.Context
-	cancel   context.CancelFunc
+	server *Server
+	logger *slog.Logger
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	expiryTimer *time.Timer
 
@@ -146,7 +146,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		ctx:        ctx,
 		cancel:     cancel,
 	}
-	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval)
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, sess.logger)
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)

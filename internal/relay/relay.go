@@ -404,7 +404,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		cancel:     cancel,
 		channels:   make(map[string]struct{}),
 	}
-	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval)
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, s.logger.With("session_id", id))
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)

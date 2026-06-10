@@ -1,6 +1,7 @@
 package qos
 
 import (
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,7 @@ type Consumer struct {
 	rec      Recoverer
 	deliver  func(engine.Delivery) bool
 	interval time.Duration
+	logger   *slog.Logger
 
 	mu      sync.RWMutex
 	windows map[string]*Window
@@ -37,12 +39,17 @@ type Consumer struct {
 }
 
 // NewConsumer wires a consumer to its history source and its transport
-// delivery function. interval is the redelivery check cadence.
-func NewConsumer(rec Recoverer, deliver func(engine.Delivery) bool, interval time.Duration) *Consumer {
+// delivery function. interval is the redelivery check cadence. A nil
+// logger falls back to slog.Default.
+func NewConsumer(rec Recoverer, deliver func(engine.Delivery) bool, interval time.Duration, logger *slog.Logger) *Consumer {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Consumer{
 		rec:      rec,
 		deliver:  deliver,
 		interval: interval,
+		logger:   logger,
 		stop:     make(chan struct{}),
 	}
 }
@@ -151,6 +158,7 @@ func (c *Consumer) pump(channel string, w *Window) {
 			// instead of retrying the same lost gap forever.
 			c.lostGaps.Add(1)
 			w.Reset()
+			c.logger.Warn("qos gap unrecoverable, window re-baselined", "channel", channel, "from_offset", from)
 			return
 		}
 		if len(batch) == 0 {
@@ -196,6 +204,7 @@ func (c *Consumer) run() {
 				action := w.CheckRedelivery(now)
 				if action.Poisoned != 0 {
 					c.poisoned.Add(1)
+					c.logger.Warn("qos delivery poisoned after exhausting redeliveries", "channel", ch, "offset", action.Poisoned)
 				}
 				// Pump unconditionally: a refused enqueue with an empty
 				// window leaves nothing inflight to time out, so the tick
