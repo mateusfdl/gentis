@@ -2,14 +2,18 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/arena"
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/client"
 	"github.com/mateusfdl/gentis/internal/engine"
+	"github.com/mateusfdl/gentis/internal/protocol"
+	"github.com/mateusfdl/gentis/internal/protocol/pbcode"
 	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/transport"
@@ -35,11 +39,12 @@ type Session struct {
 	// blocked on a full ring that no longer has a consumer.
 	senderDone chan struct{}
 
-	engine *engine.Engine
-	server *Server
-	logger *slog.Logger
-	ctx    context.Context
-	cancel context.CancelFunc
+	engine    *engine.Engine
+	server    *Server
+	logger    *slog.Logger
+	deliverFn engine.DeliveryFunc
+	ctx       context.Context
+	cancel    context.CancelFunc
 
 	expiryTimer *time.Timer
 
@@ -93,6 +98,93 @@ func (s *Session) scheduleExpiry(exp time.Time) {
 }
 
 var _ transport.Sender = (*Session)(nil)
+
+// Session implements protocol.Session so the shared core can drive it.
+func (s *Session) State() transport.SessionState     { return s.state }
+func (s *Session) Engine() protocol.Engine           { return s.engine }
+func (s *Session) QoS() protocol.Consumer            { return s.qosc }
+func (s *Session) SubscriberID() engine.SubscriberID { return s.subID }
+func (s *Session) Verifier() auth.Verifier           { return s.server.config.Verifier }
+func (s *Session) Logger() *slog.Logger              { return s.logger }
+func (s *Session) MaxSubscriptions() int             { return s.server.config.MaxSubscriptions }
+func (s *Session) MaxMessageSize() int               { return s.server.config.MaxMessageSize }
+func (s *Session) DeliverFunc() engine.DeliveryFunc  { return s.deliverFn }
+func (s *Session) ScheduleExpiry(exp time.Time)      { s.scheduleExpiry(exp) }
+func (s *Session) SetProtocolVersion(v uint32)       { s.protoVersion.Store(v) }
+func (s *Session) Hooks() *protocol.Hooks            { return nil }
+
+func (s *Session) SendError(code protocol.ErrorCode, message, reqID string) {
+	s.sendError(pbcode.From(code), message, reqID)
+}
+
+func (s *Session) SendConnected(reqID string, version uint32) {
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Connected{
+			Connected: &gentisv1.ConnectedResponse{
+				ConnectionId:    fmt.Sprintf("conn-%d", s.id),
+				ProtocolVersion: version,
+			},
+		},
+	})
+}
+
+func (s *Session) SendRefreshed(reqID string, expiresAt uint64) {
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Refreshed{
+			Refreshed: &gentisv1.RefreshResponse{ExpiresAt: expiresAt},
+		},
+	})
+}
+
+func (s *Session) SendSubscribed(reqID, channel string, recovered, didRecover bool) {
+	resp := &gentisv1.SubscribedResponse{Channel: channel}
+	if didRecover {
+		resp.Recovered = recovered
+	}
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Subscribed{
+			Subscribed: resp,
+		},
+	})
+}
+
+func (s *Session) SendUnsubscribed(reqID, channel string) {
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Unsubscribed{
+			Unsubscribed: &gentisv1.UnsubscribedResponse{Channel: channel},
+		},
+	})
+}
+
+func (s *Session) SendPublished(reqID, channel string, r engine.PublishResult) {
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Published{
+			Published: &gentisv1.PublishResponse{
+				Channel:   channel,
+				Offset:    r.Offset,
+				Epoch:     r.Epoch,
+				Delivered: uint32(r.Delivered),
+				Dropped:   uint32(r.Dropped),
+			},
+		},
+	})
+}
+
+func (s *Session) SendPong(reqID string) {
+	s.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Pong{
+			Pong: &gentisv1.PongResponse{},
+		},
+	})
+}
+
+var _ protocol.Session = (*Session)(nil)
 
 func (s *Server) createSession(parentCtx context.Context) *Session {
 	ctx, cancel := context.WithCancel(parentCtx)
@@ -152,6 +244,17 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		cancel:     cancel,
 	}
 	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, sess.logger)
+	if s.store != nil {
+		sess.deliverFn = s.store.Deliver
+	} else {
+		sess.deliverFn = func(id engine.SubscriberID, d engine.Delivery) bool {
+			other, ok := s.getSession(int(id))
+			if !ok {
+				return false
+			}
+			return other.DeliverMessage(d)
+		}
+	}
 	if d := s.config.AuthDeadline; d > 0 {
 		sess.authTimer = time.AfterFunc(d, func() {
 			if sess.state.IsAuthenticated() {
