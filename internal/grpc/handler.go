@@ -406,7 +406,7 @@ func (s *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID stri
 }
 
 func (s *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
-	if !validateChannel(req.Channel) {
+	if !validateChannel(req.Channel) || pattern.IsPattern(req.Channel) {
 		s.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
 		return
 	}
@@ -468,7 +468,7 @@ func (s *Session) handlePing(reqID string) {
 }
 
 func validateChannel(name string) bool {
-	return len(name) > 0 && len(name) <= maxChannelNameLen
+	return len(name) > 0 && len(name) <= maxChannelNameLen && !pattern.HasReserved(name)
 }
 
 func subscribeErrorCode(err error) gentisv1.ErrorCode {

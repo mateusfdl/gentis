@@ -262,7 +262,7 @@ func handleUnsubscribe(h MessageHandler, req *UnsubscribeRequest, reqID string) 
 }
 
 func handlePublish(h MessageHandler, req *PublishRequest, reqID string) {
-	if !validateChannel(req.Channel) {
+	if !validateChannel(req.Channel) || pattern.IsPattern(req.Channel) {
 		h.SendError(ErrorCodeInvalidPayload, "invalid channel name", reqID)
 		return
 	}
@@ -328,5 +328,5 @@ func publishErrorCode(err error) string {
 }
 
 func validateChannel(name string) bool {
-	return len(name) > 0 && len(name) <= maxChannelNameLen
+	return len(name) > 0 && len(name) <= maxChannelNameLen && !pattern.HasReserved(name)
 }

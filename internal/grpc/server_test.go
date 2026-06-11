@@ -438,6 +438,56 @@ func TestPublishInvalidChannel(t *testing.T) {
 	}
 }
 
+func TestPublishToPatternRejected(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "jobs:*", Data: []byte("data")},
+		},
+	})
+
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil {
+		t.Fatalf("expected ErrorResponse, got %T", msg.Message)
+	}
+	if errResp.Code != gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD {
+		t.Errorf("expected INVALID_PAYLOAD, got %v", errResp.Code)
+	}
+}
+
+func TestSubscribeReservedCharRejected(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	authenticate(t, stream, "token")
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "jobs:cpu?"},
+		},
+	})
+
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil {
+		t.Fatalf("expected ErrorResponse, got %T", msg.Message)
+	}
+	if errResp.Code != gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD {
+		t.Errorf("expected INVALID_PAYLOAD, got %v", errResp.Code)
+	}
+}
+
 func TestPublishAndReceive(t *testing.T) {
 	addr, cleanup := startTestServer(t)
 	defer cleanup()

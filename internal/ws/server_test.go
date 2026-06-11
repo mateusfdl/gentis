@@ -837,6 +837,60 @@ func TestPublishMessageTooLarge(t *testing.T) {
 	}
 }
 
+func TestPublishToPatternRejected(t *testing.T) {
+	eng := engine.New()
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{
+		"id":      "p1",
+		"publish": map[string]any{"channel": "jobs:*", "data": json.RawMessage(`"YQ=="`)},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeInvalidPayload {
+		t.Fatalf("publish to pattern: got %+v, want INVALID_PAYLOAD", resp)
+	}
+}
+
+func TestSubscribeReservedCharRejected(t *testing.T) {
+	eng := engine.New()
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+	authenticate(t, conn)
+
+	sendJSON(t, conn, map[string]any{
+		"id":        "s1",
+		"subscribe": map[string]any{"channel": "jobs:cpu?"},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Error == nil || resp.Error.Code != ErrorCodeInvalidPayload {
+		t.Fatalf("subscribe with reserved char: got %+v, want INVALID_PAYLOAD", resp)
+	}
+}
+
 func TestSubscriptionLimit(t *testing.T) {
 	eng := engine.New()
 	store := transport.NewSessionStore()

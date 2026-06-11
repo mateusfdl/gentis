@@ -19,6 +19,11 @@ func TestValidateChannel(t *testing.T) {
 		{"with special chars", "chat-room_1.public", true},
 		{"with spaces", "chat room", true},
 		{"unicode", "канал", true},
+		{"star allowed for patterns", "a*b", true},
+		{"question mark reserved", "a?b", false},
+		{"open bracket reserved", "a[b", false},
+		{"close bracket reserved", "a]b", false},
+		{"backslash reserved", `a\b`, false},
 	}
 
 	for _, tt := range tests {

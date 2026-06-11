@@ -745,6 +745,74 @@ func TestRelayLocalPublishAck(t *testing.T) {
 	}
 }
 
+func TestRelayPublishToPatternRejected(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+	)
+	if err := r.Start(); err != nil {
+		t.Fatalf("failed to start relay: %v", err)
+	}
+	defer r.Stop()
+
+	client, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+	authenticate(t, client, "token")
+
+	client.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Publish{
+			Publish: &gentisv1.PublishRequest{Channel: "jobs:*", Data: []byte("x")},
+		},
+	})
+
+	msg := recvWithTimeout(t, client, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil {
+		t.Fatalf("expected ErrorResponse, got %T", msg.Message)
+	}
+	if errResp.Code != gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD {
+		t.Errorf("expected INVALID_PAYLOAD, got %v", errResp.Code)
+	}
+}
+
+func TestRelaySubscribeReservedCharRejected(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+	)
+	if err := r.Start(); err != nil {
+		t.Fatalf("failed to start relay: %v", err)
+	}
+	defer r.Stop()
+
+	client, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+	authenticate(t, client, "token")
+
+	client.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "jobs:cpu?"},
+		},
+	})
+
+	msg := recvWithTimeout(t, client, 2*time.Second)
+	errResp := msg.GetError()
+	if errResp == nil {
+		t.Fatalf("expected ErrorResponse, got %T", msg.Message)
+	}
+	if errResp.Code != gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD {
+		t.Errorf("expected INVALID_PAYLOAD, got %v", errResp.Code)
+	}
+}
+
 func TestRelayPermissionChecks(t *testing.T) {
 	upstreamAddr, stopUpstream := startUpstream(t)
 	defer stopUpstream()
