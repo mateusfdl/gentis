@@ -2,6 +2,10 @@
 // Channels follow the syntax "ns:rest"; a name without a prefix belongs to
 // the default namespace. Resolution happens once per channel lifecycle
 // (creation, subscribe), never per message.
+//
+// Namespaces do not inherit from default: each one starts from zero
+// settings, so a namespace that only sets allow_publish gets no history
+// even when default configures one.
 package namespace
 
 import (
