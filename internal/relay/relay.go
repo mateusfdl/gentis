@@ -2,7 +2,6 @@ package relay
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,11 +13,13 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/arena"
+	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/client"
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
-	"github.com/mateusfdl/gentis/internal/pattern"
+	"github.com/mateusfdl/gentis/internal/protocol"
+	"github.com/mateusfdl/gentis/internal/protocol/pbcode"
 	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
 	"github.com/mateusfdl/gentis/internal/transport"
@@ -101,6 +102,10 @@ type Session struct {
 	// qosc gates deliveries for at-least-once subscriptions. Sessions
 	// without QoS1 windows pay a single atomic load per delivery.
 	qosc *qos.Consumer
+
+	logger    *slog.Logger
+	deliverFn engine.DeliveryFunc
+	hooks     *protocol.Hooks
 
 	dropsFull atomic.Int64
 }
@@ -421,7 +426,46 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		cancel:     cancel,
 		channels:   make(map[string]struct{}),
 	}
-	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, s.logger.With("session_id", id))
+	sess.logger = s.logger.With("session_id", id)
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, sess.logger)
+	if s.store != nil {
+		sess.deliverFn = s.store.Deliver
+	} else {
+		sess.deliverFn = func(id engine.SubscriberID, d engine.Delivery) bool {
+			other, ok := s.getSession(int(id))
+			if !ok {
+				return false
+			}
+			return other.DeliverMessage(d)
+		}
+	}
+	sess.hooks = &protocol.Hooks{
+		OnSubscribed: func(channel string) {
+			sess.subsMu.Lock()
+			sess.channels[channel] = struct{}{}
+			sess.subsMu.Unlock()
+			if m := s.router.Route(channel).Mode; m == RouteModeRelay || m == RouteModeBoth {
+				s.upstream.Subscribe(channel)
+			}
+		},
+		OnUnsubscribed: func(channel string) {
+			sess.subsMu.Lock()
+			delete(sess.channels, channel)
+			sess.subsMu.Unlock()
+			if m := s.router.Route(channel).Mode; m == RouteModeRelay || m == RouteModeBoth {
+				s.upstream.Unsubscribe(channel)
+			}
+		},
+		PublishPlan: func(channel string) (local, forward bool) {
+			m := s.router.Route(channel).Mode
+			return m == RouteModeLocal || m == RouteModeBoth, m == RouteModeRelay || m == RouteModeBoth
+		},
+		ForwardPublish: func(channel string, data []byte) {
+			if err := s.upstream.Publish(channel, data); err != nil {
+				s.logger.Warn("publish dropped, upstream unavailable", "channel", channel, "err", err)
+			}
+		},
+	}
 	if d := s.config.AuthDeadline; d > 0 {
 		sess.authTimer = time.AfterFunc(d, func() {
 			if sess.state.IsAuthenticated() {
@@ -559,56 +603,53 @@ func (sess *Session) drainSendRing() {
 	}
 }
 
-const maxChannelNameLen = 256
-
 func (sess *Session) handleMessage(msg *gentisv1.ClientMessage) {
 	reqID := msg.Id
 	switch m := msg.Message.(type) {
 	case *gentisv1.ClientMessage_Connect:
-		sess.handleConnect(m.Connect, reqID)
+		protocol.Connect(sess, protocol.ConnectRequest{
+			AuthToken:       m.Connect.AuthToken,
+			ProtocolVersion: m.Connect.ProtocolVersion,
+		}, reqID)
 	case *gentisv1.ClientMessage_Ping:
-		sess.handlePing(reqID)
+		protocol.Ping(sess, reqID)
+	case *gentisv1.ClientMessage_Refresh:
+		protocol.Refresh(sess, protocol.RefreshRequest{AuthToken: m.Refresh.AuthToken}, reqID)
+	case *gentisv1.ClientMessage_Confirm:
+		protocol.Confirm(sess, m.Confirm.Channel, m.Confirm.Offset, reqID)
+	case *gentisv1.ClientMessage_Subscribe:
+		protocol.Subscribe(sess, pbcode.ToSubscribe(m.Subscribe), reqID)
+	case *gentisv1.ClientMessage_Unsubscribe:
+		protocol.Unsubscribe(sess, m.Unsubscribe.Channel, reqID)
+	case *gentisv1.ClientMessage_Publish:
+		protocol.Publish(sess, protocol.PublishRequest{Channel: m.Publish.Channel, Data: m.Publish.Data}, reqID)
 	default:
-		if !sess.state.IsAuthenticated() {
-			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "not authenticated", reqID)
-			return
-		}
-
-		switch m := msg.Message.(type) {
-		case *gentisv1.ClientMessage_Refresh:
-			sess.handleRefresh(m.Refresh, reqID)
-		case *gentisv1.ClientMessage_Confirm:
-			sess.qosc.Confirm(m.Confirm.Channel, m.Confirm.Offset)
-		case *gentisv1.ClientMessage_Subscribe:
-			sess.handleSubscribe(m.Subscribe, reqID)
-		case *gentisv1.ClientMessage_Unsubscribe:
-			sess.handleUnsubscribe(m.Unsubscribe, reqID)
-		case *gentisv1.ClientMessage_Publish:
-			sess.handlePublish(m.Publish, reqID)
-		default:
-			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_UNKNOWN_MESSAGE, "unknown message type", reqID)
-		}
+		protocol.Unknown(sess, reqID)
 	}
 }
 
-func validateChannel(name string) bool {
-	return len(name) > 0 && len(name) <= maxChannelNameLen && !pattern.HasReserved(name)
+// Session implements protocol.Session so the shared core can drive it.
+func (sess *Session) State() transport.SessionState     { return sess.state }
+func (sess *Session) Engine() protocol.Engine           { return sess.relay.engine }
+func (sess *Session) QoS() protocol.Consumer            { return sess.qosc }
+func (sess *Session) SubscriberID() engine.SubscriberID { return sess.subID }
+func (sess *Session) Verifier() auth.Verifier           { return sess.relay.config.Verifier }
+func (sess *Session) Logger() *slog.Logger              { return sess.logger }
+func (sess *Session) MaxSubscriptions() int             { return sess.relay.config.MaxSubscriptions }
+func (sess *Session) MaxMessageSize() int               { return sess.relay.config.MaxMessageSize }
+func (sess *Session) DeliverFunc() engine.DeliveryFunc  { return sess.deliverFn }
+func (sess *Session) ScheduleExpiry(exp time.Time)      { sess.scheduleExpiry(exp) }
+func (sess *Session) Hooks() *protocol.Hooks            { return sess.hooks }
+
+// SetProtocolVersion is a no-op: the relay listener does not negotiate or
+// batch, so the negotiated version never leaves the core.
+func (sess *Session) SetProtocolVersion(uint32) {}
+
+func (sess *Session) SendError(code protocol.ErrorCode, message, reqID string) {
+	sess.sendError(pbcode.From(code), message, reqID)
 }
 
-func (sess *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
-	claims, err := sess.relay.config.Verifier.Verify(req.AuthToken)
-	if err != nil {
-		sess.relay.logger.Debug("authentication failed", "err", err)
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "authentication failed", reqID)
-		return
-	}
-	if sess.state.IsAuthenticated() && claims.Subject != sess.state.Subject() {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "connect subject mismatch", reqID)
-		return
-	}
-	sess.state.Authenticate(claims)
-	sess.scheduleExpiry(claims.ExpiresAt)
-
+func (sess *Session) SendConnected(reqID string, version uint32) {
 	sess.send(&gentisv1.ServerMessage{
 		Id: reqID,
 		Message: &gentisv1.ServerMessage_Connected{
@@ -618,6 +659,63 @@ func (sess *Session) handleConnect(req *gentisv1.ConnectRequest, reqID string) {
 		},
 	})
 }
+
+func (sess *Session) SendRefreshed(reqID string, expiresAt uint64) {
+	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Refreshed{
+			Refreshed: &gentisv1.RefreshResponse{ExpiresAt: expiresAt},
+		},
+	})
+}
+
+func (sess *Session) SendSubscribed(reqID, channel string, recovered, didRecover bool) {
+	resp := &gentisv1.SubscribedResponse{Channel: channel}
+	if didRecover {
+		resp.Recovered = recovered
+	}
+	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Subscribed{
+			Subscribed: resp,
+		},
+	})
+}
+
+func (sess *Session) SendUnsubscribed(reqID, channel string) {
+	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Unsubscribed{
+			Unsubscribed: &gentisv1.UnsubscribedResponse{Channel: channel},
+		},
+	})
+}
+
+func (sess *Session) SendPublished(reqID, channel string, r engine.PublishResult) {
+	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Published{
+			Published: &gentisv1.PublishResponse{
+				Channel:   channel,
+				Offset:    r.Offset,
+				Epoch:     r.Epoch,
+				Delivered: uint32(r.Delivered),
+				Dropped:   uint32(r.Dropped),
+			},
+		},
+	})
+}
+
+func (sess *Session) SendPong(reqID string) {
+	sess.send(&gentisv1.ServerMessage{
+		Id: reqID,
+		Message: &gentisv1.ServerMessage_Pong{
+			Pong: &gentisv1.PongResponse{},
+		},
+	})
+}
+
+var _ protocol.Session = (*Session)(nil)
 
 // scheduleExpiry arms (or re-arms) the timer that cancels the session when
 // its credentials lapse. Only the dispatch loop calls this, so no locking
@@ -633,254 +731,6 @@ func (sess *Session) scheduleExpiry(exp time.Time) {
 	sess.expiryTimer = time.AfterFunc(time.Until(exp), func() {
 		sess.relay.logger.Debug("session credentials expired", "session_id", sess.id)
 		sess.cancel()
-	})
-}
-
-func (sess *Session) handleRefresh(req *gentisv1.RefreshRequest, reqID string) {
-	claims, err := sess.relay.config.Verifier.Verify(req.AuthToken)
-	if err != nil {
-		sess.relay.logger.Debug("refresh failed", "err", err)
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "authentication failed", reqID)
-		return
-	}
-	if claims.Subject != sess.state.Subject() {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_AUTHENTICATED, "refresh subject mismatch", reqID)
-		return
-	}
-	sess.state.Authenticate(claims)
-	sess.scheduleExpiry(claims.ExpiresAt)
-
-	var exp uint64
-	if !claims.ExpiresAt.IsZero() {
-		exp = uint64(claims.ExpiresAt.Unix())
-	}
-	sess.send(&gentisv1.ServerMessage{
-		Id: reqID,
-		Message: &gentisv1.ServerMessage_Refreshed{
-			Refreshed: &gentisv1.RefreshResponse{ExpiresAt: exp},
-		},
-	})
-}
-
-func (sess *Session) handleSubscribe(req *gentisv1.SubscribeRequest, reqID string) {
-	if !validateChannel(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
-		return
-	}
-
-	if !sess.state.CanSubscribe(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "subscribe not allowed on channel", reqID)
-		return
-	}
-
-	if max := sess.relay.config.MaxSubscriptions; max > 0 && sess.state.SubscriptionCount() >= max {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT, "subscription limit reached", reqID)
-		return
-	}
-
-	if pattern.IsPattern(req.Channel) {
-		sess.handleSubscribePattern(req, reqID)
-		return
-	}
-
-	route := sess.relay.router.Route(req.Channel)
-
-	// The window is installed and pinned before live fanout starts:
-	// deliveries must never bypass the gate, and a live publish racing
-	// the replay must not baseline the window past the recover point.
-	if req.MaxUnconfirmed != nil {
-		enabled, timeout, maxRedeliveries := sess.relay.engine.QoSPolicy(req.Channel)
-		if !enabled {
-			sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "namespace does not offer at-least-once delivery", reqID)
-			return
-		}
-		w := qos.NewWindow(int(req.MaxUnconfirmed.Count), int64(req.MaxUnconfirmed.Bytes), timeout, maxRedeliveries)
-		if req.Recover != nil {
-			w.Baseline(req.Recover.Offset, req.Recover.Epoch)
-		}
-		sess.qosc.Subscribe(req.Channel, w)
-	}
-
-	if err := sess.relay.engine.SubscribePriority(sess.subID, req.Channel, int(req.Priority)); err != nil {
-		sess.qosc.Unsubscribe(req.Channel)
-		sess.sendError(subscribeErrorCode(err), err.Error(), reqID)
-		return
-	}
-
-	sess.state.AddSubscription(req.Channel)
-
-	sess.subsMu.Lock()
-	sess.channels[req.Channel] = struct{}{}
-	sess.subsMu.Unlock()
-
-	var replay []engine.Delivery
-	recovered := false
-	if req.Recover != nil {
-		replay, recovered = sess.relay.engine.Recover(req.Channel, req.Recover.Offset, req.Recover.Epoch)
-	}
-
-	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
-		sess.relay.upstream.Subscribe(req.Channel)
-	}
-
-	resp := &gentisv1.SubscribedResponse{Channel: req.Channel}
-	if req.Recover != nil {
-		resp.Recovered = recovered
-	}
-	sess.send(&gentisv1.ServerMessage{
-		Id: reqID,
-		Message: &gentisv1.ServerMessage_Subscribed{
-			Subscribed: resp,
-		},
-	})
-	for _, d := range replay {
-		sess.DeliverMessage(d)
-	}
-}
-
-// handleSubscribePattern registers a wildcard subscription on the local
-// engine and forwards the pattern verbatim to the upstream, which resolves
-// it against its own channel space. Patterns are broadcast-only and
-// replayless, so credit windows and recovery points are rejected up front.
-func (sess *Session) handleSubscribePattern(req *gentisv1.SubscribeRequest, reqID string) {
-	if req.MaxUnconfirmed != nil || req.Recover != nil {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "wildcard subscriptions do not support qos or recovery", reqID)
-		return
-	}
-
-	route := sess.relay.router.Route(req.Channel)
-
-	if err := sess.relay.engine.SubscribePattern(sess.subID, req.Channel); err != nil {
-		sess.sendError(subscribeErrorCode(err), err.Error(), reqID)
-		return
-	}
-
-	sess.state.AddSubscription(req.Channel)
-	sess.subsMu.Lock()
-	sess.channels[req.Channel] = struct{}{}
-	sess.subsMu.Unlock()
-
-	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
-		sess.relay.upstream.Subscribe(req.Channel)
-	}
-
-	sess.send(&gentisv1.ServerMessage{
-		Id: reqID,
-		Message: &gentisv1.ServerMessage_Subscribed{
-			Subscribed: &gentisv1.SubscribedResponse{Channel: req.Channel},
-		},
-	})
-}
-
-func (sess *Session) unsubscribe(channel string) bool {
-	if pattern.IsPattern(channel) {
-		return sess.relay.engine.UnsubscribePattern(sess.subID, channel)
-	}
-	return sess.relay.engine.Unsubscribe(sess.subID, channel)
-}
-
-func (sess *Session) handleUnsubscribe(req *gentisv1.UnsubscribeRequest, reqID string) {
-	if !validateChannel(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
-		return
-	}
-
-	if !sess.unsubscribe(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_NOT_SUBSCRIBED, "Not subscribed to channel", reqID)
-		return
-	}
-
-	sess.state.RemoveSubscription(req.Channel)
-	sess.qosc.Unsubscribe(req.Channel)
-
-	sess.subsMu.Lock()
-	delete(sess.channels, req.Channel)
-	sess.subsMu.Unlock()
-
-	route := sess.relay.router.Route(req.Channel)
-	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
-		sess.relay.upstream.Unsubscribe(req.Channel)
-	}
-
-	sess.send(&gentisv1.ServerMessage{
-		Id: reqID,
-		Message: &gentisv1.ServerMessage_Unsubscribed{
-			Unsubscribed: &gentisv1.UnsubscribedResponse{
-				Channel: req.Channel,
-			},
-		},
-	})
-}
-
-func (sess *Session) handlePublish(req *gentisv1.PublishRequest, reqID string) {
-	if !validateChannel(req.Channel) || pattern.IsPattern(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_INVALID_PAYLOAD, "invalid channel name", reqID)
-		return
-	}
-
-	if !sess.state.CanPublish(req.Channel) {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "publish not allowed on channel", reqID)
-		return
-	}
-
-	if max := sess.relay.config.MaxMessageSize; max > 0 && len(req.Data) > max {
-		sess.sendError(gentisv1.ErrorCode_ERROR_CODE_MESSAGE_TOO_LARGE, "message exceeds max size", reqID)
-		return
-	}
-
-	if err := sess.relay.engine.CheckPublish(req.Channel); err != nil {
-		sess.sendError(publishErrorCode(err), err.Error(), reqID)
-		return
-	}
-
-	route := sess.relay.router.Route(req.Channel)
-
-	var result engine.PublishResult
-	if route.Mode == RouteModeLocal || route.Mode == RouteModeBoth {
-		if sess.relay.store != nil {
-			result = sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, sess.relay.store.Deliver)
-		} else {
-			result = sess.relay.engine.Publish(req.Channel, req.Data, sess.subID, func(id engine.SubscriberID, d engine.Delivery) bool {
-				other, ok := sess.relay.getSession(int(id))
-				if !ok {
-					return false
-				}
-				return other.DeliverMessage(d)
-			})
-		}
-	}
-
-	if route.Mode == RouteModeRelay || route.Mode == RouteModeBoth {
-		if err := sess.relay.upstream.Publish(req.Channel, req.Data); err != nil {
-			sess.relay.logger.Warn("publish dropped, upstream unavailable", "channel", req.Channel, "err", err)
-		}
-	}
-
-	// Acks are opt-in via the correlation id and describe the relay-local
-	// fanout only; upstream forwarding stays fire-and-forget.
-	if reqID == "" {
-		return
-	}
-	sess.send(&gentisv1.ServerMessage{
-		Id: reqID,
-		Message: &gentisv1.ServerMessage_Published{
-			Published: &gentisv1.PublishResponse{
-				Channel:   req.Channel,
-				Offset:    result.Offset,
-				Epoch:     result.Epoch,
-				Delivered: uint32(result.Delivered),
-				Dropped:   uint32(result.Dropped),
-			},
-		},
-	})
-}
-
-func (sess *Session) handlePing(reqID string) {
-	sess.send(&gentisv1.ServerMessage{
-		Id: reqID,
-		Message: &gentisv1.ServerMessage_Pong{
-			Pong: &gentisv1.PongResponse{},
-		},
 	})
 }
 
@@ -929,31 +779,5 @@ func (s *Server) keepaliveOptions() []grpc.ServerOption {
 			MinTime:             5 * time.Second,
 			PermitWithoutStream: true,
 		}),
-	}
-}
-
-func subscribeErrorCode(err error) gentisv1.ErrorCode {
-	switch {
-	case errors.Is(err, engine.ErrAlreadySubscribed):
-		return gentisv1.ErrorCode_ERROR_CODE_ALREADY_SUBSCRIBED
-	case errors.Is(err, engine.ErrUnknownNamespace):
-		return gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND
-	case errors.Is(err, engine.ErrChannelFull):
-		return gentisv1.ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT
-	case errors.Is(err, engine.ErrWildcardDenied):
-		return gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED
-	default:
-		return gentisv1.ErrorCode_ERROR_CODE_INTERNAL
-	}
-}
-
-func publishErrorCode(err error) gentisv1.ErrorCode {
-	switch {
-	case errors.Is(err, engine.ErrUnknownNamespace):
-		return gentisv1.ErrorCode_ERROR_CODE_CHANNEL_NOT_FOUND
-	case errors.Is(err, engine.ErrPublishDenied):
-		return gentisv1.ErrorCode_ERROR_CODE_PERMISSION_DENIED
-	default:
-		return gentisv1.ErrorCode_ERROR_CODE_INTERNAL
 	}
 }

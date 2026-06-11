@@ -10,6 +10,21 @@ import (
 	"github.com/mateusfdl/gentis/internal/protocol"
 )
 
+// ToSubscribe converts the proto subscribe request shared by the gRPC and
+// relay transports into the neutral form.
+func ToSubscribe(req *gentisv1.SubscribeRequest) protocol.SubscribeRequest {
+	out := protocol.SubscribeRequest{Channel: req.Channel, Priority: req.Priority}
+	if req.MaxUnconfirmed != nil {
+		out.HasWindow = true
+		out.Window = protocol.Window{Count: req.MaxUnconfirmed.Count, Bytes: req.MaxUnconfirmed.Bytes}
+	}
+	if req.Recover != nil {
+		out.HasRecover = true
+		out.Recover = protocol.RecoverPoint{Offset: req.Recover.Offset, Epoch: req.Recover.Epoch}
+	}
+	return out
+}
+
 func From(c protocol.ErrorCode) gentisv1.ErrorCode {
 	switch c {
 	case protocol.CodeUnknownMessage:

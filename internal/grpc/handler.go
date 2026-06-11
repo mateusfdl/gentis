@@ -6,6 +6,7 @@ import (
 
 	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 	"github.com/mateusfdl/gentis/internal/protocol"
+	"github.com/mateusfdl/gentis/internal/protocol/pbcode"
 )
 
 const (
@@ -200,7 +201,7 @@ func (s *Session) handleMessage(msg *gentisv1.ClientMessage) {
 	case *gentisv1.ClientMessage_Confirm:
 		protocol.Confirm(s, m.Confirm.Channel, m.Confirm.Offset, reqID)
 	case *gentisv1.ClientMessage_Subscribe:
-		protocol.Subscribe(s, toSubscribe(m.Subscribe), reqID)
+		protocol.Subscribe(s, pbcode.ToSubscribe(m.Subscribe), reqID)
 	case *gentisv1.ClientMessage_Unsubscribe:
 		protocol.Unsubscribe(s, m.Unsubscribe.Channel, reqID)
 	case *gentisv1.ClientMessage_Publish:
@@ -208,17 +209,4 @@ func (s *Session) handleMessage(msg *gentisv1.ClientMessage) {
 	default:
 		protocol.Unknown(s, reqID)
 	}
-}
-
-func toSubscribe(req *gentisv1.SubscribeRequest) protocol.SubscribeRequest {
-	out := protocol.SubscribeRequest{Channel: req.Channel, Priority: req.Priority}
-	if req.MaxUnconfirmed != nil {
-		out.HasWindow = true
-		out.Window = protocol.Window{Count: req.MaxUnconfirmed.Count, Bytes: req.MaxUnconfirmed.Bytes}
-	}
-	if req.Recover != nil {
-		out.HasRecover = true
-		out.Recover = protocol.RecoverPoint{Offset: req.Recover.Offset, Epoch: req.Recover.Epoch}
-	}
-	return out
 }
