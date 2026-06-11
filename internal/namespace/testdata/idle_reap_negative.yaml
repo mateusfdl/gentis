@@ -1,0 +1,3 @@
+namespaces:
+  metrics:
+    idle_reap: -1s

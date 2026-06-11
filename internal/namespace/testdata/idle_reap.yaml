@@ -1,0 +1,6 @@
+namespaces:
+  metrics:
+    history_size: 64
+    idle_reap: 5m
+  jobs:
+    idle_reap: 0s

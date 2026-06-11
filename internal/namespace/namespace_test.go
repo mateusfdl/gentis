@@ -151,6 +151,43 @@ func TestLoadFile(t *testing.T) {
 	}
 }
 
+func TestLoadFileIdleReap(t *testing.T) {
+	reg, err := LoadFile("testdata/idle_reap.yaml")
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	got, ok := reg.Resolve("metrics:cpu")
+	if !ok {
+		t.Fatal("metrics namespace not loaded")
+	}
+	if got.IdleReap != 5*time.Minute {
+		t.Errorf("metrics IdleReap = %v, want 5m", got.IdleReap)
+	}
+	if got.HistorySize != 64 {
+		t.Errorf("metrics HistorySize = %d, want 64", got.HistorySize)
+	}
+
+	got, ok = reg.Resolve("jobs:x")
+	if !ok {
+		t.Fatal("jobs namespace not loaded")
+	}
+	if got.IdleReap != 0 {
+		t.Errorf("jobs IdleReap = %v, want 0 (disabled)", got.IdleReap)
+	}
+
+	got, _ = reg.Resolve("plain")
+	if got.IdleReap != 0 {
+		t.Errorf("default IdleReap = %v, want 0 (disabled)", got.IdleReap)
+	}
+}
+
+func TestLoadFileIdleReapNegative(t *testing.T) {
+	if _, err := LoadFile("testdata/idle_reap_negative.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("negative idle_reap err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestLoadFileRejectsUnknownKeys(t *testing.T) {
 	_, err := LoadFile("testdata/unknown_key.yaml")
 	if err == nil {

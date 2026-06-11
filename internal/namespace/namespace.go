@@ -58,6 +58,13 @@ type Settings struct {
 	// namespace. Pattern deliveries are broadcast-only, so the option is
 	// incompatible with round_robin and priority fanout.
 	AllowWildcard bool
+
+	// IdleReap bounds how long a channel with zero subscribers survives
+	// without a publish before the sweeper discards it, history included.
+	// A returning client then recovers with ok=false (full resync) and a
+	// recreated channel gets a new epoch. Zero disables idle reaping:
+	// drained channels with unexpired history live forever.
+	IdleReap time.Duration
 }
 
 type Config struct {
@@ -127,6 +134,7 @@ type settingsYAML struct {
 	AllowWildcard     *bool          `yaml:"allow_wildcard"`
 	RedeliveryTimeout *time.Duration `yaml:"redelivery_timeout"`
 	MaxRedeliveries   *int           `yaml:"max_redeliveries"`
+	IdleReap          *time.Duration `yaml:"idle_reap"`
 }
 
 type configYAML struct {
@@ -237,6 +245,12 @@ func toSettings(name string, raw settingsYAML) (Settings, error) {
 	}
 	if raw.AllowWildcard != nil {
 		s.AllowWildcard = *raw.AllowWildcard
+	}
+	if raw.IdleReap != nil {
+		if *raw.IdleReap < 0 {
+			return Settings{}, fmt.Errorf("%w: namespace %q idle_reap must be >= 0", ErrInvalidConfig, name)
+		}
+		s.IdleReap = *raw.IdleReap
 	}
 	if s.AllowWildcard && s.Fanout != Broadcast {
 		return Settings{}, fmt.Errorf("%w: namespace %q allow_wildcard requires broadcast fanout", ErrInvalidConfig, name)
