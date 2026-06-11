@@ -65,6 +65,43 @@ func TestVerifyValidTokenWithoutAllowlists(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsReservedClaimGrammar(t *testing.T) {
+	tests := []struct {
+		name   string
+		claims Claims
+	}{
+		{"question mark in channels", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Channels: []string{"metrics:cpu?"}}},
+		{"bracket in channels", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Channels: []string{"metrics:[ab]"}}},
+		{"backslash in channels", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Channels: []string{`a\b`}}},
+		{"mid star in channels", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Channels: []string{"a*b"}}},
+		{"double star in channels", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Channels: []string{"ab**"}}},
+		{"mid star in pub", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Pub: []string{"a*b"}}},
+		{"question mark in pub", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Pub: []string{"cpu?"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token := SignHS256(testSecret, tt.claims)
+			_, err := newTestVerifier().Verify(token)
+			if !errors.Is(err, ErrInvalidClaims) {
+				t.Errorf("Verify() error = %v, want ErrInvalidClaims", err)
+			}
+		})
+	}
+}
+
+func TestVerifyAcceptsValidClaimGrammar(t *testing.T) {
+	claims := Claims{
+		Subject:   "u",
+		ExpiresAt: testNow.Add(time.Hour),
+		Channels:  []string{"chat-*", "news", "*"},
+		Pub:       []string{"chat-42"},
+	}
+	token := SignHS256(testSecret, claims)
+	if _, err := newTestVerifier().Verify(token); err != nil {
+		t.Fatalf("Verify() error = %v, want nil", err)
+	}
+}
+
 func TestVerifyErrors(t *testing.T) {
 	valid := SignHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Hour)})
 	segments := strings.Split(valid, ".")

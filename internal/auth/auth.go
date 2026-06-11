@@ -11,6 +11,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/mateusfdl/gentis/internal/pattern"
 )
 
 var (
@@ -55,6 +57,29 @@ func matchPattern(pattern, channel string) bool {
 		return strings.HasPrefix(channel, prefix)
 	}
 	return pattern == channel
+}
+
+// validEntry enforces the claim grammar: a literal channel name or a
+// trailing-star prefix, never a reserved metacharacter. Anything looser
+// would let a claim the matcher treats literally act as a wildcard once
+// it reaches the engine's pattern grammar.
+func validEntry(entry string) bool {
+	if pattern.HasReserved(entry) {
+		return false
+	}
+	if i := strings.IndexByte(entry, '*'); i >= 0 && i != len(entry)-1 {
+		return false
+	}
+	return true
+}
+
+func validEntries(entries []string) bool {
+	for _, e := range entries {
+		if !validEntry(e) {
+			return false
+		}
+	}
+	return true
 }
 
 // Verifier is the boundary transports depend on. Concrete schemes
@@ -136,6 +161,9 @@ func (v *HMACVerifier) Verify(token string) (Claims, error) {
 		return Claims{}, ErrInvalidClaims
 	}
 	if payload.Sub == "" || payload.Exp <= 0 {
+		return Claims{}, ErrInvalidClaims
+	}
+	if !validEntries(payload.Channels) || !validEntries(payload.Pub) {
 		return Claims{}, ErrInvalidClaims
 	}
 
