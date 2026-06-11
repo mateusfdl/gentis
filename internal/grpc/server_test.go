@@ -438,6 +438,79 @@ func TestPublishInvalidChannel(t *testing.T) {
 	}
 }
 
+func TestUnauthenticatedSessionClosedAtAuthDeadline(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithAuthDeadline(100*time.Millisecond))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer srv.Stop()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	stream.Send(&gentisv1.ClientMessage{
+		Id:      "p1",
+		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetPong() == nil {
+		t.Fatalf("expected PongResponse, got %T", msg.Message)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			if _, err := stream.Recv(); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+	select {
+	case <-errCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("unauthenticated session still alive past the auth deadline")
+	}
+}
+
+func TestAuthenticatedSessionSurvivesAuthDeadline(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+
+	srv := New(addr, WithAuthDeadline(100*time.Millisecond))
+	if err := srv.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer srv.Stop()
+
+	stream, closeClient := connectClient(t, addr)
+	defer closeClient()
+
+	authenticate(t, stream, "token")
+	time.Sleep(300 * time.Millisecond)
+
+	stream.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
+		},
+	})
+	msg := recvWithTimeout(t, stream, 2*time.Second)
+	if msg.GetSubscribed() == nil {
+		t.Fatalf("expected SubscribedResponse, got %T", msg.Message)
+	}
+}
+
 func TestPublishToPatternRejected(t *testing.T) {
 	addr, cleanup := startTestServer(t)
 	defer cleanup()

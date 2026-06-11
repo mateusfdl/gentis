@@ -25,6 +25,7 @@ func init() {
 	serveCmd.Flags().Bool("arena", false, "use mmap arena for session state (Linux only); applies to gRPC sessions")
 	serveCmd.Flags().Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
 	serveCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
+	serveCmd.Flags().Duration("auth-deadline", 30*time.Second, "close sessions that have not authenticated within this window, 0 to disable")
 	serveCmd.Flags().String("tls-cert", "", "TLS certificate file for gRPC and WebSocket listeners")
 	serveCmd.Flags().String("tls-key", "", "TLS private key file for gRPC and WebSocket listeners")
 	serveCmd.Flags().Int("max-message-size", 65536, "maximum publish payload size in bytes")
@@ -80,6 +81,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	wsSrv := buildWSServer(cmd, logger, eng, store, obs, verifier)
 
 	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
+	authDeadline, _ := cmd.Flags().GetDuration("auth-deadline")
 	maxMessageSize, _ := cmd.Flags().GetInt("max-message-size")
 	maxSubscriptions, _ := cmd.Flags().GetInt("max-subscriptions")
 	tlsCert, _ := cmd.Flags().GetString("tls-cert")
@@ -94,6 +96,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		grpcserver.WithLogger(logger),
 		grpcserver.WithVerifier(verifier),
 		grpcserver.WithPingInterval(pingInterval),
+		grpcserver.WithAuthDeadline(authDeadline),
 		grpcserver.WithMaxMessageSize(maxMessageSize),
 		grpcserver.WithMaxSubscriptions(maxSubscriptions),
 	}

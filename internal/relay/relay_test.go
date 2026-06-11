@@ -745,6 +745,81 @@ func TestRelayLocalPublishAck(t *testing.T) {
 	}
 }
 
+func TestRelayUnauthenticatedSessionClosedAtAuthDeadline(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithAuthDeadline(100*time.Millisecond),
+	)
+	if err := r.Start(); err != nil {
+		t.Fatalf("failed to start relay: %v", err)
+	}
+	defer r.Stop()
+
+	client, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+
+	client.Send(&gentisv1.ClientMessage{
+		Id:      "p1",
+		Message: &gentisv1.ClientMessage_Ping{Ping: &gentisv1.PingRequest{}},
+	})
+	msg := recvWithTimeout(t, client, 2*time.Second)
+	if msg.GetPong() == nil {
+		t.Fatalf("expected PongResponse, got %T", msg.Message)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			if _, err := client.Recv(); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+	select {
+	case <-errCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("unauthenticated session still alive past the auth deadline")
+	}
+}
+
+func TestRelayAuthenticatedSessionSurvivesAuthDeadline(t *testing.T) {
+	upstreamAddr, stopUpstream := startUpstream(t)
+	defer stopUpstream()
+
+	relayAddr := freeAddr(t)
+	r := New(
+		WithListenAddr(relayAddr),
+		WithUpstream(upstreamAddr, "relay-token"),
+		WithAuthDeadline(100*time.Millisecond),
+	)
+	if err := r.Start(); err != nil {
+		t.Fatalf("failed to start relay: %v", err)
+	}
+	defer r.Stop()
+
+	client, closeClient := connectClient(t, relayAddr)
+	defer closeClient()
+	authenticate(t, client, "token")
+
+	time.Sleep(300 * time.Millisecond)
+
+	client.Send(&gentisv1.ClientMessage{
+		Message: &gentisv1.ClientMessage_Subscribe{
+			Subscribe: &gentisv1.SubscribeRequest{Channel: "ch"},
+		},
+	})
+	msg := recvWithTimeout(t, client, 2*time.Second)
+	if msg.GetSubscribed() == nil {
+		t.Fatalf("expected SubscribedResponse, got %T", msg.Message)
+	}
+}
+
 func TestRelayPublishToPatternRejected(t *testing.T) {
 	upstreamAddr, stopUpstream := startUpstream(t)
 	defer stopUpstream()

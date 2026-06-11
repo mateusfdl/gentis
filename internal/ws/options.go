@@ -39,6 +39,12 @@ type Config struct {
 	// keepalive entirely.
 	PingInterval time.Duration
 
+	// AuthDeadline bounds how long a session may stay unauthenticated.
+	// Keepalive alone cannot: pong traffic resets the idle clock before
+	// the auth gate, so without this deadline an idle client could hold a
+	// session forever by answering pings. Zero disables enforcement.
+	AuthDeadline time.Duration
+
 	// OnDeliveryLatency, when set, observes the server-side latency from
 	// message enqueue to socket write for delivered channel messages. nil
 	// disables the measurement.
@@ -55,6 +61,7 @@ func defaultConfig(address string) *Config {
 		SendBufferSize:   256,
 		Verifier:         auth.InsecureVerifier{},
 		PingInterval:     25 * time.Second,
+		AuthDeadline:     30 * time.Second,
 		MaxMessageSize:   65536,
 		MaxSubscriptions: 16,
 	}
@@ -82,6 +89,12 @@ func WithTLS(certFile, keyFile string) Option {
 func WithPingInterval(d time.Duration) Option {
 	return func(c *Config) {
 		c.PingInterval = d
+	}
+}
+
+func WithAuthDeadline(d time.Duration) Option {
+	return func(c *Config) {
+		c.AuthDeadline = d
 	}
 }
 

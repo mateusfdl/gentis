@@ -39,6 +39,12 @@ type Config struct {
 	// arrive within two more. Zero disables keepalive.
 	PingInterval time.Duration
 
+	// AuthDeadline bounds how long a session may stay unauthenticated.
+	// Keepalive alone cannot: pings are answered before the auth gate, so
+	// without this deadline an idle client could hold a session forever by
+	// pinging. Zero disables enforcement.
+	AuthDeadline time.Duration
+
 	// Arena-backed session state (linux only). Default off. When enabled,
 	// session state lives in an mmap arena slot instead of on the Go heap,
 	// removing per-session State objects from GC scanning and enabling a
@@ -111,6 +117,12 @@ func WithPingInterval(d time.Duration) Option {
 	}
 }
 
+func WithAuthDeadline(d time.Duration) Option {
+	return func(c *Config) {
+		c.AuthDeadline = d
+	}
+}
+
 func WithVerifier(v auth.Verifier) Option {
 	return func(c *Config) {
 		c.Verifier = v
@@ -160,6 +172,7 @@ func defaultConfig(address string) *Config {
 		MetricsEnabled:   false,
 		Verifier:         auth.InsecureVerifier{},
 		PingInterval:     25 * time.Second,
+		AuthDeadline:     30 * time.Second,
 		MaxMessageSize:   65536,
 		MaxSubscriptions: 16,
 	}

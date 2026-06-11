@@ -39,6 +39,12 @@ type Config struct {
 	// misses two more. Zero disables keepalive.
 	PingInterval time.Duration
 
+	// AuthDeadline bounds how long a session may stay unauthenticated.
+	// Keepalive alone cannot: pings are answered before the auth gate, so
+	// without this deadline an idle client could hold a session forever by
+	// pinging. Zero disables enforcement.
+	AuthDeadline time.Duration
+
 	// TLSCertFile/TLSKeyFile serve the relay's own gRPC listener over TLS
 	// when both are set.
 	TLSCertFile string
@@ -148,6 +154,12 @@ func WithPingInterval(d time.Duration) Option {
 	}
 }
 
+func WithAuthDeadline(d time.Duration) Option {
+	return func(c *Config) {
+		c.AuthDeadline = d
+	}
+}
+
 func WithVerifier(v auth.Verifier) Option {
 	return func(c *Config) {
 		c.Verifier = v
@@ -211,6 +223,7 @@ func defaultConfig() *Config {
 	return &Config{
 		Verifier:           auth.InsecureVerifier{},
 		PingInterval:       25 * time.Second,
+		AuthDeadline:       30 * time.Second,
 		MaxMessageSize:     65536,
 		ListenAddr:         "127.0.0.1:9001",
 		BufferSize:         256,

@@ -41,6 +41,7 @@ func init() {
 	f.Int("max-sessions", 16384, "arena session capacity (only used when --arena is set)")
 
 	relayCmd.Flags().Duration("ping-interval", 25*time.Second, "transport keepalive ping interval, 0 to disable")
+	relayCmd.Flags().Duration("auth-deadline", 30*time.Second, "close sessions that have not authenticated within this window, 0 to disable")
 	f.String("tls-cert", "", "TLS certificate file for the relay gRPC and WebSocket listeners")
 	f.String("tls-key", "", "TLS private key file for the relay gRPC and WebSocket listeners")
 	f.Bool("upstream-tls", false, "dial the upstream over TLS")
@@ -80,6 +81,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 	incomingBuffer, _ := cmd.Flags().GetInt("incoming-buffer")
 	relayFanoutWorkers, _ := cmd.Flags().GetInt("relay-fanout-workers")
 	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
+	authDeadline, _ := cmd.Flags().GetDuration("auth-deadline")
 	maxMessageSize, _ := cmd.Flags().GetInt("max-message-size")
 	maxSubscriptions, _ := cmd.Flags().GetInt("max-subscriptions")
 	tlsCert, _ := cmd.Flags().GetString("tls-cert")
@@ -125,6 +127,7 @@ func runRelay(cmd *cobra.Command, args []string) error {
 		relay.WithLogger(logger),
 		relay.WithVerifier(verifier),
 		relay.WithPingInterval(pingInterval),
+		relay.WithAuthDeadline(authDeadline),
 		relay.WithMaxMessageSize(maxMessageSize),
 		relay.WithMaxSubscriptions(maxSubscriptions),
 	}

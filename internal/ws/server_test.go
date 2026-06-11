@@ -837,6 +837,76 @@ func TestPublishMessageTooLarge(t *testing.T) {
 	}
 }
 
+func TestUnauthenticatedSessionClosedAtAuthDeadline(t *testing.T) {
+	eng := engine.New()
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0",
+		WithEngine(eng),
+		WithSessionStore(store),
+		WithAuthDeadline(100*time.Millisecond),
+	)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+
+	sendJSON(t, conn, map[string]any{"id": "p1", "ping": map[string]any{}})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Pong == nil {
+		t.Fatalf("expected pong, got %+v", resp)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		if _, _, err := wsutil.ReadServerData(conn); err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				t.Fatal("unauthenticated session still alive past the auth deadline")
+			}
+			return
+		}
+	}
+}
+
+func TestAuthenticatedSessionSurvivesAuthDeadline(t *testing.T) {
+	eng := engine.New()
+	store := transport.NewSessionStore()
+	srv := New("127.0.0.1:0",
+		WithEngine(eng),
+		WithSessionStore(store),
+		WithAuthDeadline(100*time.Millisecond),
+	)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		eng.Stop()
+	})
+
+	conn := dialWS(t, srv.listener.Addr().String())
+	defer conn.Close()
+	authenticate(t, conn)
+
+	time.Sleep(300 * time.Millisecond)
+
+	sendJSON(t, conn, map[string]any{
+		"id":        "s1",
+		"subscribe": map[string]any{"channel": "ch"},
+	})
+	var resp ServerMessage
+	readJSON(t, conn, &resp)
+	if resp.Subscribed == nil {
+		t.Fatalf("expected Subscribed, got %+v", resp)
+	}
+}
+
 func TestPublishToPatternRejected(t *testing.T) {
 	eng := engine.New()
 	store := transport.NewSessionStore()

@@ -93,6 +93,11 @@ type Session struct {
 
 	expiryTimer *time.Timer
 
+	// authTimer cancels the session if it never authenticates. Armed at
+	// creation, fires exactly once and no-ops when the session
+	// authenticated in time.
+	authTimer *time.Timer
+
 	// qosc gates deliveries for at-least-once subscriptions. Sessions
 	// without QoS1 windows pay a single atomic load per delivery.
 	qosc *qos.Consumer
@@ -417,6 +422,15 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		channels:   make(map[string]struct{}),
 	}
 	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, s.logger.With("session_id", id))
+	if d := s.config.AuthDeadline; d > 0 {
+		sess.authTimer = time.AfterFunc(d, func() {
+			if sess.state.IsAuthenticated() {
+				return
+			}
+			s.logger.Warn("session reaped, auth deadline", "session_id", sess.id, "deadline", d)
+			sess.cancel()
+		})
+	}
 
 	s.sessions.Store(id, sess)
 	s.connectionCount.Add(1)
@@ -432,6 +446,9 @@ func (s *Server) cleanupSession(sess *Session) {
 	sess.qosc.Stop()
 	if sess.expiryTimer != nil {
 		sess.expiryTimer.Stop()
+	}
+	if sess.authTimer != nil {
+		sess.authTimer.Stop()
 	}
 	sess.cancel()
 	s.sessions.Delete(sess.id)
