@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/mateusfdl/gentis/internal/namespace"
 )
@@ -21,6 +22,12 @@ type Channel struct {
 	gen         atomic.Uint64 // incremented on each pool reuse to prevent ABA races
 	hist        *history      // nil unless the engine enables history
 	maxSubs     int           // namespace subscriber cap, 0 = unlimited
+
+	// idleReap and lastActive drive the sweeper's idle reaping: a channel
+	// with zero subscribers and no publish for idleReap is discarded,
+	// history included. Zero idleReap opts the channel out.
+	idleReap   time.Duration
+	lastActive atomic.Int64
 
 	fanout namespace.FanoutMode
 	rr     atomic.Uint64 // round-robin rotation cursor
@@ -101,6 +108,7 @@ func (c *Channel) returnToPool(expectedGen uint64) {
 	c.epoch = 0
 	c.hist = nil
 	c.maxSubs = 0
+	c.idleReap = 0
 	c.fanout = namespace.Broadcast
 	c.rr.Store(0)
 	c.prios = nil

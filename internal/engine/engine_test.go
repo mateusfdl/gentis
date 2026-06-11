@@ -926,6 +926,104 @@ func TestSweeperReapsDrainedEmptyChannels(t *testing.T) {
 	t.Fatalf("drained empty channel never reaped, channels = %d", e.Stats().Channels)
 }
 
+func idleReapRegistry(reap time.Duration) *namespace.Registry {
+	return namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true},
+		Namespaces: map[string]namespace.Settings{
+			"metrics": {AllowPublish: true, HistorySize: 8, IdleReap: reap},
+			"flow":    {AllowPublish: true, AllowWildcard: true, IdleReap: reap},
+		},
+	})
+}
+
+func waitChannelCount(t *testing.T, e *Engine, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if e.ChannelCount() == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("ChannelCount = %d, want %d", e.ChannelCount(), want)
+}
+
+func TestIdleReapDrainedHistoryChannel(t *testing.T) {
+	e := New(WithNamespaces(idleReapRegistry(50 * time.Millisecond)))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	e.Subscribe(1, "metrics:cpu")
+	r := e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver)
+	e.Unsubscribe(1, "metrics:cpu")
+
+	if e.ChannelCount() != 1 {
+		t.Fatalf("ChannelCount = %d right after drain, want 1 (history channel survives)", e.ChannelCount())
+	}
+
+	waitChannelCount(t, e, 0)
+
+	if _, ok := e.Recover("metrics:cpu", 0, r.Epoch); ok {
+		t.Fatal("Recover after idle reap must signal full resync")
+	}
+}
+
+func TestIdleReapSkipsSubscribedChannel(t *testing.T) {
+	e := New(WithNamespaces(idleReapRegistry(50 * time.Millisecond)))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	e.Subscribe(1, "metrics:cpu")
+	e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver)
+
+	time.Sleep(250 * time.Millisecond)
+	if e.ChannelCount() != 1 {
+		t.Fatalf("ChannelCount = %d, want 1 (subscribed channel must never be idle reaped)", e.ChannelCount())
+	}
+}
+
+func TestIdleReapPublishResetsClock(t *testing.T) {
+	e := New(WithNamespaces(idleReapRegistry(120 * time.Millisecond)))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	e.Subscribe(1, "metrics:cpu")
+	e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver)
+	e.Unsubscribe(1, "metrics:cpu")
+
+	for range 10 {
+		time.Sleep(40 * time.Millisecond)
+		e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver)
+	}
+	if e.ChannelCount() != 1 {
+		t.Fatalf("ChannelCount = %d while publishing kept the channel active, want 1", e.ChannelCount())
+	}
+
+	waitChannelCount(t, e, 0)
+}
+
+func TestIdleReapMaterializedPatternChannel(t *testing.T) {
+	e := New(WithNamespaces(idleReapRegistry(50 * time.Millisecond)))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	if err := e.SubscribePattern(1, "flow:*"); err != nil {
+		t.Fatalf("SubscribePattern: %v", err)
+	}
+	if r := e.Publish("flow:x", []byte("v"), 0, rec.deliver); r.Delivered != 1 {
+		t.Fatalf("Delivered = %d, want 1", r.Delivered)
+	}
+	if e.ChannelCount() != 1 {
+		t.Fatalf("ChannelCount = %d after materialization, want 1", e.ChannelCount())
+	}
+
+	waitChannelCount(t, e, 0)
+
+	if r := e.Publish("flow:x", []byte("v"), 0, rec.deliver); r.Delivered != 1 {
+		t.Fatalf("Delivered = %d after reap, want 1 (channel rematerializes)", r.Delivered)
+	}
+}
+
 func testRegistry() *namespace.Registry {
 	return namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},

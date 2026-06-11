@@ -244,6 +244,8 @@ func (e *Engine) createChannelLocked(s *Shard, name string, settings namespace.S
 	}
 	ch.maxSubs = settings.MaxSubscribers
 	ch.fanout = settings.Fanout
+	ch.idleReap = settings.IdleReap
+	ch.lastActive.Store(time.Now().UnixNano())
 	s.channels[name] = ch
 	if len(s.channels) > s.peak {
 		s.peak = len(s.channels)
@@ -396,12 +398,18 @@ func (e *Engine) Unsubscribe(id SubscriberID, channelName string) bool {
 	}
 
 	// Channels with history outlive their last subscriber so reconnecting
-	// clients can recover; the TTL sweeper reaps them once drained.
-	if ch.SubscriberCount() == 0 && ch.hist == nil {
-		delete(s.channels, channelName)
-		e.channelCount.Add(-1)
-		s.maybeRebuild()
-		recycleChannel(ch)
+	// clients can recover; the TTL sweeper reaps them once drained. The
+	// idle clock restarts at drain so a busy channel is not reaped the
+	// instant its last subscriber leaves.
+	if ch.SubscriberCount() == 0 {
+		if ch.hist == nil {
+			delete(s.channels, channelName)
+			e.channelCount.Add(-1)
+			s.maybeRebuild()
+			recycleChannel(ch)
+		} else if ch.idleReap > 0 {
+			ch.lastActive.Store(time.Now().UnixNano())
+		}
 	}
 	s.mu.Unlock()
 
@@ -426,11 +434,15 @@ func (e *Engine) UnsubscribeAll(id SubscriberID) {
 				}
 				e.subscriptionCount.Add(-1)
 			}
-			if ch.SubscriberCount() == 0 && ch.hist == nil {
-				delete(s.channels, channelName)
-				e.channelCount.Add(-1)
-				s.maybeRebuild()
-				recycleChannel(ch)
+			if ch.SubscriberCount() == 0 {
+				if ch.hist == nil {
+					delete(s.channels, channelName)
+					e.channelCount.Add(-1)
+					s.maybeRebuild()
+					recycleChannel(ch)
+				} else if ch.idleReap > 0 {
+					ch.lastActive.Store(time.Now().UnixNano())
+				}
 			}
 		}
 		s.mu.Unlock()
@@ -487,9 +499,16 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 
 	var offset uint64
 	if ch.hist != nil {
-		offset = ch.hist.appendNext(&ch.offset, data, time.Now().UnixNano())
+		now := time.Now().UnixNano()
+		offset = ch.hist.appendNext(&ch.offset, data, now)
+		if ch.idleReap > 0 {
+			ch.lastActive.Store(now)
+		}
 	} else {
 		offset = ch.offset.Add(1)
+		if ch.idleReap > 0 {
+			ch.lastActive.Store(time.Now().UnixNano())
+		}
 	}
 	d := Delivery{
 		Channel: channel,
@@ -678,22 +697,26 @@ func (e *Engine) RecoverN(channel string, fromOffset, epoch uint64, max int) ([]
 }
 
 // historySweepInterval derives the sweep cadence from the smallest positive
-// history TTL in play, or zero when no TTL exists and no sweeper is needed.
+// history TTL or idle_reap in play, or zero when neither exists and no
+// sweeper is needed.
 func historySweepInterval(cfg *config) time.Duration {
 	minTTL := time.Duration(0)
-	consider := func(size int, ttl time.Duration) {
-		if size > 0 && ttl > 0 && (minTTL == 0 || ttl < minTTL) {
-			minTTL = ttl
+	consider := func(d time.Duration) {
+		if d > 0 && (minTTL == 0 || d < minTTL) {
+			minTTL = d
 		}
 	}
 	if cfg.namespaces != nil {
 		// Namespaces own channel settings; the engine-wide history config
 		// is ignored by channelSettings and must not spawn a sweeper.
 		for _, s := range cfg.namespaces.All() {
-			consider(s.HistorySize, s.HistoryTTL)
+			if s.HistorySize > 0 {
+				consider(s.HistoryTTL)
+			}
+			consider(s.IdleReap)
 		}
-	} else {
-		consider(cfg.history.size, cfg.history.ttl)
+	} else if cfg.history.size > 0 {
+		consider(cfg.history.ttl)
 	}
 	if minTTL == 0 {
 		return 0
@@ -705,15 +728,27 @@ func historySweepInterval(cfg *config) time.Duration {
 	return interval
 }
 
-// runHistorySweeper trims expired history entries across all shards. One
-// goroutine for the whole engine: per-channel sweep work is a tail trim
-// under a short lock, so a single sweeper scales fine and avoids
-// per-channel timers.
+// runHistorySweeper trims expired history entries across all shards and
+// reaps drained channels: history-bearing ones once their entries expire,
+// idle_reap ones once they sit subscriber-less without a publish past
+// their deadline. One goroutine for the whole engine: per-channel sweep
+// work is a tail trim under a short lock, so a single sweeper scales fine
+// and avoids per-channel timers.
 func (e *Engine) runHistorySweeper(interval time.Duration) {
 	defer close(e.sweepDone)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	reapable := func(ch *Channel, now int64) bool {
+		if ch.SubscriberCount() != 0 {
+			return false
+		}
+		if ch.hist != nil && ch.hist.size() == 0 {
+			return true
+		}
+		return ch.idleReap > 0 && now-ch.lastActive.Load() > int64(ch.idleReap)
+	}
 
 	for {
 		select {
@@ -726,11 +761,10 @@ func (e *Engine) runHistorySweeper(interval time.Duration) {
 				var drained []string
 				s.mu.RLock()
 				for name, ch := range s.channels {
-					if ch.hist == nil {
-						continue
+					if ch.hist != nil {
+						ch.hist.sweep(now)
 					}
-					ch.hist.sweep(now)
-					if ch.SubscriberCount() == 0 && ch.hist.size() == 0 {
+					if reapable(ch, now) {
 						drained = append(drained, name)
 					}
 				}
@@ -742,9 +776,10 @@ func (e *Engine) runHistorySweeper(interval time.Duration) {
 				s.mu.Lock()
 				for _, name := range drained {
 					ch, ok := s.channels[name]
-					if !ok || ch.SubscriberCount() != 0 || ch.hist.size() != 0 {
+					if !ok || !reapable(ch, now) {
 						continue
 					}
+					e.logger.Debug("channel reaped", "channel", name)
 					delete(s.channels, name)
 					e.channelCount.Add(-1)
 					s.maybeRebuild()
