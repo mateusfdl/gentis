@@ -36,7 +36,6 @@ const (
 	ErrorCode_ERROR_CODE_MESSAGE_TOO_LARGE  ErrorCode = 8
 	ErrorCode_ERROR_CODE_SUBSCRIPTION_LIMIT ErrorCode = 9
 	ErrorCode_ERROR_CODE_PERMISSION_DENIED  ErrorCode = 10
-	ErrorCode_ERROR_CODE_RATE_LIMITED       ErrorCode = 11
 )
 
 // Enum value maps for ErrorCode.
@@ -53,7 +52,6 @@ var (
 		8:  "ERROR_CODE_MESSAGE_TOO_LARGE",
 		9:  "ERROR_CODE_SUBSCRIPTION_LIMIT",
 		10: "ERROR_CODE_PERMISSION_DENIED",
-		11: "ERROR_CODE_RATE_LIMITED",
 	}
 	ErrorCode_value = map[string]int32{
 		"ERROR_CODE_UNSPECIFIED":        0,
@@ -67,7 +65,6 @@ var (
 		"ERROR_CODE_MESSAGE_TOO_LARGE":  8,
 		"ERROR_CODE_SUBSCRIPTION_LIMIT": 9,
 		"ERROR_CODE_PERMISSION_DENIED":  10,
-		"ERROR_CODE_RATE_LIMITED":       11,
 	}
 )
 
@@ -1524,7 +1521,7 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\fPongResponse\"S\n" +
 	"\rErrorResponse\x12(\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x14.gentis.v1.ErrorCodeR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage*\x8a\x03\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage*\xed\x02\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aERROR_CODE_UNKNOWN_MESSAGE\x10\x01\x12\x1e\n" +
@@ -1537,8 +1534,7 @@ const file_gentis_v1_gentis_proto_rawDesc = "" +
 	"\x1cERROR_CODE_MESSAGE_TOO_LARGE\x10\b\x12!\n" +
 	"\x1dERROR_CODE_SUBSCRIPTION_LIMIT\x10\t\x12 \n" +
 	"\x1cERROR_CODE_PERMISSION_DENIED\x10\n" +
-	"\x12\x1b\n" +
-	"\x17ERROR_CODE_RATE_LIMITED\x10\v2Q\n" +
+	"2Q\n" +
 	"\rGentisService\x12@\n" +
 	"\x06Stream\x12\x18.gentis.v1.ClientMessage\x1a\x18.gentis.v1.ServerMessage(\x010\x01B8Z6github.com/mateusfdl/gentis/api/gen/gentis/v1;gentisv1b\x06proto3"
 
