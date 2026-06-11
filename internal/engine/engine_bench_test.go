@@ -89,6 +89,61 @@ func BenchmarkPublishParallel(b *testing.B) {
 	}
 }
 
+func BenchmarkPublishParallelWithPatterns(b *testing.B) {
+	for _, numPatterns := range []int{1, 16, 128} {
+		b.Run(fmt.Sprintf("patterns=%d", numPatterns), func(b *testing.B) {
+			e := New()
+			defer e.Stop()
+			for i := 0; i < 10; i++ {
+				e.Subscribe(SubscriberID(i), "bench:hot")
+			}
+			for i := 0; i < numPatterns; i++ {
+				e.SubscribePattern(SubscriberID(1000+i), fmt.Sprintf("bench:p%d*", i))
+			}
+
+			data := []byte("benchmark message payload")
+			deliver := func(id SubscriberID, d Delivery) bool {
+				return true
+			}
+
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					e.Publish("bench:hot", data, 0, deliver)
+				}
+			})
+		})
+	}
+}
+
+func BenchmarkPublishParallelPatternsMultiChannel(b *testing.B) {
+	e := New()
+	defer e.Stop()
+	for i := 0; i < 16; i++ {
+		e.SubscribePattern(SubscriberID(1000+i), fmt.Sprintf("bench:p%d*", i))
+	}
+	channels := make([]string, 64)
+	for i := range channels {
+		channels[i] = fmt.Sprintf("bench:hot%d", i)
+		e.Subscribe(SubscriberID(i), channels[i])
+		e.Publish(channels[i], []byte("warm"), 0, func(SubscriberID, Delivery) bool { return true })
+	}
+
+	data := []byte("benchmark message payload")
+	deliver := func(id SubscriberID, d Delivery) bool {
+		return true
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			e.Publish(channels[i&63], data, 0, deliver)
+			i++
+		}
+	})
+}
+
 func BenchmarkSubscribeParallel(b *testing.B) {
 	e := New()
 

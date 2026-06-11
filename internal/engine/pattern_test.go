@@ -2,6 +2,8 @@ package engine
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/mateusfdl/gentis/internal/namespace"
@@ -225,6 +227,66 @@ func TestPatternChannelReapedAfterLastPatternUnsubscribe(t *testing.T) {
 	e.UnsubscribePattern(1, "metrics:*")
 	if e.ChannelCount() != 0 {
 		t.Fatalf("ChannelCount = %d after last pattern unsubscribe, want 0", e.ChannelCount())
+	}
+}
+
+func TestUnsubscribePatternAfterCachedPublish(t *testing.T) {
+	e := New()
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	if err := e.SubscribePattern(1, "metrics:*"); err != nil {
+		t.Fatalf("SubscribePattern: %v", err)
+	}
+	if r := e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver); r.Delivered != 1 {
+		t.Fatalf("Delivered = %d before unsubscribe, want 1", r.Delivered)
+	}
+
+	e.UnsubscribePattern(1, "metrics:*")
+
+	if r := e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver); r.Delivered != 0 {
+		t.Fatalf("Delivered = %d after unsubscribe on cached channel, want 0", r.Delivered)
+	}
+}
+
+func TestPatternChurnUnderConcurrentPublish(t *testing.T) {
+	e := New()
+	defer e.Stop()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for w := range 4 {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			sink := func(SubscriberID, Delivery) bool { return true }
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				e.Publish(fmt.Sprintf("metrics:cpu%d", (w*8+i)%16), []byte("v"), 0, sink)
+			}
+		}(w)
+	}
+
+	for i := range 200 {
+		id := SubscriberID(i%4 + 1)
+		if err := e.SubscribePattern(id, "metrics:*"); err != nil && !errors.Is(err, ErrAlreadySubscribed) {
+			t.Errorf("SubscribePattern: %v", err)
+		}
+		e.UnsubscribePattern(id, "metrics:*")
+	}
+	close(stop)
+	wg.Wait()
+
+	rec := newDeliveryRecorder()
+	if r := e.Publish("metrics:cpu1", []byte("v"), 0, rec.deliver); r.Delivered != 0 {
+		t.Fatalf("Delivered = %d after churn drained all patterns, want 0", r.Delivered)
+	}
+	if e.TotalSubscriptions() != 0 {
+		t.Fatalf("TotalSubscriptions = %d, want 0", e.TotalSubscriptions())
 	}
 }
 
