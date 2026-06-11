@@ -16,13 +16,25 @@ func TestMatch(t *testing.T) {
 		{"metrics:*", "logs:cpu", false},
 		{"metrics:cpu", "metrics:cpu", true},
 		{"metrics:cpu", "metrics:cpu2", false},
-		{"metrics:cpu?", "metrics:cpu2", true},
-		{"metrics:[ab]", "metrics:a", true},
-		{"metrics:[ab]", "metrics:c", false},
+		{"metrics:cpu?", "metrics:cpu2", false},
+		{"metrics:cpu?", "metrics:cpu?", true},
+		{"metrics:[ab]", "metrics:a", false},
+		{"metrics:[ab]", "metrics:[ab]", true},
+		{"metrics:[", "metrics:[", true},
+		{"chat-*", "chat-a/b", true},
+		{"*-end", "x-end", true},
+		{"*-end", "x-ends", false},
+		{"a*b*c", "aXbYc", true},
+		{"a*b*c", "abc", true},
+		{"a*b*c", "aXc", false},
+		{"a*b", "ab", true},
+		{"a*b", "aXXb", true},
+		{"a*b", "aXbY", false},
 		{"*", "anything", true},
+		{"*", "", true},
+		{"**", "anything", true},
 		{"", "", true},
 		{"", "x", false},
-		{"metrics:[", "metrics:a", false},
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%s_vs_%s", tt.pattern, tt.name), func(t *testing.T) {
@@ -39,8 +51,10 @@ func TestIsPattern(t *testing.T) {
 		want bool
 	}{
 		{"metrics:*", true},
-		{"metrics:cpu?", true},
-		{"metrics:[ab]", true},
+		{"*", true},
+		{"a*b", true},
+		{"metrics:cpu?", false},
+		{"metrics:[ab]", false},
 		{"metrics:cpu", false},
 		{"", false},
 		{"plain", false},
@@ -49,6 +63,29 @@ func TestIsPattern(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := IsPattern(tt.name); got != tt.want {
 				t.Errorf("IsPattern(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasReserved(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"metrics:cpu?", true},
+		{"metrics:[ab]", true},
+		{"metrics:a]b", true},
+		{`metrics:a\b`, true},
+		{"metrics:*", false},
+		{"metrics:cpu", false},
+		{"chat room", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasReserved(tt.name); got != tt.want {
+				t.Errorf("HasReserved(%q) = %v, want %v", tt.name, got, tt.want)
 			}
 		})
 	}

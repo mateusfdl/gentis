@@ -1,11 +1,14 @@
-// Package pattern provides glob matching over channel names and a
-// concurrency-safe lookup cache with random partial eviction. Shared by
-// the relay router (channel routing) and the engine (wildcard
-// subscriptions).
+// Package pattern provides star-only wildcard matching over channel names
+// and a concurrency-safe lookup cache with random partial eviction. Shared
+// by the relay router (channel routing) and the engine (wildcard
+// subscriptions). The grammar has one metacharacter: * matches any
+// sequence of bytes, including the empty one. The characters ? [ ] \ are
+// reserved so the grammar can never silently diverge from the auth claim
+// grammar (exact or trailing-star), which would turn a literal claim into
+// a wildcard grant.
 package pattern
 
 import (
-	"path"
 	"strings"
 	"sync"
 )
@@ -16,17 +19,44 @@ import (
 // and recompute simultaneously).
 const evictRatio = 4
 
-// Match reports whether the glob pattern matches the name. A malformed
-// pattern matches nothing.
+// Match reports whether the pattern matches the name. Greedy two-pointer
+// star matching: on mismatch it backtracks to the last star and retries
+// with the star consuming one more byte.
 func Match(pattern, name string) bool {
-	matched, _ := path.Match(pattern, name)
-	return matched
+	star, mark := -1, 0
+	i, j := 0, 0
+	for j < len(name) {
+		switch {
+		case i < len(pattern) && pattern[i] == '*':
+			star, mark = i, j
+			i++
+		case i < len(pattern) && pattern[i] == name[j]:
+			i++
+			j++
+		case star >= 0:
+			mark++
+			i, j = star+1, mark
+		default:
+			return false
+		}
+	}
+	for i < len(pattern) && pattern[i] == '*' {
+		i++
+	}
+	return i == len(pattern)
 }
 
-// IsPattern reports whether the string contains glob metacharacters and
-// must be treated as a pattern rather than a literal channel name.
+// IsPattern reports whether the string contains a star and must be
+// treated as a pattern rather than a literal channel name.
 func IsPattern(s string) bool {
-	return strings.ContainsAny(s, "*?[")
+	return strings.ContainsRune(s, '*')
+}
+
+// HasReserved reports whether the string contains a reserved
+// metacharacter. Reserved characters are rejected in channel names,
+// patterns, and auth claims alike.
+func HasReserved(s string) bool {
+	return strings.ContainsAny(s, `?[]\`)
 }
 
 // Cache memoizes pattern resolution results keyed by channel name. When

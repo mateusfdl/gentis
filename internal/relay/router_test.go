@@ -145,18 +145,18 @@ func TestRouterConcurrentRoute(t *testing.T) {
 	wg.Wait()
 }
 
-func TestRouterQuestionMarkGlob(t *testing.T) {
+func TestRouterQuestionMarkIsLiteral(t *testing.T) {
 	r := NewRouter([]ChannelPattern{
 		{Pattern: "ch?", Mode: RouteModeLocal},
 	})
 
-	result := r.Route("ch1")
+	result := r.Route("ch?")
 	if result.Mode != RouteModeLocal {
-		t.Errorf("expected RouteModeLocal for 'ch1', got %d", result.Mode)
+		t.Errorf("expected RouteModeLocal for literal 'ch?', got %d", result.Mode)
 	}
 
-	result = r.Route("ch12")
+	result = r.Route("ch1")
 	if result.Mode != RouteModeRelay {
-		t.Errorf("expected RouteModeRelay for 'ch12' (too long), got %d", result.Mode)
+		t.Errorf("expected RouteModeRelay for 'ch1' (? is not a wildcard), got %d", result.Mode)
 	}
 }
