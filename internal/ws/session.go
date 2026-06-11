@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -20,6 +21,8 @@ type Session struct {
 	engine      *engine.Engine
 	store       *transport.SessionStore
 	server      *Server
+	logger      *slog.Logger
+	deliverFn   engine.DeliveryFunc
 	ctx         context.Context
 	cancel      context.CancelFunc
 	expiryTimer *time.Timer
@@ -76,8 +79,10 @@ func (s *Server) createSession() *Session {
 		ctx:    ctx,
 		cancel: cancel,
 	}
+	sess.logger = s.logger.With("session_id", id)
+	sess.deliverFn = s.store.Deliver
 	sess.lastRecv.Store(time.Now().UnixNano())
-	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, s.logger.With("session_id", id))
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, sess.logger)
 	if d := s.config.AuthDeadline; d > 0 {
 		sess.authTimer = time.AfterFunc(d, func() {
 			if sess.state.IsAuthenticated() {

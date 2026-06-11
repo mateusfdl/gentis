@@ -3,6 +3,8 @@ package ws
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net"
 	"time"
 
@@ -11,24 +13,76 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/auth"
 	"github.com/mateusfdl/gentis/internal/engine"
-	"github.com/mateusfdl/gentis/internal/qos"
+	"github.com/mateusfdl/gentis/internal/protocol"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
-// Session implements MessageHandler so it can be used with DispatchMessage.
-func (s *Session) ID() int                               { return s.id }
-func (s *Session) State() transport.SessionState         { return s.state }
-func (s *Session) Engine() *engine.Engine                { return s.engine }
-func (s *Session) Store() *transport.SessionStore        { return s.store }
-func (s *Session) Verifier() auth.Verifier               { return s.server.config.Verifier }
-func (s *Session) Subject() string                       { return s.state.Subject() }
-func (s *Session) MaxMessageSize() int                   { return s.server.config.MaxMessageSize }
-func (s *Session) MaxSubscriptions() int                 { return s.server.config.MaxSubscriptions }
-func (s *Session) Deliver(d engine.Delivery)             { s.DeliverMessage(d) }
-func (s *Session) Consumer() *qos.Consumer               { return s.qosc }
-func (s *Session) SetProtocolVersion(v uint32)           { s.protoVersion.Store(v) }
-func (s *Session) Send(msg *ServerMessage)               { s.send(msg) }
-func (s *Session) SendError(code, message, reqID string) { s.sendError(code, message, reqID) }
+// Session implements protocol.Session so the shared core can drive it.
+func (s *Session) State() transport.SessionState     { return s.state }
+func (s *Session) Engine() protocol.Engine           { return s.engine }
+func (s *Session) QoS() protocol.Consumer            { return s.qosc }
+func (s *Session) SubscriberID() engine.SubscriberID { return engine.SubscriberID(s.id) }
+func (s *Session) Verifier() auth.Verifier           { return s.server.config.Verifier }
+func (s *Session) Logger() *slog.Logger              { return s.logger }
+func (s *Session) MaxMessageSize() int               { return s.server.config.MaxMessageSize }
+func (s *Session) MaxSubscriptions() int             { return s.server.config.MaxSubscriptions }
+func (s *Session) DeliverFunc() engine.DeliveryFunc  { return s.deliverFn }
+func (s *Session) SetProtocolVersion(v uint32)       { s.protoVersion.Store(v) }
+func (s *Session) Hooks() *protocol.Hooks            { return nil }
+
+func (s *Session) SendError(code protocol.ErrorCode, message, reqID string) {
+	s.sendError(wsErrorCode(code), message, reqID)
+}
+
+func (s *Session) SendConnected(reqID string, version uint32) {
+	s.send(&ServerMessage{
+		ID: reqID,
+		Connected: &ConnectedResponse{
+			ConnectionID:    fmt.Sprintf("ws-conn-%d", s.id),
+			ProtocolVersion: version,
+		},
+	})
+}
+
+func (s *Session) SendRefreshed(reqID string, expiresAt uint64) {
+	s.send(&ServerMessage{
+		ID:        reqID,
+		Refreshed: &RefreshResponse{ExpiresAt: expiresAt},
+	})
+}
+
+func (s *Session) SendSubscribed(reqID, channel string, recovered, didRecover bool) {
+	resp := &SubscribedResponse{Channel: channel}
+	if didRecover {
+		r := recovered
+		resp.Recovered = &r
+	}
+	s.send(&ServerMessage{ID: reqID, Subscribed: resp})
+}
+
+func (s *Session) SendUnsubscribed(reqID, channel string) {
+	s.send(&ServerMessage{
+		ID:           reqID,
+		Unsubscribed: &UnsubscribedResponse{Channel: channel},
+	})
+}
+
+func (s *Session) SendPublished(reqID, channel string, r engine.PublishResult) {
+	s.send(&ServerMessage{
+		ID: reqID,
+		Published: &PublishResponse{
+			Channel:   channel,
+			Offset:    r.Offset,
+			Epoch:     r.Epoch,
+			Delivered: uint32(r.Delivered),
+			Dropped:   uint32(r.Dropped),
+		},
+	})
+}
+
+func (s *Session) SendPong(reqID string) {
+	s.send(&ServerMessage{ID: reqID, Pong: &PongResponse{}})
+}
 
 // ScheduleExpiry arms (or re-arms) the timer that force-closes the session
 // when its credentials lapse. Only the dispatch goroutine calls this, so no
@@ -47,7 +101,7 @@ func (s *Session) ScheduleExpiry(exp time.Time) {
 	})
 }
 
-var _ MessageHandler = (*Session)(nil)
+var _ protocol.Session = (*Session)(nil)
 
 // liveConn stamps the session's lastRecv on every successful read. Any
 // inbound bytes (data, pong replies, close frames) count as liveness, so

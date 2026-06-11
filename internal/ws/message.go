@@ -15,6 +15,7 @@ const (
 	ErrorCodeMessageTooLarge   = "MESSAGE_TOO_LARGE"
 	ErrorCodeSubscriptionLimit = "SUBSCRIPTION_LIMIT"
 	ErrorCodeChannelNotFound   = "CHANNEL_NOT_FOUND"
+	ErrorCodeInternal          = "INTERNAL"
 )
 
 type ClientMessage struct {
