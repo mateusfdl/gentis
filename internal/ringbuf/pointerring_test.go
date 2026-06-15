@@ -21,7 +21,7 @@ func TestNewPointer(t *testing.T) {
 }
 
 func TestNewPointerInvalid(t *testing.T) {
-	for _, cap := range []int{0, -1, 3, 5, 7, 10} {
+	for _, cap := range []int{0, -1, 1, 3, 5, 7, 10} {
 		_, err := NewPointer[int](cap)
 		if err != ErrCapacity {
 			t.Fatalf("NewPointer(%d) err = %v, want ErrCapacity", cap, err)
@@ -97,7 +97,7 @@ func TestPointerRingWraparound(t *testing.T) {
 }
 
 func TestPointerRingClearsConsumedSlot(t *testing.T) {
-	r, _ := NewPointer[int](1)
+	r, _ := NewPointer[int](2)
 	v := 42
 
 	if !r.TryProduce(&v) {

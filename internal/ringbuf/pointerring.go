@@ -8,7 +8,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/cacheline"
 )
 
-var ErrCapacity = errors.New("ringbuf: capacity must be a positive power of 2")
+var ErrCapacity = errors.New("ringbuf: capacity must be a power of 2 and at least 2")
 
 type pointerSlot[T any] struct {
 	seq atomic.Uint64
@@ -28,7 +28,7 @@ type PointerRing[T any] struct {
 }
 
 func NewPointer[T any](capacity int) (*PointerRing[T], error) {
-	if capacity <= 0 || capacity&(capacity-1) != 0 {
+	if capacity < 2 || capacity&(capacity-1) != 0 {
 		return nil, ErrCapacity
 	}
 

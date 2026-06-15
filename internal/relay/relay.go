@@ -29,8 +29,8 @@ import (
 )
 
 func sendRingCap(bufferSize int) int {
-	if bufferSize < 1 {
-		return 1
+	if bufferSize < 2 {
+		return 2
 	}
 	c := 1
 	for c < bufferSize {

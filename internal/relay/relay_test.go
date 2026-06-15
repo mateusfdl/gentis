@@ -1594,3 +1594,27 @@ func TestRelayRecoverOnSubscribe(t *testing.T) {
 		}
 	}
 }
+
+func TestSendRingCapFloorsToMinimum(t *testing.T) {
+	cases := []struct {
+		bufferSize int
+		want       int
+	}{
+		{bufferSize: -1, want: 2},
+		{bufferSize: 0, want: 2},
+		{bufferSize: 1, want: 2},
+		{bufferSize: 2, want: 2},
+		{bufferSize: 3, want: 4},
+		{bufferSize: 256, want: 256},
+		{bufferSize: 257, want: 512},
+	}
+	for _, tc := range cases {
+		got := sendRingCap(tc.bufferSize)
+		if got != tc.want {
+			t.Fatalf("sendRingCap(%d) = %d, want %d", tc.bufferSize, got, tc.want)
+		}
+		if _, err := ringbuf.NewPointer[gentisv1.ServerMessage](got); err != nil {
+			t.Fatalf("sendRingCap(%d) produced unusable capacity %d: %v", tc.bufferSize, got, err)
+		}
+	}
+}
