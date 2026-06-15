@@ -119,6 +119,18 @@ func TestWindowAdmitRebaselinesOnEpochChange(t *testing.T) {
 	}
 }
 
+func TestWindowAdmitRejectsZeroOffset(t *testing.T) {
+	w := NewWindow(10, 1000, time.Second, 2)
+
+	if v := w.Admit(0, 7, 10, 0, sendOK); v != Dup {
+		t.Fatalf("Admit(0) = %v, want Dup (a zero offset must not underflow the baseline cursor)", v)
+	}
+
+	if v := w.Admit(1, 7, 10, 0, sendOK); v != Admitted {
+		t.Fatalf("Admit(1) after rejected zero offset = %v, want Admitted (cursor not wedged)", v)
+	}
+}
+
 func TestWindowConfirmFreesBudget(t *testing.T) {
 	w := NewWindow(2, 1000, time.Second, 2)
 	admitN(t, w, 1, 2, 10, 0)

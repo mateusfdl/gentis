@@ -85,6 +85,10 @@ func (w *Window) Admit(offset, epoch uint64, size int, now int64, send func() bo
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	if offset == 0 {
+		return Dup
+	}
+
 	if !w.baselined {
 		w.baselined = true
 		w.epoch = epoch
