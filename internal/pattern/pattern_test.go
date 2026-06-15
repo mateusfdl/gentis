@@ -114,11 +114,8 @@ func TestCacheEviction(t *testing.T) {
 		c.Set(fmt.Sprintf("key-%d", i), i)
 	}
 
-	if c.Len() > 8 {
-		t.Errorf("cache size %d exceeds max 8", c.Len())
-	}
-	if c.Len() < 5 {
-		t.Errorf("cache size %d, eviction removed more than ~25%%", c.Len())
+	if got := c.Len(); got != 7 {
+		t.Errorf("cache size = %d, want 7 (fill 8, then one insert evicts 8/4=2)", got)
 	}
 }
 
