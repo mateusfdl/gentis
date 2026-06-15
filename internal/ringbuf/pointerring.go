@@ -10,6 +10,8 @@ import (
 
 var ErrCapacity = errors.New("ringbuf: capacity must be a power of 2 and at least 2")
 
+const spinsBeforeYield = 16
+
 type pointerSlot[T any] struct {
 	seq atomic.Uint64
 	ptr atomic.Pointer[T]
@@ -50,6 +52,7 @@ func (r *PointerRing[T]) TryProduce(v *T) bool {
 		return false
 	}
 
+	spins := 0
 	for {
 		pos := r.head.Load()
 		slot := &r.slots[pos&r.mask]
@@ -65,7 +68,12 @@ func (r *PointerRing[T]) TryProduce(v *T) bool {
 		} else if diff < 0 {
 			return false
 		}
-		runtime.Gosched()
+
+		spins++
+		if spins >= spinsBeforeYield {
+			spins = 0
+			runtime.Gosched()
+		}
 	}
 }
 
