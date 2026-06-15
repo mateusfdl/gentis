@@ -16,11 +16,12 @@ import (
 )
 
 var (
-	ErrMalformedToken = errors.New("auth: malformed token")
-	ErrUnsupportedAlg = errors.New("auth: unsupported algorithm")
-	ErrBadSignature   = errors.New("auth: bad signature")
-	ErrInvalidClaims  = errors.New("auth: invalid claims")
-	ErrTokenExpired   = errors.New("auth: token expired")
+	ErrMalformedToken   = errors.New("auth: malformed token")
+	ErrUnsupportedAlg   = errors.New("auth: unsupported algorithm")
+	ErrBadSignature     = errors.New("auth: bad signature")
+	ErrInvalidClaims    = errors.New("auth: invalid claims")
+	ErrTokenExpired     = errors.New("auth: token expired")
+	ErrTokenNotYetValid = errors.New("auth: token not yet valid")
 )
 
 // Claims is the verified identity of a session. A nil allowlist grants
@@ -109,6 +110,7 @@ type headerJSON struct {
 type claimsJSON struct {
 	Sub      string   `json:"sub"`
 	Exp      int64    `json:"exp"`
+	Nbf      int64    `json:"nbf,omitempty"`
 	Channels []string `json:"channels"`
 	Pub      []string `json:"pub"`
 }
@@ -175,6 +177,9 @@ func (v *HMACVerifier) Verify(token string) (Claims, error) {
 		ExpiresAt: time.Unix(payload.Exp, 0),
 		Channels:  payload.Channels,
 		Pub:       payload.Pub,
+	}
+	if payload.Nbf > 0 && v.now().Before(time.Unix(payload.Nbf, 0)) {
+		return Claims{}, ErrTokenNotYetValid
 	}
 	if !claims.ExpiresAt.After(v.now()) {
 		return Claims{}, ErrTokenExpired

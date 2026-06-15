@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -198,11 +199,39 @@ func TestVerifyErrors(t *testing.T) {
 			token:   SignHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow}),
 			wantErr: ErrTokenExpired,
 		},
+		{
+			name:    "not yet valid",
+			token:   signRaw(testSecret, `{"alg":"HS256","typ":"JWT"}`, `{"sub":"u","exp":1700003600,"nbf":1700007200}`),
+			wantErr: ErrTokenNotYetValid,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := newTestVerifier().Verify(tt.token)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Verify() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestVerifyNotBefore(t *testing.T) {
+	tests := []struct {
+		name    string
+		nbf     int64
+		wantErr error
+	}{
+		{"nbf in the future is rejected", testNow.Add(time.Hour).Unix(), ErrTokenNotYetValid},
+		{"nbf exactly now is accepted", testNow.Unix(), nil},
+		{"nbf in the past is accepted", testNow.Add(-time.Hour).Unix(), nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := fmt.Sprintf(`{"sub":"u","exp":%d,"nbf":%d}`, testNow.Add(time.Hour).Unix(), tt.nbf)
+			token := signRaw(testSecret, `{"alg":"HS256","typ":"JWT"}`, payload)
+			_, err := newTestVerifier().Verify(token)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Verify() error = %v, want %v", err, tt.wantErr)
 			}
