@@ -1,0 +1,3 @@
+default:
+  allow_wildcard: true
+  fanout_mode: round_robin

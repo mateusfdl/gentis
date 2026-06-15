@@ -422,6 +422,59 @@ func TestLoadFileRejectsHistoryTTLWithoutSize(t *testing.T) {
 	}
 }
 
+func TestRegistryAllIncludesDefault(t *testing.T) {
+	def := Settings{AllowPublish: true, HistorySize: 16}
+	chat := Settings{AllowPublish: true, HistorySize: 8}
+	feed := Settings{AllowPublish: false}
+	reg, err := NewRegistry(Config{
+		Default:    def,
+		Namespaces: map[string]Settings{"chat": chat, "feed": feed},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+
+	all := reg.All()
+	if len(all) != 3 {
+		t.Fatalf("All() returned %d settings, want 3 (2 namespaces + default)", len(all))
+	}
+	counts := map[Settings]int{}
+	for _, s := range all {
+		counts[s]++
+	}
+	for _, want := range []Settings{def, chat, feed} {
+		if counts[want] != 1 {
+			t.Errorf("All() has %d copies of %+v, want 1", counts[want], want)
+		}
+	}
+}
+
+func TestLoadFileRejectsEmptyNamespaceName(t *testing.T) {
+	_, err := LoadFile("testdata/empty_namespace_name.yaml")
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("empty namespace name: err = %v, want ErrInvalidConfig", err)
+	}
+	if !strings.Contains(err.Error(), "empty namespace name") {
+		t.Errorf("error should name the condition, got: %v", err)
+	}
+}
+
+func TestLoadFileRejectsColonInNamespaceName(t *testing.T) {
+	_, err := LoadFile("testdata/colon_in_name.yaml")
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("colon in namespace name: err = %v, want ErrInvalidConfig", err)
+	}
+	if !strings.Contains(err.Error(), "must not contain") {
+		t.Errorf("error should name the condition, got: %v", err)
+	}
+}
+
+func TestLoadFileValidatesDefaultBlock(t *testing.T) {
+	if _, err := LoadFile("testdata/default_bad_wildcard.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid default block (allow_wildcard + round_robin): err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestLoadFileEmptyConfigYieldsDefaults(t *testing.T) {
 	reg, err := LoadFile("testdata/empty.yaml")
 	if err != nil {

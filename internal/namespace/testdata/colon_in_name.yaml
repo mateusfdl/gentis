@@ -1,0 +1,3 @@
+namespaces:
+  "chat:v2":
+    history_size: 5
