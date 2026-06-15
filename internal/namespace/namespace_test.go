@@ -382,6 +382,15 @@ func TestLoadFileAllowsZeroRedeliveryTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadFileRejectsRedeliveryWithoutAtLeastOnce(t *testing.T) {
+	if _, err := LoadFile("testdata/redelivery_without_qos.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("redelivery_timeout on at-most-once: err = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := LoadFile("testdata/max_redeliveries_without_qos.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("max_redeliveries on at-most-once: err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestLoadFileEmptyConfigYieldsDefaults(t *testing.T) {
 	reg, err := LoadFile("testdata/empty.yaml")
 	if err != nil {

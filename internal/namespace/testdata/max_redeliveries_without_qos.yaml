@@ -1,0 +1,3 @@
+namespaces:
+  jobs:
+    max_redeliveries: 7

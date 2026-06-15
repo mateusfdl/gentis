@@ -132,6 +132,9 @@ func (s Settings) validate(name string) error {
 	if s.QoS == AtLeastOnce && s.HistorySize <= 0 {
 		return fmt.Errorf("%w: namespace %q at-least-once qos requires history_size > 0", ErrInvalidConfig, name)
 	}
+	if s.QoS != AtLeastOnce && (s.RedeliveryTimeout > 0 || s.MaxRedeliveries > 0) {
+		return fmt.Errorf("%w: namespace %q redelivery_timeout and max_redeliveries require at-least-once qos", ErrInvalidConfig, name)
+	}
 	return nil
 }
 
