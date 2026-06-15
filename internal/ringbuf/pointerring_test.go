@@ -111,6 +111,42 @@ func TestPointerRingClearsConsumedSlot(t *testing.T) {
 	}
 }
 
+func TestPointerRingLenRaceFree(t *testing.T) {
+	const n = 10000
+	r, _ := NewPointer[int](1024)
+	done := make(chan struct{})
+
+	go func() {
+		for i := range n {
+			v := i
+			for !r.TryProduce(&v) {
+				runtime.Gosched()
+			}
+		}
+	}()
+
+	go func() {
+		consumed := 0
+		for consumed < n {
+			if _, ok := r.TryConsume(); ok {
+				consumed++
+			} else {
+				runtime.Gosched()
+			}
+		}
+		close(done)
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			_ = r.Len()
+		}
+	}
+}
+
 func TestPointerRingMPSC(t *testing.T) {
 	const (
 		producers   = 100

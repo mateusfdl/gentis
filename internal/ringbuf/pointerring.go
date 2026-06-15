@@ -19,7 +19,7 @@ type PointerRing[T any] struct {
 	head atomic.Uint64
 	_    [cacheline.Size - 8]byte
 
-	tail uint64
+	tail atomic.Uint64
 	_    [cacheline.Size - 8]byte
 
 	mask  uint64
@@ -70,7 +70,7 @@ func (r *PointerRing[T]) TryProduce(v *T) bool {
 }
 
 func (r *PointerRing[T]) TryConsume() (*T, bool) {
-	pos := r.tail
+	pos := r.tail.Load()
 	slot := &r.slots[pos&r.mask]
 	seq := slot.seq.Load()
 
@@ -81,14 +81,14 @@ func (r *PointerRing[T]) TryConsume() (*T, bool) {
 	v := slot.ptr.Load()
 	slot.ptr.Store(nil)
 	slot.seq.Store(pos + r.cap)
-	r.tail = pos + 1
+	r.tail.Store(pos + 1)
 
 	return v, true
 }
 
 func (r *PointerRing[T]) Len() int {
 	head := r.head.Load()
-	return int(head - r.tail)
+	return int(head - r.tail.Load())
 }
 
 func (r *PointerRing[T]) Cap() int {
