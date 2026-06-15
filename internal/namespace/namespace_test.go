@@ -9,23 +9,24 @@ import (
 
 func TestSplit(t *testing.T) {
 	tests := []struct {
-		name     string
-		channel  string
-		wantNS   string
-		wantRest string
+		name      string
+		channel   string
+		wantNS    string
+		wantRest  string
+		wantFound bool
 	}{
-		{name: "no prefix is default namespace", channel: "orders", wantNS: "", wantRest: "orders"},
-		{name: "prefixed channel", channel: "chat:room-1", wantNS: "chat", wantRest: "room-1"},
-		{name: "only first colon splits", channel: "chat:room:1", wantNS: "chat", wantRest: "room:1"},
-		{name: "empty namespace prefix", channel: ":weird", wantNS: "", wantRest: "weird"},
-		{name: "empty rest", channel: "chat:", wantNS: "chat", wantRest: ""},
+		{name: "no prefix is default namespace", channel: "orders", wantNS: "", wantRest: "orders", wantFound: false},
+		{name: "prefixed channel", channel: "chat:room-1", wantNS: "chat", wantRest: "room-1", wantFound: true},
+		{name: "only first colon splits", channel: "chat:room:1", wantNS: "chat", wantRest: "room:1", wantFound: true},
+		{name: "empty namespace prefix", channel: ":weird", wantNS: "", wantRest: "weird", wantFound: true},
+		{name: "empty rest", channel: "chat:", wantNS: "chat", wantRest: "", wantFound: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ns, rest := Split(tt.channel)
-			if ns != tt.wantNS || rest != tt.wantRest {
-				t.Errorf("Split(%q) = (%q, %q), want (%q, %q)", tt.channel, ns, rest, tt.wantNS, tt.wantRest)
+			ns, rest, found := Split(tt.channel)
+			if ns != tt.wantNS || rest != tt.wantRest || found != tt.wantFound {
+				t.Errorf("Split(%q) = (%q, %q, %v), want (%q, %q, %v)", tt.channel, ns, rest, found, tt.wantNS, tt.wantRest, tt.wantFound)
 			}
 		})
 	}
@@ -131,6 +132,30 @@ func TestNewRegistryCopiesNamespaceMap(t *testing.T) {
 	got, ok := reg.Resolve("chat:x")
 	if !ok || got.HistorySize != 1 {
 		t.Fatalf("Resolve(chat:x) = (%+v, %v), want HistorySize 1: caller's map mutation must not reach the Registry", got, ok)
+	}
+}
+
+func TestResolveStrictRejectsEmptyNamespacePrefix(t *testing.T) {
+	reg, err := NewRegistry(Config{
+		Default:    Settings{AllowPublish: true},
+		Namespaces: map[string]Settings{"chat": {AllowPublish: true}},
+		Strict:     true,
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+
+	for _, ch := range []string{":secret", "::admin", ":"} {
+		if _, ok := reg.Resolve(ch); ok {
+			t.Errorf("strict Resolve(%q) ok = true, want false: an empty namespace prefix must not reach default", ch)
+		}
+	}
+
+	if _, ok := reg.Resolve("orders"); !ok {
+		t.Error("strict Resolve(orders) ok = false, want true: an unprefixed channel still resolves to default")
+	}
+	if _, ok := reg.Resolve("chat:room"); !ok {
+		t.Error("strict Resolve(chat:room) ok = false, want true: a known namespace still resolves")
 	}
 }
 

@@ -181,7 +181,7 @@ func (e *Engine) SubscribePriority(id SubscriberID, channelName string, prio int
 // against the same subscription accounting as exact ones.
 func (e *Engine) SubscribePattern(id SubscriberID, pat string) error {
 	if e.config.namespaces != nil {
-		ns, _ := namespace.Split(pat)
+		ns, _, _ := namespace.Split(pat)
 		if pattern.IsPattern(ns) {
 			return ErrWildcardDenied
 		}

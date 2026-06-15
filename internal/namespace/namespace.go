@@ -153,20 +153,28 @@ func (r *Registry) All() []Settings {
 }
 
 // Split separates a channel name into its namespace prefix and remainder.
+// found reports whether a ':' separator was present, which distinguishes an
+// unprefixed channel ("orders") from one with an empty prefix (":weird").
 // Substring slicing only, no allocation.
-func Split(channel string) (ns, rest string) {
-	if idx := strings.IndexByte(channel, ':'); idx >= 0 {
-		return channel[:idx], channel[idx+1:]
+func Split(channel string) (ns, rest string, found bool) {
+	before, after, found := strings.Cut(channel, ":")
+	if !found {
+		return "", channel, false
 	}
-	return "", channel
+	return before, after, true
 }
 
 // Resolve returns the settings governing the channel. ok is false only for
 // an unknown namespace under strict mode; lenient registries fall through
-// to the default settings.
+// to the default settings. A channel with an empty namespace prefix (a
+// leading ':') is not an unprefixed channel: under strict mode it is an
+// unknown namespace, not the default.
 func (r *Registry) Resolve(channel string) (Settings, bool) {
-	ns, _ := Split(channel)
+	ns, _, found := Split(channel)
 	if ns == "" {
+		if found && r.strict {
+			return Settings{}, false
+		}
 		return r.def, true
 	}
 	if s, ok := r.namespaces[ns]; ok {
