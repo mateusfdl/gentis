@@ -64,6 +64,9 @@ func matchPattern(pattern, channel string) bool {
 // would let a claim the matcher treats literally act as a wildcard once
 // it reaches the engine's pattern grammar.
 func validEntry(entry string) bool {
+	if entry == "" {
+		return false
+	}
 	if pattern.HasReserved(entry) {
 		return false
 	}

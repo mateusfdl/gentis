@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -77,13 +78,19 @@ func TestVerifyRejectsReservedClaimGrammar(t *testing.T) {
 		{"double star in channels", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Channels: []string{"ab**"}}},
 		{"mid star in pub", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Pub: []string{"a*b"}}},
 		{"question mark in pub", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Pub: []string{"cpu?"}}},
+		{"empty entry in channels", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Channels: []string{""}}},
+		{"empty entry in pub", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Pub: []string{""}}},
+		{"empty entry among valid channels", Claims{Subject: "u", ExpiresAt: testNow.Add(time.Hour), Channels: []string{"news", ""}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			token := SignHS256(testSecret, tt.claims)
-			_, err := newTestVerifier().Verify(token)
+			got, err := newTestVerifier().Verify(token)
 			if !errors.Is(err, ErrInvalidClaims) {
 				t.Errorf("Verify() error = %v, want ErrInvalidClaims", err)
+			}
+			if !reflect.DeepEqual(got, Claims{}) {
+				t.Errorf("Verify() claims = %+v, want zero value", got)
 			}
 		})
 	}
