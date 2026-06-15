@@ -1428,7 +1428,7 @@ func TestRelayQoSConfirmFlow(t *testing.T) {
 	upstreamAddr, stopUpstream := startUpstream(t)
 	defer stopUpstream()
 
-	reg := namespace.NewRegistry(namespace.Config{
+	reg, regErr := namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"jobs": {
@@ -1440,6 +1440,9 @@ func TestRelayQoSConfirmFlow(t *testing.T) {
 			},
 		},
 	})
+	if regErr != nil {
+		t.Fatalf("NewRegistry: %v", regErr)
+	}
 	eng := engine.New(engine.WithNamespaces(reg))
 	defer eng.Stop()
 

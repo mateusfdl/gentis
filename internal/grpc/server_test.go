@@ -1634,13 +1634,16 @@ func TestSubscribeWithRecoveryEpochMismatch(t *testing.T) {
 }
 
 func TestNamespacePolicies(t *testing.T) {
-	reg := namespace.NewRegistry(namespace.Config{
+	reg, regErr := namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"feed": {AllowPublish: false},
 		},
 		Strict: true,
 	})
+	if regErr != nil {
+		t.Fatalf("NewRegistry: %v", regErr)
+	}
 	eng := engine.New(engine.WithNamespaces(reg))
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1689,7 +1692,7 @@ func TestNamespacePolicies(t *testing.T) {
 }
 
 func TestQoSSlowConsumerNoDrops(t *testing.T) {
-	reg := namespace.NewRegistry(namespace.Config{
+	reg, regErr := namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"jobs": {
@@ -1702,6 +1705,9 @@ func TestQoSSlowConsumerNoDrops(t *testing.T) {
 		},
 		Strict: false,
 	})
+	if regErr != nil {
+		t.Fatalf("NewRegistry: %v", regErr)
+	}
 	eng := engine.New(engine.WithNamespaces(reg))
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")

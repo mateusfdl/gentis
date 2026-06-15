@@ -926,14 +926,21 @@ func TestSweeperReapsDrainedEmptyChannels(t *testing.T) {
 	t.Fatalf("drained empty channel never reaped, channels = %d", e.Stats().Channels)
 }
 
+func mustRegistry(reg *namespace.Registry, err error) *namespace.Registry {
+	if err != nil {
+		panic(err)
+	}
+	return reg
+}
+
 func idleReapRegistry(reap time.Duration) *namespace.Registry {
-	return namespace.NewRegistry(namespace.Config{
+	return mustRegistry(namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"metrics": {AllowPublish: true, HistorySize: 8, IdleReap: reap},
 			"flow":    {AllowPublish: true, AllowWildcard: true, IdleReap: reap},
 		},
-	})
+	}))
 }
 
 func waitChannelCount(t *testing.T, e *Engine, want int) {
@@ -1025,7 +1032,7 @@ func TestIdleReapMaterializedPatternChannel(t *testing.T) {
 }
 
 func testRegistry() *namespace.Registry {
-	return namespace.NewRegistry(namespace.Config{
+	return mustRegistry(namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"chat": {HistorySize: 8, AllowPublish: true},
@@ -1033,7 +1040,7 @@ func testRegistry() *namespace.Registry {
 			"tiny": {AllowPublish: true, MaxSubscribers: 2},
 		},
 		Strict: true,
-	})
+	}))
 }
 
 func TestSubscribeUnknownNamespace(t *testing.T) {
@@ -1127,13 +1134,13 @@ func TestCheckPublishWithoutRegistry(t *testing.T) {
 }
 
 func fanoutRegistry() *namespace.Registry {
-	return namespace.NewRegistry(namespace.Config{
+	return mustRegistry(namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"tasks":  {AllowPublish: true, Fanout: namespace.RoundRobin},
 			"alerts": {AllowPublish: true, Fanout: namespace.Priority},
 		},
-	})
+	}))
 }
 
 type deliveryRecorder struct {
@@ -1326,9 +1333,9 @@ func TestPriorityHigherJoinerTakesOver(t *testing.T) {
 }
 
 func TestHistorySweepIntervalIgnoresEngineHistoryUnderNamespaces(t *testing.T) {
-	reg := namespace.NewRegistry(namespace.Config{
+	reg := mustRegistry(namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
-	})
+	}))
 	cfg := defaultConfig()
 	WithHistory(8, 10*time.Millisecond)(cfg)
 	WithNamespaces(reg)(cfg)

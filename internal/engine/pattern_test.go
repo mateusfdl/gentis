@@ -10,13 +10,13 @@ import (
 )
 
 func wildcardRegistry() *namespace.Registry {
-	return namespace.NewRegistry(namespace.Config{
+	return mustRegistry(namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"metrics": {AllowPublish: true, AllowWildcard: true},
 			"logs":    {AllowPublish: true},
 		},
-	})
+	}))
 }
 
 func TestSubscribePatternDeliversMatchingPublish(t *testing.T) {
@@ -197,10 +197,10 @@ func TestSubscribePatternWildcardNamespaceDenied(t *testing.T) {
 }
 
 func TestSubscribePatternStrictUnknownNamespace(t *testing.T) {
-	reg := namespace.NewRegistry(namespace.Config{
+	reg := mustRegistry(namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Strict:  true,
-	})
+	}))
 	e := New(WithNamespaces(reg))
 	defer e.Stop()
 

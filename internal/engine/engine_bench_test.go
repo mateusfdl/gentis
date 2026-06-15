@@ -294,9 +294,9 @@ func BenchmarkShardDistribution(b *testing.B) {
 func BenchmarkPublishRoundRobin(b *testing.B) {
 	for _, subs := range []int{10, 100, 1000} {
 		b.Run(fmt.Sprintf("subs=%d", subs), func(b *testing.B) {
-			e := New(WithNamespaces(namespace.NewRegistry(namespace.Config{
+			e := New(WithNamespaces(mustRegistry(namespace.NewRegistry(namespace.Config{
 				Default: namespace.Settings{AllowPublish: true, Fanout: namespace.RoundRobin},
-			})))
+			}))))
 			defer e.Stop()
 
 			for i := 1; i <= subs; i++ {

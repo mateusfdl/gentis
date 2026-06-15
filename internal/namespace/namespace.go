@@ -83,12 +83,56 @@ type Registry struct {
 	strict     bool
 }
 
-func NewRegistry(cfg Config) *Registry {
+// NewRegistry validates every namespace and the default, then owns a private
+// copy of the namespace map so a caller mutating its own map after
+// construction can neither race a concurrent Resolve nor change resolution.
+// Programmatic callers go through the same invariants the YAML loader enforces.
+func NewRegistry(cfg Config) (*Registry, error) {
+	if err := cfg.Default.validate("default"); err != nil {
+		return nil, err
+	}
+	namespaces := make(map[string]Settings, len(cfg.Namespaces))
+	for name, s := range cfg.Namespaces {
+		if err := s.validate(name); err != nil {
+			return nil, err
+		}
+		namespaces[name] = s
+	}
 	return &Registry{
-		namespaces: cfg.Namespaces,
+		namespaces: namespaces,
 		def:        cfg.Default,
 		strict:     cfg.Strict,
+	}, nil
+}
+
+// validate enforces the cross-field and range invariants every Settings value
+// must hold, regardless of whether it came from YAML or a programmatic caller.
+func (s Settings) validate(name string) error {
+	if s.HistorySize < 0 {
+		return fmt.Errorf("%w: namespace %q history_size must be >= 0", ErrInvalidConfig, name)
 	}
+	if s.HistoryTTL < 0 {
+		return fmt.Errorf("%w: namespace %q history_ttl must be >= 0", ErrInvalidConfig, name)
+	}
+	if s.MaxSubscribers < 0 {
+		return fmt.Errorf("%w: namespace %q max_subscribers must be >= 0", ErrInvalidConfig, name)
+	}
+	if s.RedeliveryTimeout < 0 {
+		return fmt.Errorf("%w: namespace %q redelivery_timeout must be >= 0", ErrInvalidConfig, name)
+	}
+	if s.MaxRedeliveries < 0 {
+		return fmt.Errorf("%w: namespace %q max_redeliveries must be >= 0", ErrInvalidConfig, name)
+	}
+	if s.IdleReap < 0 {
+		return fmt.Errorf("%w: namespace %q idle_reap must be >= 0", ErrInvalidConfig, name)
+	}
+	if s.AllowWildcard && s.Fanout != Broadcast {
+		return fmt.Errorf("%w: namespace %q allow_wildcard requires broadcast fanout", ErrInvalidConfig, name)
+	}
+	if s.QoS == AtLeastOnce && s.HistorySize <= 0 {
+		return fmt.Errorf("%w: namespace %q at-least-once qos requires history_size > 0", ErrInvalidConfig, name)
+	}
+	return nil
 }
 
 // All returns every configured namespace's settings, default included.
@@ -187,30 +231,21 @@ func LoadFile(path string) (*Registry, error) {
 		Default:    def,
 		Namespaces: namespaces,
 		Strict:     cfg.Strict,
-	}), nil
+	})
 }
 
 func toSettings(name string, raw settingsYAML) (Settings, error) {
 	s := Settings{AllowPublish: true}
 	if raw.HistorySize != nil {
-		if *raw.HistorySize < 0 {
-			return Settings{}, fmt.Errorf("%w: namespace %q history_size must be >= 0", ErrInvalidConfig, name)
-		}
 		s.HistorySize = *raw.HistorySize
 	}
 	if raw.HistoryTTL != nil {
-		if *raw.HistoryTTL < 0 {
-			return Settings{}, fmt.Errorf("%w: namespace %q history_ttl must be >= 0", ErrInvalidConfig, name)
-		}
 		s.HistoryTTL = *raw.HistoryTTL
 	}
 	if raw.AllowPublish != nil {
 		s.AllowPublish = *raw.AllowPublish
 	}
 	if raw.MaxSubscribers != nil {
-		if *raw.MaxSubscribers < 0 {
-			return Settings{}, fmt.Errorf("%w: namespace %q max_subscribers must be >= 0", ErrInvalidConfig, name)
-		}
 		s.MaxSubscribers = *raw.MaxSubscribers
 	}
 	if raw.QoS != nil {
@@ -242,27 +277,15 @@ func toSettings(name string, raw settingsYAML) (Settings, error) {
 		s.RedeliveryTimeout = *raw.RedeliveryTimeout
 	}
 	if raw.MaxRedeliveries != nil {
-		if *raw.MaxRedeliveries < 0 {
-			return Settings{}, fmt.Errorf("%w: namespace %q max_redeliveries must be >= 0", ErrInvalidConfig, name)
-		}
 		s.MaxRedeliveries = *raw.MaxRedeliveries
 	}
 	if raw.AllowWildcard != nil {
 		s.AllowWildcard = *raw.AllowWildcard
 	}
 	if raw.IdleReap != nil {
-		if *raw.IdleReap < 0 {
-			return Settings{}, fmt.Errorf("%w: namespace %q idle_reap must be >= 0", ErrInvalidConfig, name)
-		}
 		s.IdleReap = *raw.IdleReap
 	}
-	if s.AllowWildcard && s.Fanout != Broadcast {
-		return Settings{}, fmt.Errorf("%w: namespace %q allow_wildcard requires broadcast fanout", ErrInvalidConfig, name)
-	}
 	if s.QoS == AtLeastOnce {
-		if s.HistorySize <= 0 {
-			return Settings{}, fmt.Errorf("%w: namespace %q at-least-once qos requires history_size > 0", ErrInvalidConfig, name)
-		}
 		if raw.RedeliveryTimeout == nil {
 			s.RedeliveryTimeout = 30 * time.Second
 		}
@@ -271,6 +294,9 @@ func toSettings(name string, raw settingsYAML) (Settings, error) {
 		if raw.MaxRedeliveries == nil {
 			s.MaxRedeliveries = 3
 		}
+	}
+	if err := s.validate(name); err != nil {
+		return Settings{}, err
 	}
 	return s, nil
 }

@@ -1114,13 +1114,16 @@ func TestSubscribeWithRecoveryUnrecoverable(t *testing.T) {
 }
 
 func TestNamespacePolicies(t *testing.T) {
-	reg := namespace.NewRegistry(namespace.Config{
+	reg, regErr := namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"feed": {AllowPublish: false},
 		},
 		Strict: true,
 	})
+	if regErr != nil {
+		t.Fatalf("NewRegistry: %v", regErr)
+	}
 	eng := engine.New(engine.WithNamespaces(reg))
 	store := transport.NewSessionStore()
 	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
@@ -1169,7 +1172,7 @@ func TestNamespacePolicies(t *testing.T) {
 }
 
 func TestQoSSlowConsumerNoDrops(t *testing.T) {
-	reg := namespace.NewRegistry(namespace.Config{
+	reg, regErr := namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"jobs": {
@@ -1181,6 +1184,9 @@ func TestQoSSlowConsumerNoDrops(t *testing.T) {
 			},
 		},
 	})
+	if regErr != nil {
+		t.Fatalf("NewRegistry: %v", regErr)
+	}
 	eng := engine.New(engine.WithNamespaces(reg))
 	store := transport.NewSessionStore()
 	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))
@@ -1499,12 +1505,15 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 }
 
 func TestWildcardSubscribeDeniedNamespace(t *testing.T) {
-	reg := namespace.NewRegistry(namespace.Config{
+	reg, regErr := namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true},
 		Namespaces: map[string]namespace.Settings{
 			"metrics": {AllowPublish: true},
 		},
 	})
+	if regErr != nil {
+		t.Fatalf("NewRegistry: %v", regErr)
+	}
 	eng := engine.New(engine.WithNamespaces(reg))
 	store := transport.NewSessionStore()
 	srv := New("127.0.0.1:0", WithEngine(eng), WithSessionStore(store))

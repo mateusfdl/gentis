@@ -41,7 +41,7 @@ func TestSplitDoesNotAllocate(t *testing.T) {
 }
 
 func TestRegistryResolve(t *testing.T) {
-	reg := NewRegistry(Config{
+	reg, err := NewRegistry(Config{
 		Default: Settings{AllowPublish: true},
 		Namespaces: map[string]Settings{
 			"chat": {HistorySize: 128, HistoryTTL: 5 * time.Minute, AllowPublish: true},
@@ -49,6 +49,9 @@ func TestRegistryResolve(t *testing.T) {
 		},
 		Strict: true,
 	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
 
 	tests := []struct {
 		name    string
@@ -94,12 +97,52 @@ func TestRegistryResolve(t *testing.T) {
 	}
 }
 
+func TestNewRegistryValidatesNamespaces(t *testing.T) {
+	_, err := NewRegistry(Config{
+		Default: Settings{AllowPublish: true},
+		Namespaces: map[string]Settings{
+			"bad": {AllowPublish: true, AllowWildcard: true, Fanout: RoundRobin},
+		},
+	})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewRegistry with wildcard+round_robin err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestNewRegistryValidatesDefault(t *testing.T) {
+	_, err := NewRegistry(Config{
+		Default: Settings{AllowPublish: true, QoS: AtLeastOnce},
+	})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewRegistry with at-least-once default and no history err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestNewRegistryCopiesNamespaceMap(t *testing.T) {
+	m := map[string]Settings{"chat": {HistorySize: 1, AllowPublish: true}}
+	reg, err := NewRegistry(Config{Default: Settings{AllowPublish: true}, Namespaces: m})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+
+	delete(m, "chat")
+	m["chat"] = Settings{HistorySize: 999}
+
+	got, ok := reg.Resolve("chat:x")
+	if !ok || got.HistorySize != 1 {
+		t.Fatalf("Resolve(chat:x) = (%+v, %v), want HistorySize 1: caller's map mutation must not reach the Registry", got, ok)
+	}
+}
+
 func TestRegistryLenientFallsThroughToDefault(t *testing.T) {
-	reg := NewRegistry(Config{
+	reg, err := NewRegistry(Config{
 		Default:    Settings{AllowPublish: true, HistorySize: 4},
 		Namespaces: map[string]Settings{"chat": {AllowPublish: true}},
 		Strict:     false,
 	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
 
 	got, ok := reg.Resolve("ghost:x")
 	if !ok {
