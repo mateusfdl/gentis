@@ -18,6 +18,43 @@ func TestNewArena(t *testing.T) {
 	defer a.Close()
 }
 
+func TestNewAlignsStride(t *testing.T) {
+	cases := []struct {
+		slotSize int
+		want     uintptr
+	}{
+		{1, 8},
+		{7, 8},
+		{8, 8},
+		{9, 16},
+		{100, 104},
+		{int(unsafe.Sizeof(SessionSlot{})), unsafe.Sizeof(SessionSlot{})},
+	}
+	for _, c := range cases {
+		a, err := New(c.slotSize, 4)
+		if err != nil {
+			t.Fatalf("New(%d): %v", c.slotSize, err)
+		}
+		if got := a.SlotSize(); got != c.want {
+			t.Errorf("New(%d).SlotSize() = %d, want %d", c.slotSize, got, c.want)
+		}
+		if uintptr(a.base)%slotAlign != 0 {
+			t.Errorf("New(%d): base %x not %d-aligned", c.slotSize, a.base, slotAlign)
+		}
+		a.Close()
+	}
+}
+
+func TestNewRejectsOverflow(t *testing.T) {
+	if unsafe.Sizeof(uintptr(0)) < 8 {
+		t.Skip("overflow case only reachable on 64-bit address space")
+	}
+	_, err := New(1<<40, 1<<25)
+	if err == nil {
+		t.Fatal("New with overflowing slotSize*maxSlots: want error, got nil")
+	}
+}
+
 func TestAllocValid(t *testing.T) {
 	a, _ := New(testSlotSize, 100)
 	defer a.Close()

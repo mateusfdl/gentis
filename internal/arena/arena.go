@@ -34,12 +34,27 @@ type Arena struct {
 // New creates an arena that can hold maxSlots slots of slotSize bytes each.
 // The backing memory is allocated via mmap(MAP_ANONYMOUS|MAP_PRIVATE) and
 // is invisible to the Go garbage collector.
+// slotAlign is the slot stride alignment. The mmap base is page-aligned, so a
+// stride that is a multiple of slotAlign keeps every slot 8-byte aligned, which
+// is required for the atomic and 64-bit fields a caller may place at a slot's
+// head (e.g. SessionSlot.ID and the atomic SessionSlot.Authenticated).
+const slotAlign = 8
+
 func New(slotSize, maxSlots int) (*Arena, error) {
 	if slotSize <= 0 || maxSlots <= 0 {
 		return nil, errors.New("arena: slotSize and maxSlots must be positive")
 	}
 
-	totalSize := uintptr(slotSize) * uintptr(maxSlots)
+	stride := uintptr(slotSize)
+	if r := stride % slotAlign; r != 0 {
+		stride += slotAlign - r
+	}
+
+	if uintptr(maxSlots) > (^uintptr(0))/stride {
+		return nil, errors.New("arena: slotSize * maxSlots overflows address space")
+	}
+	totalSize := stride * uintptr(maxSlots)
+
 	mem, err := syscall.Mmap(
 		-1, 0, int(totalSize),
 		syscall.PROT_READ|syscall.PROT_WRITE,
@@ -52,7 +67,7 @@ func New(slotSize, maxSlots int) (*Arena, error) {
 	return &Arena{
 		base:     unsafe.Pointer(&mem[0]),
 		rawMem:   mem,
-		slotSize: uintptr(slotSize),
+		slotSize: stride,
 		maxSlots: uint32(maxSlots),
 		free:     make([]uint32, 0, 64),
 		inFree:   make([]bool, maxSlots),
