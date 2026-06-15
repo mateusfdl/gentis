@@ -43,11 +43,10 @@ type Consumer struct {
 	poisoned atomic.Int64
 	lostGaps atomic.Int64
 
-	startOnce sync.Once
-	stopOnce  sync.Once
-	started   atomic.Bool
-	stop      chan struct{}
-	done      chan struct{}
+	running bool
+	stopped bool
+	wg      sync.WaitGroup
+	stop    chan struct{}
 }
 
 // NewConsumer wires a consumer to its history source and its transport
@@ -64,7 +63,6 @@ func NewConsumer(rec Recoverer, deliver func(engine.Delivery) bool, interval tim
 		logger:   logger,
 		now:      monotonicNanos,
 		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
 	}
 }
 
@@ -76,13 +74,13 @@ func (c *Consumer) Subscribe(channel string, w *Window) {
 		c.windows = make(map[string]*Window)
 	}
 	c.windows[channel] = w
+	if !c.stopped && !c.running {
+		c.running = true
+		c.wg.Add(1)
+		go c.run()
+	}
 	c.mu.Unlock()
 	c.active.Store(true)
-
-	c.startOnce.Do(func() {
-		c.started.Store(true)
-		go c.run()
-	})
 }
 
 func (c *Consumer) Unsubscribe(channel string) {
@@ -94,13 +92,22 @@ func (c *Consumer) Unsubscribe(channel string) {
 	c.mu.Unlock()
 }
 
-// Stop terminates the redelivery loop. Safe to call concurrently and
+// Stop terminates the redelivery loop and joins it before returning, so no
+// pump can touch the transport afterward. Serializing against Subscribe under
+// the same lock closes the start/stop race: a Subscribe that loses the race
+// observes stopped and never launches the loop. Safe to call concurrently and
 // more than once.
 func (c *Consumer) Stop() {
-	c.stopOnce.Do(func() { close(c.stop) })
-	if c.started.Load() {
-		<-c.done
+	c.mu.Lock()
+	if c.stopped {
+		c.mu.Unlock()
+		c.wg.Wait()
+		return
 	}
+	c.stopped = true
+	close(c.stop)
+	c.mu.Unlock()
+	c.wg.Wait()
 }
 
 func (c *Consumer) window(channel string) *Window {
@@ -188,7 +195,7 @@ func (c *Consumer) pump(channel string, w *Window) {
 }
 
 func (c *Consumer) run() {
-	defer close(c.done)
+	defer c.wg.Done()
 
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()

@@ -315,6 +315,42 @@ func TestLostGapResetsWindowAndKeepsFlowing(t *testing.T) {
 	t.Fatalf("offsets = %v, want [1 7]: window never re-baselined after lost gap", s.offsets())
 }
 
+func TestSubscribeAfterStopDoesNotStartLoop(t *testing.T) {
+	e := newQoSEngine(t)
+	s := &sink{}
+	c := NewConsumer(e, s.deliver, time.Hour, nil)
+
+	c.Stop()
+	c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
+
+	c.mu.Lock()
+	running := c.running
+	c.mu.Unlock()
+	if running {
+		t.Fatal("Subscribe after Stop started the redelivery loop; Stop's join contract is unsound")
+	}
+}
+
+func TestSubscribeStopConcurrent(t *testing.T) {
+	for range 50 {
+		e := newQoSEngine(t)
+		c := NewConsumer(e, func(engine.Delivery) bool { return true }, time.Millisecond, nil)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
+		}()
+		go func() {
+			defer wg.Done()
+			c.Stop()
+		}()
+		wg.Wait()
+		c.Stop()
+	}
+}
+
 func TestConsumerStopConcurrent(t *testing.T) {
 	e := newQoSEngine(t)
 	c := NewConsumer(e, func(engine.Delivery) bool { return true }, time.Hour, nil)
