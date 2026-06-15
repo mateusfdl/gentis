@@ -3,6 +3,7 @@
 package arena
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -92,8 +93,8 @@ func (s *ArenaState) Authenticate(c auth.Claims) error {
 	} else {
 		s.slot.ExpiresAt = c.ExpiresAt.Unix()
 	}
-	s.channels = c.Channels
-	s.pub = c.Pub
+	s.channels = slices.Clone(c.Channels)
+	s.pub = slices.Clone(c.Pub)
 	atomic.StoreUint32(&s.slot.Authenticated, 1)
 	return nil
 }

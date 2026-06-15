@@ -84,6 +84,33 @@ func TestArenaState_Authenticate(t *testing.T) {
 	}
 }
 
+func TestArenaState_AuthenticateCopiesAllowlists(t *testing.T) {
+	a := newTestArena(t, 1)
+	s, _ := NewArenaState(1, a)
+
+	channels := []string{"chat-*"}
+	pub := []string{"chat-1"}
+	if err := s.Authenticate(auth.Claims{Channels: channels, Pub: pub}); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	channels[0] = "evil-*"
+	pub[0] = "evil-1"
+
+	if !s.CanSubscribe("chat-9") {
+		t.Error("CanSubscribe(chat-9): want true, caller mutation leaked into state")
+	}
+	if s.CanSubscribe("evil-9") {
+		t.Error("CanSubscribe(evil-9): want false, caller mutation leaked into state")
+	}
+	if !s.CanPublish("chat-1") {
+		t.Error("CanPublish(chat-1): want true, caller mutation leaked into state")
+	}
+	if s.CanPublish("evil-1") {
+		t.Error("CanPublish(evil-1): want false, caller mutation leaked into state")
+	}
+}
+
 func TestArenaState_AuthenticateOverwrite(t *testing.T) {
 	a := newTestArena(t, 1)
 	s, _ := NewArenaState(1, a)
