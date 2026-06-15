@@ -133,6 +133,9 @@ func (s *SessionStore) AllocID(slotID engine.SubscriberID) engine.SubscriberID {
 }
 
 func (s *SessionStore) Register(id engine.SubscriberID, sender Sender) {
+	if sender == nil {
+		return
+	}
 	if idx, ok := s.slotFor(id); ok {
 		g := uint32(uint64(id) >> genShift)
 		s.arr[idx].Store(&entry{gen: g, sender: sender})

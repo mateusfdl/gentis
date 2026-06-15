@@ -158,6 +158,20 @@ func TestSessionStore_ZeroCapacityFallsBackToLegacy(t *testing.T) {
 	}
 }
 
+func TestSessionStore_RegisterNilSenderIsRejected(t *testing.T) {
+	s := NewFlatSessionStore(0, 8)
+
+	s.Register(3, nil)
+	if s.Deliver(3, engine.Delivery{Channel: "x", Data: nil}) {
+		t.Error("Deliver after nil Register on flat path should return false")
+	}
+
+	s.Register(99, nil)
+	if s.Deliver(99, engine.Delivery{Channel: "x", Data: nil}) {
+		t.Error("Deliver after nil Register on overflow path should return false")
+	}
+}
+
 func TestSessionStore_ConcurrentRegisterDeliver(t *testing.T) {
 	// -race-oriented: many goroutines registering and delivering across
 	// both the flat path and overflow path.
