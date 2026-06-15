@@ -116,12 +116,19 @@ func (s *SessionStore) slotFor(id engine.SubscriberID) (int, bool) {
 // into the high bits so a reused slot yields a distinct identity, letting
 // Deliver reject in-flight messages addressed to a previous occupant. For
 // overflow/legacy ids (monotonic, never reused) it returns slotID unchanged.
+//
+// Generation 0 is the reserved "bare id" sentinel that Deliver treats as
+// uncheckable, so AllocID skips it on counter wraparound to keep every
+// flat-slot identity generation-checked.
 func (s *SessionStore) AllocID(slotID engine.SubscriberID) engine.SubscriberID {
 	idx, ok := s.slotFor(slotID)
 	if !ok {
 		return slotID
 	}
 	g := s.gen[idx].Add(1)
+	if g == 0 {
+		g = s.gen[idx].Add(1)
+	}
 	return engine.SubscriberID((uint64(g) << genShift) | (uint64(slotID) & idMask))
 }
 

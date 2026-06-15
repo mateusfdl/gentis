@@ -80,6 +80,25 @@ func TestDeliverValidatesAgainstRegisteredGenerationNotLiveCounter(t *testing.T)
 	}
 }
 
+func TestAllocIDSkipsZeroGenerationOnWraparound(t *testing.T) {
+	store := NewFlatSessionStore(engine.SubscriberID(1), 8)
+
+	slot := engine.SubscriberID(3)
+	idx, ok := store.slotFor(slot)
+	if !ok {
+		t.Fatalf("slot %d not in flat range", slot)
+	}
+	store.gen[idx].Store(^uint32(0))
+
+	id := store.AllocID(slot)
+	if g := uint32(uint64(id) >> genShift); g == 0 {
+		t.Fatal("AllocID returned a bare id (gen=0) on wraparound; stale-delivery protection disabled")
+	}
+	if low := uint64(id) & idMask; low != uint64(slot) {
+		t.Fatalf("AllocID corrupted the slot id: got low bits %d, want %d", low, slot)
+	}
+}
+
 func TestDeliverBareIDStillWorks(t *testing.T) {
 	store := NewFlatSessionStore(engine.SubscriberID(1), 8)
 
