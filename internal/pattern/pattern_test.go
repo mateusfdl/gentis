@@ -136,6 +136,24 @@ func TestCacheClear(t *testing.T) {
 	}
 }
 
+func TestNewCacheClampsNonPositiveMaxSize(t *testing.T) {
+	c := NewCache[int](0)
+
+	c.Set("a", 1)
+	got, ok := c.Get("a")
+	if !ok {
+		t.Fatal("Set/Get failed on cache created with maxSize 0")
+	}
+	if got != 1 {
+		t.Errorf("Get(a) = %d, want 1", got)
+	}
+
+	c.Set("b", 2)
+	if l := c.Len(); l != 1 {
+		t.Errorf("Len = %d, want 1 (maxSize clamped to 1)", l)
+	}
+}
+
 func TestCacheSetExistingKeyDoesNotEvict(t *testing.T) {
 	c := NewCache[int](8)
 	for i := range 8 {

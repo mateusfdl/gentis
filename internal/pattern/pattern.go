@@ -69,6 +69,9 @@ type Cache[V any] struct {
 }
 
 func NewCache[V any](maxSize int) *Cache[V] {
+	if maxSize < 1 {
+		maxSize = 1
+	}
 	return &Cache[V]{
 		entries: make(map[string]V),
 		maxSize: maxSize,
