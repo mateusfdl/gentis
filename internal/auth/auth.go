@@ -121,6 +121,9 @@ type HMACVerifier struct {
 }
 
 func NewHMACVerifier(secret []byte) *HMACVerifier {
+	if len(secret) == 0 {
+		panic("auth: HMAC secret must not be empty")
+	}
 	return &HMACVerifier{secret: secret, now: time.Now}
 }
 
