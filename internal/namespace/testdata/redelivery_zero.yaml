@@ -1,0 +1,5 @@
+namespaces:
+  jobs:
+    qos: at-least-once
+    history_size: 8
+    redelivery_timeout: 0s

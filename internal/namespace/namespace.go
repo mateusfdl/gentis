@@ -271,9 +271,6 @@ func toSettings(name string, raw settingsYAML) (Settings, error) {
 		}
 	}
 	if raw.RedeliveryTimeout != nil {
-		if *raw.RedeliveryTimeout <= 0 {
-			return Settings{}, fmt.Errorf("%w: namespace %q redelivery_timeout must be > 0", ErrInvalidConfig, name)
-		}
 		s.RedeliveryTimeout = *raw.RedeliveryTimeout
 	}
 	if raw.MaxRedeliveries != nil {

@@ -368,6 +368,20 @@ func TestLoadFileExplicitZeroMaxRedeliveries(t *testing.T) {
 	}
 }
 
+func TestLoadFileAllowsZeroRedeliveryTimeout(t *testing.T) {
+	reg, err := LoadFile("testdata/redelivery_zero.yaml")
+	if err != nil {
+		t.Fatalf("redelivery_timeout: 0s must load (zero disables timeout redelivery): %v", err)
+	}
+	s, ok := reg.Resolve("jobs:x")
+	if !ok {
+		t.Fatal("jobs namespace not loaded")
+	}
+	if s.RedeliveryTimeout != 0 {
+		t.Fatalf("RedeliveryTimeout = %v, want 0 (explicit zero preserved, not defaulted to 30s)", s.RedeliveryTimeout)
+	}
+}
+
 func TestLoadFileEmptyConfigYieldsDefaults(t *testing.T) {
 	reg, err := LoadFile("testdata/empty.yaml")
 	if err != nil {
