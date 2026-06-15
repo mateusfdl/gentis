@@ -136,6 +136,26 @@ func TestCacheClear(t *testing.T) {
 	}
 }
 
+func TestCacheSetExistingKeyDoesNotEvict(t *testing.T) {
+	c := NewCache[int](8)
+	for i := range 8 {
+		c.Set(fmt.Sprintf("key-%d", i), i)
+	}
+
+	c.Set("key-0", 100)
+
+	if got := c.Len(); got != 8 {
+		t.Fatalf("Len = %d, want 8 (updating an existing key must not evict)", got)
+	}
+	got, ok := c.Get("key-0")
+	if !ok {
+		t.Fatal("updated key missing after Set")
+	}
+	if got != 100 {
+		t.Errorf("Get(key-0) = %d, want 100", got)
+	}
+}
+
 func TestCacheTinyMaxSizeStillEvicts(t *testing.T) {
 	c := NewCache[int](2)
 	c.Set("a", 1)
