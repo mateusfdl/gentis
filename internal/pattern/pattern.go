@@ -13,11 +13,11 @@ import (
 	"sync"
 )
 
-// evictRatio is the fraction of cache entries to randomly evict when the
-// cache exceeds its max size. Evicting ~25% avoids the thundering-herd
-// problem of nuking the entire cache (every concurrent lookup would miss
-// and recompute simultaneously).
-const evictRatio = 4
+// evictDivisor sets the fraction of cache entries to randomly evict when
+// the cache exceeds its max size: 1/evictDivisor. Evicting ~25% avoids the
+// thundering-herd problem of nuking the entire cache (every concurrent
+// lookup would miss and recompute simultaneously).
+const evictDivisor = 4
 
 // Match reports whether the pattern matches the name. Greedy two-pointer
 // star matching: on mismatch it backtracks to the last star and retries
@@ -88,7 +88,7 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 func (c *Cache[V]) Set(key string, v V) {
 	c.mu.Lock()
 	if _, exists := c.entries[key]; !exists && len(c.entries) >= c.maxSize {
-		toEvict := max(len(c.entries)/evictRatio, 1)
+		toEvict := max(len(c.entries)/evictDivisor, 1)
 		evicted := 0
 		for k := range c.entries {
 			if evicted >= toEvict {
