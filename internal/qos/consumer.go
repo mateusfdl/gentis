@@ -13,6 +13,15 @@ import (
 // huge backlog never materializes as one giant slice.
 const pumpBatch = 64
 
+// processStart anchors the monotonic clock the redelivery timer reads.
+// time.Since keeps the monotonic reading time.Now().UnixNano() would strip,
+// so a wall-clock step from NTP can neither stall nor storm redelivery.
+var processStart = time.Now()
+
+func monotonicNanos() int64 {
+	return int64(time.Since(processStart))
+}
+
 // Recoverer is the slice of the engine the pump depends on.
 type Recoverer interface {
 	RecoverN(channel string, fromOffset, epoch uint64, max int) ([]engine.Delivery, bool)
@@ -25,6 +34,7 @@ type Consumer struct {
 	deliver  func(engine.Delivery) bool
 	interval time.Duration
 	logger   *slog.Logger
+	now      func() int64
 
 	mu      sync.RWMutex
 	windows map[string]*Window
@@ -52,6 +62,7 @@ func NewConsumer(rec Recoverer, deliver func(engine.Delivery) bool, interval tim
 		deliver:  deliver,
 		interval: interval,
 		logger:   logger,
+		now:      monotonicNanos,
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 	}
@@ -111,7 +122,7 @@ func (c *Consumer) Deliver(d engine.Delivery) bool {
 	if w == nil {
 		return c.deliver(d)
 	}
-	v := w.Admit(d.Offset, d.Epoch, len(d.Data), time.Now().UnixNano(), func() bool {
+	v := w.Admit(d.Offset, d.Epoch, len(d.Data), c.now(), func() bool {
 		return c.deliver(d)
 	})
 	return v != Refused
@@ -124,7 +135,7 @@ func (c *Consumer) Confirm(channel string, offset uint64) {
 	if w == nil {
 		return
 	}
-	w.Confirm(offset, time.Now().UnixNano())
+	w.Confirm(offset, c.now())
 	c.pump(channel, w)
 }
 
@@ -164,7 +175,7 @@ func (c *Consumer) pump(channel string, w *Window) {
 			return
 		}
 
-		now := time.Now().UnixNano()
+		now := c.now()
 		for _, d := range batch {
 			switch w.Admit(d.Offset, d.Epoch, len(d.Data), now, func() bool { return c.deliver(d) }) {
 			case Admitted, Dup:
@@ -194,7 +205,7 @@ func (c *Consumer) run() {
 			}
 			c.mu.RUnlock()
 
-			now := time.Now().UnixNano()
+			now := c.now()
 			for _, ch := range channels {
 				w := c.window(ch)
 				if w == nil {

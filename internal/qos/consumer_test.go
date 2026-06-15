@@ -2,6 +2,7 @@ package qos
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -117,6 +118,37 @@ func TestRedeliveryAfterTimeout(t *testing.T) {
 	if len(got) < 2 || got[0] != 1 || got[1] != 1 {
 		t.Fatalf("offsets = %v, want offset 1 redelivered", got)
 	}
+}
+
+func TestRedeliveryDrivenByMonotonicClockNotWallClock(t *testing.T) {
+	e := newQoSEngine(t)
+	s := &sink{}
+	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
+	clock := int64(1000)
+	c.now = func() int64 { return atomic.LoadInt64(&clock) }
+	defer c.Stop()
+
+	e.Subscribe(1, "q")
+	c.Subscribe("q", NewWindow(5, 0, time.Millisecond, 3))
+
+	deliver := func(_ engine.SubscriberID, d engine.Delivery) bool { return c.Deliver(d) }
+	e.Publish("q", []byte("x"), 0, deliver)
+
+	time.Sleep(120 * time.Millisecond)
+	if got := s.offsets(); len(got) != 1 {
+		t.Fatalf("offsets = %v, want exactly one delivery: a frozen clock must not trip the timeout despite real time passing", got)
+	}
+
+	atomic.StoreInt64(&clock, 1000+int64(time.Second))
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(s.offsets()) >= 2 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("offsets = %v, want offset 1 redelivered once the injected clock advances past the timeout", s.offsets())
 }
 
 func TestPoisonAfterMaxRedeliveries(t *testing.T) {
