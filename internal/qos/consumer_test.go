@@ -193,6 +193,27 @@ func TestUnsubscribeRemovesWindow(t *testing.T) {
 	}
 }
 
+func TestIdleTickerDoesNoWorkAfterUnsubscribe(t *testing.T) {
+	e := newQoSEngine(t)
+	s := &sink{}
+	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
+	var nowCalls int64
+	c.now = func() int64 { atomic.AddInt64(&nowCalls, 1); return 0 }
+	defer c.Stop()
+
+	c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
+	c.Unsubscribe("q")
+
+	time.Sleep(40 * time.Millisecond)
+	before := atomic.LoadInt64(&nowCalls)
+	time.Sleep(60 * time.Millisecond)
+	after := atomic.LoadInt64(&nowCalls)
+
+	if after != before {
+		t.Fatalf("idle ticker kept working after Unsubscribe: now() calls %d -> %d, want no growth (tick body must short-circuit when inactive)", before, after)
+	}
+}
+
 func TestDeliverWithoutWindowsIsPassthrough(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}

@@ -205,6 +205,9 @@ func (c *Consumer) run() {
 		case <-c.stop:
 			return
 		case <-ticker.C:
+			if !c.active.Load() {
+				continue
+			}
 			c.mu.RLock()
 			channels := make([]string, 0, len(c.windows))
 			for ch := range c.windows {
