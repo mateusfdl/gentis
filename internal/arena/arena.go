@@ -26,6 +26,7 @@ type Arena struct {
 	maxSlots uint32
 	offset   atomic.Uint32
 	free     []uint32
+	inFree   []bool // membership guard, parallel to slot indices; guarded by freeMu
 	freeMu   sync.Mutex
 	closed   atomic.Bool
 }
@@ -54,6 +55,7 @@ func New(slotSize, maxSlots int) (*Arena, error) {
 		slotSize: uintptr(slotSize),
 		maxSlots: uint32(maxSlots),
 		free:     make([]uint32, 0, 64),
+		inFree:   make([]bool, maxSlots),
 	}, nil
 }
 
@@ -62,28 +64,53 @@ func (a *Arena) Alloc() (unsafe.Pointer, uint32, error) {
 		return nil, 0, ErrClosed
 	}
 
-	a.freeMu.Lock()
-	if n := len(a.free); n > 0 {
-		idx := a.free[n-1]
-		a.free = a.free[:n-1]
-		a.freeMu.Unlock()
+	if idx, ok := a.popFree(); ok {
 		return a.slotPtr(idx), idx, nil
 	}
-	a.freeMu.Unlock()
 
 	idx := a.offset.Add(1) - 1
-	if idx >= a.maxSlots {
-		a.offset.Add(^uint32(0)) // decrement rollback
-		return nil, 0, ErrFull
+	if idx < a.maxSlots {
+		return a.slotPtr(idx), idx, nil
 	}
+	a.offset.Add(^uint32(0)) // decrement rollback
 
-	return a.slotPtr(idx), idx, nil
+	// The bump region is exhausted, but a Free may have returned a slot
+	// after our first popFree and before the rollback. Re-check so a
+	// concurrent release is not lost to a spurious ErrFull.
+	if idx, ok := a.popFree(); ok {
+		return a.slotPtr(idx), idx, nil
+	}
+	return nil, 0, ErrFull
+}
+
+func (a *Arena) popFree() (uint32, bool) {
+	a.freeMu.Lock()
+	defer a.freeMu.Unlock()
+	n := len(a.free)
+	if n == 0 {
+		return 0, false
+	}
+	idx := a.free[n-1]
+	a.free = a.free[:n-1]
+	a.inFree[idx] = false
+	return idx, true
 }
 
 func (a *Arena) Free(idx uint32) {
 	if idx >= a.maxSlots {
 		return
 	}
+
+	a.freeMu.Lock()
+	// Reject a slot that is already on the free list (double free) or was
+	// never handed out by the bump allocator: clearing and re-listing it
+	// would alias a live slot to two owners.
+	if a.inFree[idx] || idx >= a.offset.Load() {
+		a.freeMu.Unlock()
+		return
+	}
+	a.inFree[idx] = true
+	a.freeMu.Unlock()
 
 	ptr := a.slotPtr(idx)
 	mem := unsafe.Slice((*byte)(ptr), a.slotSize)

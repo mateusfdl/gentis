@@ -144,6 +144,84 @@ func TestConcurrentAlloc(t *testing.T) {
 	}
 }
 
+func TestDoubleFreeIgnored(t *testing.T) {
+	a, _ := New(testSlotSize, 4)
+	defer a.Close()
+
+	_, idx0, _ := a.Alloc()
+
+	a.Free(idx0)
+	a.Free(idx0) // double free must not re-list the slot
+
+	_, idxA, errA := a.Alloc()
+	_, idxB, errB := a.Alloc()
+	if errA != nil || errB != nil {
+		t.Fatalf("Alloc errors: %v, %v", errA, errB)
+	}
+	if idxA == idxB {
+		t.Fatalf("double free aliased one slot to two allocations: both got %d", idxA)
+	}
+}
+
+func TestFreeNeverAllocatedIgnored(t *testing.T) {
+	a, _ := New(testSlotSize, 4)
+	defer a.Close()
+
+	_, idx0, _ := a.Alloc() // offset advances to 1; slots 1..3 never handed out
+
+	a.Free(3) // never allocated; must be ignored, not pushed onto the free list
+
+	_, idx1, err := a.Alloc()
+	if err != nil {
+		t.Fatalf("Alloc: %v", err)
+	}
+	if idx1 != idx0+1 {
+		t.Fatalf("next alloc = %d, want %d (bump, not the bogus freed index)", idx1, idx0+1)
+	}
+}
+
+func TestAllocNoSpuriousFullUnderChurn(t *testing.T) {
+	const (
+		maxSlots = 16
+		rounds   = 200
+	)
+	a, _ := New(testSlotSize, maxSlots)
+	defer a.Close()
+
+	idxs := make([]uint32, maxSlots)
+	for i := range idxs {
+		_, idx, err := a.Alloc()
+		if err != nil {
+			t.Fatalf("prefill alloc %d: %v", i, err)
+		}
+		idxs[i] = idx
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(maxSlots)
+	for i := range idxs {
+		owned := idxs[i]
+		go func(idx uint32) {
+			defer wg.Done()
+			for range rounds {
+				a.Free(idx)
+				p, got, err := a.Alloc()
+				if err != nil {
+					t.Errorf("alloc after self-free returned %v despite a freed slot", err)
+					return
+				}
+				if p == nil {
+					t.Errorf("alloc returned nil pointer")
+					return
+				}
+				idx = got
+			}
+			a.Free(idx)
+		}(owned)
+	}
+	wg.Wait()
+}
+
 func TestSlotPtr(t *testing.T) {
 	a, _ := New(testSlotSize, 4)
 	defer a.Close()
