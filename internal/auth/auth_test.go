@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mateusfdl/gentis/internal/pattern"
 )
 
 var (
@@ -204,15 +206,70 @@ func TestVerifyErrors(t *testing.T) {
 			token:   signRaw(testSecret, `{"alg":"HS256","typ":"JWT"}`, `{"sub":"u","exp":1700003600,"nbf":1700007200}`),
 			wantErr: ErrTokenNotYetValid,
 		},
+		{
+			name:    "alg missing",
+			token:   signRaw(testSecret, `{"typ":"JWT"}`, `{"sub":"u","exp":1700003600}`),
+			wantErr: ErrUnsupportedAlg,
+		},
+		{
+			name:    "alg lowercase hs256",
+			token:   signRaw(testSecret, `{"alg":"hs256","typ":"JWT"}`, `{"sub":"u","exp":1700003600}`),
+			wantErr: ErrUnsupportedAlg,
+		},
+		{
+			name:    "alg empty string",
+			token:   signRaw(testSecret, `{"alg":"","typ":"JWT"}`, `{"sub":"u","exp":1700003600}`),
+			wantErr: ErrUnsupportedAlg,
+		},
+		{
+			name:    "alg HS384",
+			token:   signRaw(testSecret, `{"alg":"HS384","typ":"JWT"}`, `{"sub":"u","exp":1700003600}`),
+			wantErr: ErrUnsupportedAlg,
+		},
+		{
+			name:    "alg non-string",
+			token:   signRaw(testSecret, `{"alg":123,"typ":"JWT"}`, `{"sub":"u","exp":1700003600}`),
+			wantErr: ErrMalformedToken,
+		},
+		{
+			name:    "exp float",
+			token:   signRaw(testSecret, `{"alg":"HS256","typ":"JWT"}`, `{"sub":"u","exp":1700003600.5}`),
+			wantErr: ErrInvalidClaims,
+		},
+		{
+			name:    "exp string",
+			token:   signRaw(testSecret, `{"alg":"HS256","typ":"JWT"}`, `{"sub":"u","exp":"1700003600"}`),
+			wantErr: ErrInvalidClaims,
+		},
+		{
+			name:    "exp negative",
+			token:   signRaw(testSecret, `{"alg":"HS256","typ":"JWT"}`, `{"sub":"u","exp":-1}`),
+			wantErr: ErrInvalidClaims,
+		},
+		{
+			name:    "exp overflows int64",
+			token:   signRaw(testSecret, `{"alg":"HS256","typ":"JWT"}`, `{"sub":"u","exp":99999999999999999999}`),
+			wantErr: ErrInvalidClaims,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newTestVerifier().Verify(tt.token)
+			got, err := newTestVerifier().Verify(tt.token)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Verify() error = %v, want %v", err, tt.wantErr)
 			}
+			if !reflect.DeepEqual(got, Claims{}) {
+				t.Errorf("Verify() claims = %+v, want zero value", got)
+			}
 		})
+	}
+}
+
+func TestVerifyAcceptsExpiryJustAfterNow(t *testing.T) {
+	token := SignHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Second)})
+	if _, err := newTestVerifier().Verify(token); err != nil {
+		t.Fatalf("Verify() error = %v, want nil", err)
 	}
 }
 
@@ -320,6 +377,53 @@ func TestCanPublish(t *testing.T) {
 				t.Errorf("CanPublish(%q) = %v, want %v", tt.channel, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCanSubscribeWildcardSubscriptionStaysWithinGrant(t *testing.T) {
+	tests := []struct {
+		name  string
+		grant string
+		sub   string
+		want  bool
+	}{
+		{"trailing-star grant authorizes equal pattern", "chat-*", "chat-*", true},
+		{"trailing-star grant authorizes narrower pattern", "chat-*", "chat-x*", true},
+		{"trailing-star grant denies catch-all", "chat-*", "*", false},
+		{"trailing-star grant denies suffix wildcard", "chat-*", "*-x", false},
+		{"trailing-star grant denies shorter prefix", "chat-*", "c*", false},
+		{"literal grant denies wildcard widening", "news", "news*", false},
+		{"literal grant denies catch-all", "news", "*", false},
+		{"catch-all grant authorizes any pattern", "*", "anything*", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Claims{Channels: []string{tt.grant}}
+			if got := c.CanSubscribe(tt.sub); got != tt.want {
+				t.Errorf("CanSubscribe(%q) with grant %q = %v, want %v", tt.sub, tt.grant, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCanSubscribeAuthorizesOnlyChannelsTheEngineRoutesInsideTheGrant(t *testing.T) {
+	grants := []string{"chat-*", "news", "*", "events-eu", "metrics:*"}
+	subscriptions := []string{"chat-*", "chat-x*", "*", "*-x", "c*", "news", "news*", "events-*", "events-eu", "metrics:cpu", "metrics:*"}
+	names := []string{"chat-42", "chat-", "chats-42", "news", "news2", "events-eu", "events-us", "metrics:cpu", "metrics:", "x"}
+
+	for _, grant := range grants {
+		for _, sub := range subscriptions {
+			c := Claims{Channels: []string{grant}}
+			if !c.CanSubscribe(sub) {
+				continue
+			}
+			for _, name := range names {
+				if pattern.Match(sub, name) && !matchPattern(grant, name) {
+					t.Errorf("grant %q authorized subscription %q, which the engine routes to %q outside the grant", grant, sub, name)
+				}
+			}
+		}
 	}
 }
 
