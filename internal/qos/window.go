@@ -76,6 +76,11 @@ func NewWindow(maxCount int, maxBytes int64, timeout time.Duration, maxRedeliver
 // enqueue order across the live path, the confirm pump, and the redelivery
 // pump. The window state only commits after send succeeds: a cumulative
 // confirm can never cover an offset that did not reach the transport.
+//
+// A delivery whose epoch differs from the baselined one is a recreated
+// channel: offsets restarted, so the cursor is re-baselined to this delivery
+// and the stale inflight tail is dropped, instead of misreading the new
+// stream as duplicates of the old epoch.
 func (w *Window) Admit(offset, epoch uint64, size int, now int64, send func() bool) Verdict {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -85,6 +90,14 @@ func (w *Window) Admit(offset, epoch uint64, size int, now int64, send func() bo
 		w.epoch = epoch
 		w.delivered = offset - 1
 		w.confirmed = offset - 1
+	} else if epoch != w.epoch {
+		w.epoch = epoch
+		w.delivered = offset - 1
+		w.confirmed = offset - 1
+		w.inflight = w.inflight[:0]
+		w.inflightBytes = 0
+		w.attempts = 0
+		w.attemptsOffset = 0
 	}
 
 	if offset <= w.delivered {

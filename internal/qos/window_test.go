@@ -100,6 +100,25 @@ func TestWindowOversizedMessageStillAdmitsOnEmptyWindow(t *testing.T) {
 	}
 }
 
+func TestWindowAdmitRebaselinesOnEpochChange(t *testing.T) {
+	w := NewWindow(10, 1000, time.Second, 2)
+	admitN(t, w, 48, 50, 10, 0)
+
+	if v := w.Admit(1, 99, 10, 0, sendOK); v != Admitted {
+		t.Fatalf("Admit(1, epoch 99) after epoch change = %v, want Admitted (re-baseline, not Dup)", v)
+	}
+
+	from, epoch, _ := w.PumpPoint()
+	if from != 1 || epoch != 99 {
+		t.Fatalf("PumpPoint after epoch change = (%d, %d), want (1, 99)", from, epoch)
+	}
+
+	count, bytes := w.Inflight()
+	if count != 1 || bytes != 10 {
+		t.Fatalf("Inflight after epoch re-baseline = (%d, %d), want (1, 10): old-epoch inflight dropped", count, bytes)
+	}
+}
+
 func TestWindowConfirmFreesBudget(t *testing.T) {
 	w := NewWindow(2, 1000, time.Second, 2)
 	admitN(t, w, 1, 2, 10, 0)
