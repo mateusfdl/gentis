@@ -157,6 +157,10 @@ func (s *ArenaState) SubscriptionCount() int {
 	return int(s.slot.SubCount)
 }
 
+// Close returns the slot to the arena. It is idempotent, but the caller must
+// not invoke any other method on this ArenaState once Close has run: the slot
+// may be re-allocated to a different session, so a late read would observe
+// another owner's state.
 func (s *ArenaState) Close() {
 	if !s.freed.CompareAndSwap(false, true) {
 		return

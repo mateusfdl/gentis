@@ -97,7 +97,7 @@ func (a *Arena) popFree() (uint32, bool) {
 }
 
 func (a *Arena) Free(idx uint32) {
-	if idx >= a.maxSlots {
+	if a.closed.Load() || idx >= a.maxSlots {
 		return
 	}
 
@@ -122,6 +122,9 @@ func (a *Arena) Free(idx uint32) {
 }
 
 func (a *Arena) SlotPtr(idx uint32) unsafe.Pointer {
+	if a.closed.Load() {
+		return nil
+	}
 	return a.slotPtr(idx)
 }
 
@@ -137,6 +140,15 @@ func (a *Arena) slotPtr(idx uint32) unsafe.Pointer {
 	return unsafe.Add(a.base, uintptr(idx)*a.slotSize)
 }
 
+// Close unmaps the backing memory. After it returns, every slot pointer the
+// arena ever handed out is invalid.
+//
+// Callers must quiesce the arena before Close: no Alloc or Free may run
+// concurrently with, or after, Close. Transports satisfy this by draining all
+// sessions (which Free their slots) before calling Close. The closed checks in
+// Alloc, Free, and SlotPtr only make sequential post-Close misuse a safe no-op;
+// they cannot make a Free that races Munmap safe, because the unmap can land
+// between the check and the slot write.
 func (a *Arena) Close() error {
 	if !a.closed.CompareAndSwap(false, true) {
 		return nil

@@ -259,6 +259,24 @@ func TestAllocAfterClose(t *testing.T) {
 	}
 }
 
+func TestFreeAfterCloseIsNoop(t *testing.T) {
+	a, _ := New(testSlotSize, 4)
+	_, idx, _ := a.Alloc()
+	a.Close()
+
+	a.Free(idx) // must not touch the unmapped region
+}
+
+func TestSlotPtrAfterCloseReturnsNil(t *testing.T) {
+	a, _ := New(testSlotSize, 4)
+	_, idx, _ := a.Alloc()
+	a.Close()
+
+	if p := a.SlotPtr(idx); p != nil {
+		t.Fatalf("SlotPtr after close = %v, want nil", p)
+	}
+}
+
 func TestSessionSlotInArena(t *testing.T) {
 	slotSize := int(unsafe.Sizeof(SessionSlot{}))
 	a, err := New(slotSize, 10)
