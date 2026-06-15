@@ -4,6 +4,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/pattern"
 	"github.com/mateusfdl/gentis/internal/qos"
+	"github.com/mateusfdl/gentis/internal/transport"
 )
 
 // Connect and Ping are the only ops that run unauthenticated; every other
@@ -131,7 +132,9 @@ func Subscribe(s Session, req SubscribeRequest, reqID string) {
 		return
 	}
 
-	s.State().AddSubscription(req.Channel)
+	if s.State().AddSubscription(req.Channel) == transport.SubscriptionCapReached {
+		s.Logger().Warn("subscription cap reached, channel dropped from session state", "channel", req.Channel)
+	}
 
 	var replay []engine.Delivery
 	recovered := false
@@ -164,7 +167,9 @@ func subscribePattern(s Session, req SubscribeRequest, reqID string) {
 		return
 	}
 
-	s.State().AddSubscription(req.Channel)
+	if s.State().AddSubscription(req.Channel) == transport.SubscriptionCapReached {
+		s.Logger().Warn("subscription cap reached, channel dropped from session state", "channel", req.Channel)
+	}
 	if h := s.Hooks(); h != nil && h.OnSubscribed != nil {
 		h.OnSubscribed(req.Channel)
 	}

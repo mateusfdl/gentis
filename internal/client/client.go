@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/mateusfdl/gentis/internal/auth"
+	"github.com/mateusfdl/gentis/internal/transport"
 )
 
 type State struct {
@@ -64,10 +65,14 @@ func (s *State) CanPublish(channel string) bool {
 	return s.claims.CanPublish(channel)
 }
 
-func (s *State) AddSubscription(channel string) {
+func (s *State) AddSubscription(channel string) transport.AddSubscriptionResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, ok := s.subscriptions[channel]; ok {
+		return transport.SubscriptionAlreadyPresent
+	}
 	s.subscriptions[channel] = struct{}{}
+	return transport.SubscriptionAdded
 }
 
 func (s *State) RemoveSubscription(channel string) {

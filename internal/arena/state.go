@@ -3,12 +3,12 @@
 package arena
 
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/mateusfdl/gentis/internal/auth"
+	"github.com/mateusfdl/gentis/internal/transport"
 )
 
 // ArenaState is a heap-allocated wrapper around a SessionSlot that lives
@@ -127,18 +127,16 @@ func (s *ArenaState) CanPublish(channel string) bool {
 	return c.CanPublish(channel)
 }
 
-func (s *ArenaState) AddSubscription(channel string) {
+func (s *ArenaState) AddSubscription(channel string) transport.AddSubscriptionResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.slot.AddSubscription(channel) {
-		return
+		return transport.SubscriptionAdded
 	}
-	// false can mean "already subscribed" (no-op) or "cap hit" (log).
-	// disambiguate by checking count after the call.
-	if s.slot.SubCount >= MaxSubscriptions && !s.slot.IsSubscribed(channel) {
-		log.Printf("arena session %d: subscription cap %d reached, dropped %q",
-			s.id, MaxSubscriptions, channel)
+	if s.slot.IsSubscribed(channel) {
+		return transport.SubscriptionAlreadyPresent
 	}
+	return transport.SubscriptionCapReached
 }
 
 func (s *ArenaState) RemoveSubscription(channel string) {

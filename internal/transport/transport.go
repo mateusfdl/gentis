@@ -12,6 +12,17 @@ type Sender interface {
 	DeliverMessage(d engine.Delivery) bool
 }
 
+// AddSubscriptionResult reports why a SessionState.AddSubscription call did or
+// did not record a channel, so the caller can log capacity drops without the
+// state layer reaching for a logger of its own.
+type AddSubscriptionResult uint8
+
+const (
+	SubscriptionAdded AddSubscriptionResult = iota
+	SubscriptionAlreadyPresent
+	SubscriptionCapReached
+)
+
 // SessionState is the minimal per-connection state surface that the ws
 // dispatch layer relies on. Both the heap-backed client.State and the
 // arena-backed arena.ArenaState satisfy it.
@@ -21,7 +32,7 @@ type SessionState interface {
 	Subject() string
 	CanSubscribe(channel string) bool
 	CanPublish(channel string) bool
-	AddSubscription(channel string)
+	AddSubscription(channel string) AddSubscriptionResult
 	RemoveSubscription(channel string)
 	SubscriptionCount() int
 }

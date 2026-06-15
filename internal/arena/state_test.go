@@ -3,16 +3,14 @@
 package arena
 
 import (
-	"bytes"
 	"fmt"
-	"log"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 	"unsafe"
 
 	"github.com/mateusfdl/gentis/internal/auth"
+	"github.com/mateusfdl/gentis/internal/transport"
 )
 
 func newTestArena(t *testing.T, maxSlots int) *Arena {
@@ -140,32 +138,31 @@ func TestArenaState_DuplicateSubscription(t *testing.T) {
 	}
 }
 
-func TestArenaState_SubscriptionCapLogs(t *testing.T) {
+func TestArenaState_AddSubscriptionResults(t *testing.T) {
 	a := newTestArena(t, 1)
 	s, _ := NewArenaState(1, a)
 
-	var buf bytes.Buffer
-	origOut := log.Writer()
-	origFlags := log.Flags()
-	log.SetOutput(&buf)
-	log.SetFlags(0)
-	t.Cleanup(func() {
-		log.SetOutput(origOut)
-		log.SetFlags(origFlags)
-	})
+	if got := s.AddSubscription("channel-0"); got != transport.SubscriptionAdded {
+		t.Errorf("first add: want SubscriptionAdded, got %v", got)
+	}
+	if got := s.AddSubscription("channel-0"); got != transport.SubscriptionAlreadyPresent {
+		t.Errorf("duplicate add: want SubscriptionAlreadyPresent, got %v", got)
+	}
 
-	for i := 0; i < MaxSubscriptions+3; i++ {
-		s.AddSubscription(fmt.Sprintf("channel-%d", i))
+	for i := 1; i < MaxSubscriptions; i++ {
+		if got := s.AddSubscription(fmt.Sprintf("channel-%d", i)); got != transport.SubscriptionAdded {
+			t.Errorf("add %d: want SubscriptionAdded, got %v", i, got)
+		}
+	}
+
+	for i := 0; i < 3; i++ {
+		if got := s.AddSubscription(fmt.Sprintf("overflow-%d", i)); got != transport.SubscriptionCapReached {
+			t.Errorf("overflow add %d: want SubscriptionCapReached, got %v", i, got)
+		}
 	}
 
 	if s.SubscriptionCount() != MaxSubscriptions {
 		t.Errorf("count: want %d, got %d", MaxSubscriptions, s.SubscriptionCount())
-	}
-
-	logs := buf.String()
-	overflowLines := strings.Count(logs, "subscription cap")
-	if overflowLines != 3 {
-		t.Errorf("expected 3 overflow log lines, got %d:\n%s", overflowLines, logs)
 	}
 }
 
