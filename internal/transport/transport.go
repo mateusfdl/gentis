@@ -44,22 +44,32 @@ type SessionState interface {
 //     Retained for backward-compat and for transports that don't need the
 //     GC-scan reduction.
 //   - Flat-array mode (NewFlatSessionStore): a fixed-size
-//     []atomic.Pointer[Sender] covers IDs in [baseID, baseID+cap). IDs
+//     []atomic.Pointer[entry] covers IDs in [baseID, baseID+cap). IDs
 //     outside that range fall through to an overflow sync.Map.
 //
 // The flat array turns N scattered map-entry allocations into one
-// contiguous pointer array — one big GC-scan region instead of many
+// contiguous pointer array: one big GC-scan region instead of many
 // pointer-chasing map buckets.
 const (
 	genShift = 32
 	idMask   = (uint64(1) << genShift) - 1
 )
 
+// entry binds a registered Sender to the generation it was registered under.
+// Deliver loads the *entry in a single atomic read, so the generation and the
+// sender can never be torn apart by a concurrent slot reuse: a delivery
+// validated against entry.gen is dispatched to exactly the sender that carried
+// that generation, closing the check-then-act window between the two.
+type entry struct {
+	gen    uint32
+	sender Sender
+}
+
 type SessionStore struct {
 	baseID   uint64
-	arr      []atomic.Pointer[Sender] // nil when in legacy map mode
-	gen      []atomic.Uint32          // per-slot generation, parallel to arr
-	overflow sync.Map                 // always used in legacy mode; fallback in flat mode
+	arr      []atomic.Pointer[entry] // nil when in legacy map mode
+	gen      []atomic.Uint32         // per-slot allocation counter for AllocID
+	overflow sync.Map                // always used in legacy mode; fallback in flat mode
 }
 
 // NewSessionStore returns a legacy map-only store. Retained for backward-
@@ -82,7 +92,7 @@ func NewFlatSessionStore(baseID engine.SubscriberID, capacity int) *SessionStore
 	}
 	return &SessionStore{
 		baseID: uint64(baseID),
-		arr:    make([]atomic.Pointer[Sender], capacity),
+		arr:    make([]atomic.Pointer[entry], capacity),
 		gen:    make([]atomic.Uint32, capacity),
 	}
 }
@@ -117,11 +127,8 @@ func (s *SessionStore) AllocID(slotID engine.SubscriberID) engine.SubscriberID {
 
 func (s *SessionStore) Register(id engine.SubscriberID, sender Sender) {
 	if idx, ok := s.slotFor(id); ok {
-		// atomic.Pointer[Sender] holds *Sender (pointer to interface). The
-		// extra indirection vs storing the interface directly is one
-		// pointer dereference on the hot Deliver path — cheap and lets us
-		// use typed atomic operations.
-		s.arr[idx].Store(&sender)
+		g := uint32(uint64(id) >> genShift)
+		s.arr[idx].Store(&entry{gen: g, sender: sender})
 		return
 	}
 	s.overflow.Store(id, sender)
@@ -137,13 +144,14 @@ func (s *SessionStore) Unregister(id engine.SubscriberID) {
 
 func (s *SessionStore) Deliver(id engine.SubscriberID, d engine.Delivery) bool {
 	if idx, ok := s.slotFor(id); ok {
-		if g := uint32(uint64(id) >> genShift); g != 0 && g != s.gen[idx].Load() {
+		e := s.arr[idx].Load()
+		if e == nil {
 			return false
 		}
-		if p := s.arr[idx].Load(); p != nil {
-			return (*p).DeliverMessage(d)
+		if g := uint32(uint64(id) >> genShift); g != 0 && g != e.gen {
+			return false
 		}
-		return false
+		return e.sender.DeliverMessage(d)
 	}
 	val, ok := s.overflow.Load(id)
 	if !ok {

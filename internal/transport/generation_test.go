@@ -58,6 +58,28 @@ func TestDeliverDropsStaleGenerationAfterSlotReuse(t *testing.T) {
 	}
 }
 
+func TestDeliverValidatesAgainstRegisteredGenerationNotLiveCounter(t *testing.T) {
+	store := NewFlatSessionStore(engine.SubscriberID(1), 8)
+
+	slot := engine.SubscriberID(3)
+	id := store.AllocID(slot)
+	s := &fakeSender{}
+	store.Register(id, s)
+
+	idx, ok := store.slotFor(slot)
+	if !ok {
+		t.Fatalf("slot %d not in flat range", slot)
+	}
+	store.gen[idx].Add(1)
+
+	if !store.Deliver(id, engine.Delivery{Channel: "foo", Data: []byte("x")}) {
+		t.Fatal("live session lost its own message after the allocation counter advanced")
+	}
+	if s.count() != 1 {
+		t.Fatalf("received %d messages, want 1", s.count())
+	}
+}
+
 func TestDeliverBareIDStillWorks(t *testing.T) {
 	store := NewFlatSessionStore(engine.SubscriberID(1), 8)
 
