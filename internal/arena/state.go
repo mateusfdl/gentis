@@ -36,6 +36,8 @@ type ArenaState struct {
 	pub      []string
 }
 
+var _ transport.SessionState = (*ArenaState)(nil)
+
 // NewArenaState allocates a slot from the given arena and returns a wrapper.
 // Returns ErrFull if the arena has no free slots. The session ID is supplied
 // by the caller.

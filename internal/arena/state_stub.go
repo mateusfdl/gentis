@@ -11,6 +11,8 @@ import (
 
 type ArenaState struct{}
 
+var _ transport.SessionState = (*ArenaState)(nil)
+
 func NewArenaState(id int, a *Arena) (*ArenaState, error) {
 	return nil, ErrUnsupported
 }
