@@ -126,6 +126,9 @@ func (s Settings) validate(name string) error {
 	if s.IdleReap < 0 {
 		return fmt.Errorf("%w: namespace %q idle_reap must be >= 0", ErrInvalidConfig, name)
 	}
+	if s.HistoryTTL > 0 && s.HistorySize <= 0 {
+		return fmt.Errorf("%w: namespace %q history_ttl requires history_size > 0", ErrInvalidConfig, name)
+	}
 	if s.AllowWildcard && s.Fanout != Broadcast {
 		return fmt.Errorf("%w: namespace %q allow_wildcard requires broadcast fanout", ErrInvalidConfig, name)
 	}

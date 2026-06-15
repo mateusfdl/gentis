@@ -391,6 +391,12 @@ func TestLoadFileRejectsRedeliveryWithoutAtLeastOnce(t *testing.T) {
 	}
 }
 
+func TestLoadFileRejectsHistoryTTLWithoutSize(t *testing.T) {
+	if _, err := LoadFile("testdata/history_ttl_no_size.yaml"); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("history_ttl without history_size: err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestLoadFileEmptyConfigYieldsDefaults(t *testing.T) {
 	reg, err := LoadFile("testdata/empty.yaml")
 	if err != nil {
