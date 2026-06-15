@@ -96,7 +96,7 @@ func (w *Window) Admit(offset, epoch uint64, size int, now int64, send func() bo
 	if w.maxCount > 0 && len(w.inflight) >= w.maxCount {
 		return Full
 	}
-	if w.maxBytes > 0 && w.inflightBytes+int64(size) > w.maxBytes {
+	if w.maxBytes > 0 && len(w.inflight) > 0 && w.inflightBytes+int64(size) > w.maxBytes {
 		return Full
 	}
 

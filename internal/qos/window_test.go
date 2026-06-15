@@ -83,6 +83,23 @@ func TestWindowAdmit(t *testing.T) {
 	}
 }
 
+func TestWindowOversizedMessageStillAdmitsOnEmptyWindow(t *testing.T) {
+	w := NewWindow(10, 100, time.Second, 2)
+
+	if v := w.Admit(1, 7, 150, 0, sendOK); v != Admitted {
+		t.Fatalf("Admit(1, size 150) into empty 100-byte window = %v, want Admitted (one over-budget message must not wedge the subscription)", v)
+	}
+
+	count, bytes := w.Inflight()
+	if count != 1 || bytes != 150 {
+		t.Fatalf("Inflight after oversized admit = (%d, %d), want (1, 150)", count, bytes)
+	}
+
+	if v := w.Admit(2, 7, 10, 0, sendOK); v != Full {
+		t.Fatalf("Admit(2) while over-budget message inflight = %v, want Full", v)
+	}
+}
+
 func TestWindowConfirmFreesBudget(t *testing.T) {
 	w := NewWindow(2, 1000, time.Second, 2)
 	admitN(t, w, 1, 2, 10, 0)
