@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -261,6 +262,18 @@ func TestWithShards(t *testing.T) {
 
 	if len(e.shards) != 64 {
 		t.Errorf("expected 64 shards, got %d", len(e.shards))
+	}
+}
+
+func TestNextPowerOf2HandlesLarge64BitInts(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("requires 64-bit int")
+	}
+
+	got := nextPowerOf2(1<<33 + 1)
+	want := 1 << 34
+	if got != want {
+		t.Fatalf("nextPowerOf2(1<<33 + 1) = %d, want %d", got, want)
 	}
 }
 
