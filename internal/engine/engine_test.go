@@ -313,29 +313,30 @@ func TestSubscriptionTracker(t *testing.T) {
 	s.Add(1, "ch2")
 	s.Add(1, "ch3")
 
-	if s.Count(1) != 3 {
-		t.Errorf("expected 3 subscriptions, got %d", s.Count(1))
+	channels := s.GetChannels(1)
+	if len(channels) != 3 {
+		t.Errorf("expected 3 subscriptions, got %d", len(channels))
 	}
 
-	if !s.Has(1, "ch2") {
+	if !slices.Contains(channels, "ch2") {
 		t.Error("expected subscription to ch2")
 	}
 
 	s.Remove(1, "ch2")
 
-	if s.Has(1, "ch2") {
+	channels = s.GetChannels(1)
+	if slices.Contains(channels, "ch2") {
 		t.Error("ch2 should be removed")
 	}
-
-	channels := s.GetChannels(1)
 	if len(channels) != 2 {
 		t.Errorf("expected 2 channels, got %d", len(channels))
 	}
 
 	s.RemoveAll(1)
 
-	if s.Count(1) != 0 {
-		t.Error("expected 0 subscriptions after RemoveAll")
+	channels = s.GetChannels(1)
+	if len(channels) != 0 {
+		t.Errorf("expected 0 subscriptions after RemoveAll, got %d", len(channels))
 	}
 }
 
@@ -537,22 +538,6 @@ func TestSubscriptionTrackerGetChannelsEmpty(t *testing.T) {
 	channels := s.GetChannels(999)
 	if channels != nil {
 		t.Errorf("expected nil for unknown subscriber, got %v", channels)
-	}
-}
-
-func TestSubscriptionTrackerHasUnknown(t *testing.T) {
-	s := newSubscriptions()
-
-	if s.Has(999, "ch") {
-		t.Error("expected false for unknown subscriber")
-	}
-}
-
-func TestSubscriptionTrackerCountUnknown(t *testing.T) {
-	s := newSubscriptions()
-
-	if s.Count(999) != 0 {
-		t.Errorf("expected 0 for unknown subscriber, got %d", s.Count(999))
 	}
 }
 

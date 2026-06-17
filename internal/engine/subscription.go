@@ -188,29 +188,3 @@ func (s *subscriptions) GetChannels(id SubscriberID) []string {
 	sh.mu.RUnlock()
 	return result
 }
-
-func (s *subscriptions) Has(id SubscriberID, channel string) bool {
-	sh := s.getShard(id)
-	sh.mu.RLock()
-	cs, ok := sh.index[id]
-	if !ok {
-		sh.mu.RUnlock()
-		return false
-	}
-	exists := cs.has(channel)
-	sh.mu.RUnlock()
-	return exists
-}
-
-func (s *subscriptions) Count(id SubscriberID) int {
-	sh := s.getShard(id)
-	sh.mu.RLock()
-	cs, ok := sh.index[id]
-	if !ok {
-		sh.mu.RUnlock()
-		return 0
-	}
-	count := cs.len()
-	sh.mu.RUnlock()
-	return count
-}
