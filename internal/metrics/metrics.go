@@ -349,7 +349,3 @@ func (s *Server) Stop() error {
 	s.running.Store(false)
 	return s.httpServer.Shutdown(ctx)
 }
-
-func (s *Server) Addr() string {
-	return s.addr
-}
