@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1144,9 +1145,10 @@ func fanoutRegistry() *namespace.Registry {
 }
 
 type deliveryRecorder struct {
-	mu     sync.Mutex
-	byID   map[SubscriberID][]uint64
-	refuse map[SubscriberID]bool
+	mu        sync.Mutex
+	byID      map[SubscriberID][]uint64
+	delivered []SubscriberID
+	refuse    map[SubscriberID]bool
 }
 
 func newDeliveryRecorder() *deliveryRecorder {
@@ -1160,6 +1162,7 @@ func (r *deliveryRecorder) deliver(id SubscriberID, d Delivery) bool {
 		return false
 	}
 	r.byID[id] = append(r.byID[id], d.Offset)
+	r.delivered = append(r.delivered, id)
 	return true
 }
 
@@ -1171,6 +1174,37 @@ func (r *deliveryRecorder) counts() map[SubscriberID]int {
 		out[id] = len(offs)
 	}
 	return out
+}
+
+func (r *deliveryRecorder) deliveredIDs() []SubscriberID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]SubscriberID, len(r.delivered))
+	copy(out, r.delivered)
+	return out
+}
+
+func TestRoundRobinStartsWithFirstSubscriber(t *testing.T) {
+	e := New(WithNamespaces(fanoutRegistry()))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	for id := SubscriberID(1); id <= 2; id++ {
+		if err := e.Subscribe(id, "tasks:q"); err != nil {
+			t.Fatalf("subscribe %d: %v", id, err)
+		}
+	}
+
+	r := e.Publish("tasks:q", []byte("job"), 0, rec.deliver)
+	if r.Delivered != 1 || r.Dropped != 0 {
+		t.Fatalf("publish result = delivered %d dropped %d, want delivered 1 dropped 0", r.Delivered, r.Dropped)
+	}
+
+	got := rec.deliveredIDs()
+	want := []SubscriberID{1}
+	if !slices.Equal(got, want) {
+		t.Fatalf("delivered subscribers = %v, want %v", got, want)
+	}
 }
 
 func TestRoundRobinDistributesEvenly(t *testing.T) {

@@ -316,7 +316,7 @@ func roundRobinDeliver(ch *Channel, subs []SubscriberID, d Delivery, exclude Sub
 	if n == 0 {
 		return 0, 0
 	}
-	start := ch.rr.Add(1)
+	start := ch.rr.Add(1) - 1
 	tried := 0
 	for i := uint64(0); i < n; i++ {
 		id := subs[(start+i)%n]
