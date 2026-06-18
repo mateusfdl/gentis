@@ -20,6 +20,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/namespace"
+	"github.com/mateusfdl/gentis/internal/testauth"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
@@ -530,7 +531,7 @@ func TestConnectAcceptsSignedToken(t *testing.T) {
 	conn := dialWS(t, addr)
 	defer conn.Close()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 	})
@@ -561,7 +562,7 @@ func TestPermissionChecks(t *testing.T) {
 	conn := dialWS(t, addr)
 	defer conn.Close()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 		Channels:  []string{"allowed-*"},
@@ -620,7 +621,7 @@ func TestExpiredSessionDisconnects(t *testing.T) {
 	conn := dialWS(t, addr)
 	defer conn.Close()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Second),
 	})
@@ -648,7 +649,7 @@ func TestRefreshExtendsSession(t *testing.T) {
 	conn := dialWS(t, addr)
 	defer conn.Close()
 
-	short := auth.SignHS256(secret, auth.Claims{
+	short := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(2 * time.Second),
 	})
@@ -663,7 +664,7 @@ func TestRefreshExtendsSession(t *testing.T) {
 	}
 
 	renewedExp := time.Now().Add(time.Hour)
-	renewed := auth.SignHS256(secret, auth.Claims{
+	renewed := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: renewedExp,
 	})
@@ -1485,7 +1486,7 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 
 	sendJSON(t, conn, map[string]any{
 		"id": "c1",
-		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+		"connect": map[string]any{"auth_token": testauth.SignHS256(secret, auth.Claims{
 			Subject:   "user-1",
 			ExpiresAt: time.Now().Add(time.Hour),
 		})},
@@ -1498,7 +1499,7 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 
 	sendJSON(t, conn, map[string]any{
 		"id": "c2",
-		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+		"connect": map[string]any{"auth_token": testauth.SignHS256(secret, auth.Claims{
 			Subject:   "user-2",
 			ExpiresAt: time.Now().Add(time.Hour),
 		})},
@@ -1510,7 +1511,7 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 
 	sendJSON(t, conn, map[string]any{
 		"id": "c3",
-		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+		"connect": map[string]any{"auth_token": testauth.SignHS256(secret, auth.Claims{
 			Subject:   "user-1",
 			ExpiresAt: time.Now().Add(time.Hour),
 		})},
@@ -1661,7 +1662,7 @@ func TestRefreshRejectsBadToken(t *testing.T) {
 
 	sendJSON(t, conn, map[string]any{
 		"id": "c1",
-		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+		"connect": map[string]any{"auth_token": testauth.SignHS256(secret, auth.Claims{
 			Subject:   "user-1",
 			ExpiresAt: time.Now().Add(time.Hour),
 		})},
@@ -1690,7 +1691,7 @@ func TestRefreshRejectsSubjectChange(t *testing.T) {
 
 	sendJSON(t, conn, map[string]any{
 		"id": "c1",
-		"connect": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+		"connect": map[string]any{"auth_token": testauth.SignHS256(secret, auth.Claims{
 			Subject:   "user-1",
 			ExpiresAt: time.Now().Add(time.Hour),
 		})},
@@ -1703,7 +1704,7 @@ func TestRefreshRejectsSubjectChange(t *testing.T) {
 
 	sendJSON(t, conn, map[string]any{
 		"id": "r1",
-		"refresh": map[string]any{"auth_token": auth.SignHS256(secret, auth.Claims{
+		"refresh": map[string]any{"auth_token": testauth.SignHS256(secret, auth.Claims{
 			Subject:   "user-2",
 			ExpiresAt: time.Now().Add(time.Hour),
 		})},

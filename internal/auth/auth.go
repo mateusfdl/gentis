@@ -189,22 +189,3 @@ func (v *HMACVerifier) Verify(token string) (Claims, error) {
 	}
 	return claims, nil
 }
-
-// SignHS256 mints a token for the given claims. It exists for tests and
-// tooling; the server only ever verifies.
-func SignHS256(secret []byte, c Claims) string {
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	body, err := json.Marshal(claimsJSON{
-		Sub:      c.Subject,
-		Exp:      c.ExpiresAt.Unix(),
-		Channels: c.Channels,
-		Pub:      c.Pub,
-	})
-	if err != nil {
-		panic(err)
-	}
-	signing := header + "." + base64.RawURLEncoding.EncodeToString(body)
-	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(signing))
-	return signing + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}

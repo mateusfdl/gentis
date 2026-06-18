@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -27,6 +28,23 @@ func newTestVerifier() *HMACVerifier {
 	return v
 }
 
+func signHS256(secret []byte, c Claims) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	body, err := json.Marshal(claimsJSON{
+		Sub:      c.Subject,
+		Exp:      c.ExpiresAt.Unix(),
+		Channels: c.Channels,
+		Pub:      c.Pub,
+	})
+	if err != nil {
+		panic(err)
+	}
+	signing := header + "." + base64.RawURLEncoding.EncodeToString(body)
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(signing))
+	return signing + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
 func TestVerifyValidToken(t *testing.T) {
 	claims := Claims{
 		Subject:   "user-42",
@@ -34,7 +52,7 @@ func TestVerifyValidToken(t *testing.T) {
 		Channels:  []string{"chat-*", "news"},
 		Pub:       []string{"chat-42"},
 	}
-	token := SignHS256(testSecret, claims)
+	token := signHS256(testSecret, claims)
 
 	got, err := newTestVerifier().Verify(token)
 	if err != nil {
@@ -55,7 +73,7 @@ func TestVerifyValidToken(t *testing.T) {
 }
 
 func TestVerifyValidTokenWithoutAllowlists(t *testing.T) {
-	token := SignHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Minute)})
+	token := signHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Minute)})
 
 	got, err := newTestVerifier().Verify(token)
 	if err != nil {
@@ -87,7 +105,7 @@ func TestVerifyRejectsReservedClaimGrammar(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token := SignHS256(testSecret, tt.claims)
+			token := signHS256(testSecret, tt.claims)
 			got, err := newTestVerifier().Verify(token)
 			if !errors.Is(err, ErrInvalidClaims) {
 				t.Errorf("Verify() error = %v, want ErrInvalidClaims", err)
@@ -106,14 +124,14 @@ func TestVerifyAcceptsValidClaimGrammar(t *testing.T) {
 		Channels:  []string{"chat-*", "news", "*"},
 		Pub:       []string{"chat-42"},
 	}
-	token := SignHS256(testSecret, claims)
+	token := signHS256(testSecret, claims)
 	if _, err := newTestVerifier().Verify(token); err != nil {
 		t.Fatalf("Verify() error = %v, want nil", err)
 	}
 }
 
 func TestVerifyErrors(t *testing.T) {
-	valid := SignHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Hour)})
+	valid := signHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Hour)})
 	segments := strings.Split(valid, ".")
 
 	tests := []struct {
@@ -168,7 +186,7 @@ func TestVerifyErrors(t *testing.T) {
 		},
 		{
 			name:    "wrong secret",
-			token:   SignHS256(wrongSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Hour)}),
+			token:   signHS256(wrongSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Hour)}),
 			wantErr: ErrBadSignature,
 		},
 		{
@@ -183,7 +201,7 @@ func TestVerifyErrors(t *testing.T) {
 		},
 		{
 			name:    "empty subject",
-			token:   SignHS256(testSecret, Claims{Subject: "", ExpiresAt: testNow.Add(time.Hour)}),
+			token:   signHS256(testSecret, Claims{Subject: "", ExpiresAt: testNow.Add(time.Hour)}),
 			wantErr: ErrInvalidClaims,
 		},
 		{
@@ -193,12 +211,12 @@ func TestVerifyErrors(t *testing.T) {
 		},
 		{
 			name:    "expired token",
-			token:   SignHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(-time.Second)}),
+			token:   signHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(-time.Second)}),
 			wantErr: ErrTokenExpired,
 		},
 		{
 			name:    "expiry exactly now",
-			token:   SignHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow}),
+			token:   signHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow}),
 			wantErr: ErrTokenExpired,
 		},
 		{
@@ -267,7 +285,7 @@ func TestVerifyErrors(t *testing.T) {
 }
 
 func TestVerifyAcceptsExpiryJustAfterNow(t *testing.T) {
-	token := SignHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Second)})
+	token := signHS256(testSecret, Claims{Subject: "user-1", ExpiresAt: testNow.Add(time.Second)})
 	if _, err := newTestVerifier().Verify(token); err != nil {
 		t.Fatalf("Verify() error = %v, want nil", err)
 	}
@@ -428,7 +446,7 @@ func TestCanSubscribeAuthorizesOnlyChannelsTheEngineRoutesInsideTheGrant(t *test
 }
 
 func TestSignRoundTripsEmptyAllowlists(t *testing.T) {
-	token := SignHS256(testSecret, Claims{
+	token := signHS256(testSecret, Claims{
 		Subject:   "user-1",
 		ExpiresAt: testNow.Add(time.Hour),
 		Channels:  []string{},

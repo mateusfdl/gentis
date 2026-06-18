@@ -14,6 +14,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
+	"github.com/mateusfdl/gentis/internal/testauth"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -1066,7 +1067,7 @@ func TestConnectAcceptsSignedToken(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 	})
@@ -1092,7 +1093,7 @@ func TestConnectRejectsExpiredToken(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(-time.Minute),
 	})
@@ -1118,7 +1119,7 @@ func TestPermissionChecks(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 		Channels:  []string{"allowed-*"},
@@ -1181,7 +1182,7 @@ func TestExpiredSessionDisconnects(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Second),
 	})
@@ -1213,14 +1214,14 @@ func TestRefreshExtendsSession(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	short := auth.SignHS256(secret, auth.Claims{
+	short := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(2 * time.Second),
 	})
 	authenticate(t, stream, short)
 
 	renewedExp := time.Now().Add(time.Hour)
-	renewed := auth.SignHS256(secret, auth.Claims{
+	renewed := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: renewedExp,
 	})
@@ -1259,7 +1260,7 @@ func TestRefreshRejectsBadToken(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 	})
@@ -1294,7 +1295,7 @@ func TestRefreshRejectsSubjectChange(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	authenticate(t, stream, auth.SignHS256(secret, auth.Claims{
+	authenticate(t, stream, testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 	}))
@@ -1302,7 +1303,7 @@ func TestRefreshRejectsSubjectChange(t *testing.T) {
 	stream.Send(&gentisv1.ClientMessage{
 		Id: "r1",
 		Message: &gentisv1.ClientMessage_Refresh{
-			Refresh: &gentisv1.RefreshRequest{AuthToken: auth.SignHS256(secret, auth.Claims{
+			Refresh: &gentisv1.RefreshRequest{AuthToken: testauth.SignHS256(secret, auth.Claims{
 				Subject:   "user-2",
 				ExpiresAt: time.Now().Add(time.Hour),
 			})},
@@ -2131,7 +2132,7 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 	stream, closeClient := connectClient(t, addr)
 	defer closeClient()
 
-	authenticate(t, stream, auth.SignHS256(secret, auth.Claims{
+	authenticate(t, stream, testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 	}))
@@ -2139,7 +2140,7 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 	stream.Send(&gentisv1.ClientMessage{
 		Id: "c2",
 		Message: &gentisv1.ClientMessage_Connect{
-			Connect: &gentisv1.ConnectRequest{AuthToken: auth.SignHS256(secret, auth.Claims{
+			Connect: &gentisv1.ConnectRequest{AuthToken: testauth.SignHS256(secret, auth.Claims{
 				Subject:   "user-2",
 				ExpiresAt: time.Now().Add(time.Hour),
 			})},
@@ -2154,7 +2155,7 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 	stream.Send(&gentisv1.ClientMessage{
 		Id: "c3",
 		Message: &gentisv1.ClientMessage_Connect{
-			Connect: &gentisv1.ConnectRequest{AuthToken: auth.SignHS256(secret, auth.Claims{
+			Connect: &gentisv1.ConnectRequest{AuthToken: testauth.SignHS256(secret, auth.Claims{
 				Subject:   "user-1",
 				ExpiresAt: time.Now().Add(time.Hour),
 			})},

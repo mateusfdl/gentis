@@ -15,6 +15,7 @@ import (
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/ringbuf"
+	"github.com/mateusfdl/gentis/internal/testauth"
 	"github.com/mateusfdl/gentis/internal/testcert"
 	"github.com/mateusfdl/gentis/internal/transport"
 	"google.golang.org/grpc"
@@ -915,7 +916,7 @@ func TestRelayPermissionChecks(t *testing.T) {
 	stream, closeClient := connectClient(t, relayAddr)
 	defer closeClient()
 
-	token := auth.SignHS256(secret, auth.Claims{
+	token := testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 		Channels:  []string{"local-allowed"},
@@ -1222,7 +1223,7 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 	stream, closeClient := connectClient(t, relayAddr)
 	defer closeClient()
 
-	authenticate(t, stream, auth.SignHS256(secret, auth.Claims{
+	authenticate(t, stream, testauth.SignHS256(secret, auth.Claims{
 		Subject:   "user-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 	}))
@@ -1230,7 +1231,7 @@ func TestConnectRejectsSubjectChange(t *testing.T) {
 	stream.Send(&gentisv1.ClientMessage{
 		Id: "c2",
 		Message: &gentisv1.ClientMessage_Connect{
-			Connect: &gentisv1.ConnectRequest{AuthToken: auth.SignHS256(secret, auth.Claims{
+			Connect: &gentisv1.ConnectRequest{AuthToken: testauth.SignHS256(secret, auth.Claims{
 				Subject:   "user-2",
 				ExpiresAt: time.Now().Add(time.Hour),
 			})},
