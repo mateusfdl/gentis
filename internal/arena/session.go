@@ -80,10 +80,6 @@ func (s *SessionSlot) IsSubscribed(channel string) bool {
 	return false
 }
 
-func (s *SessionSlot) Clear() {
-	*s = SessionSlot{}
-}
-
 func (s *SessionSlot) matchSub(idx uint32, channel string) bool {
 	n := s.SubLens[idx]
 	if uint32(len(channel)) != n {

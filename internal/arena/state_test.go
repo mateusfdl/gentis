@@ -26,7 +26,7 @@ func newTestArena(t *testing.T, maxSlots int) *Arena {
 func TestArenaState_InitialState(t *testing.T) {
 	a := newTestArena(t, 4)
 
-	s, err := NewArenaState(42, a)
+	s, err := NewArenaStateAuto(a, 42)
 	if err != nil {
 		t.Fatalf("NewArenaState: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestArenaState_InitialState(t *testing.T) {
 
 func TestArenaState_Authenticate(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, err := NewArenaState(1, a)
+	s, err := NewArenaStateAuto(a, 1)
 	if err != nil {
 		t.Fatalf("NewArenaState: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestArenaState_Authenticate(t *testing.T) {
 
 func TestArenaState_AuthenticateCopiesAllowlists(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, _ := NewArenaState(1, a)
+	s, _ := NewArenaStateAuto(a, 1)
 
 	channels := []string{"chat-*"}
 	pub := []string{"chat-1"}
@@ -113,7 +113,7 @@ func TestArenaState_AuthenticateCopiesAllowlists(t *testing.T) {
 
 func TestArenaState_AuthenticateOverwrite(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, _ := NewArenaState(1, a)
+	s, _ := NewArenaStateAuto(a, 1)
 
 	_ = s.Authenticate(auth.Claims{Subject: "user-1"})
 	_ = s.Authenticate(auth.Claims{Subject: "user-2"})
@@ -128,7 +128,7 @@ func TestArenaState_AuthenticateOverwrite(t *testing.T) {
 
 func TestArenaState_Subscriptions(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, _ := NewArenaState(1, a)
+	s, _ := NewArenaStateAuto(a, 1)
 
 	s.AddSubscription("alpha")
 	s.AddSubscription("beta")
@@ -155,7 +155,7 @@ func TestArenaState_Subscriptions(t *testing.T) {
 
 func TestArenaState_DuplicateSubscription(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, _ := NewArenaState(1, a)
+	s, _ := NewArenaStateAuto(a, 1)
 
 	s.AddSubscription("channel-a")
 	s.AddSubscription("channel-a")
@@ -167,7 +167,7 @@ func TestArenaState_DuplicateSubscription(t *testing.T) {
 
 func TestArenaState_AddSubscriptionResults(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, _ := NewArenaState(1, a)
+	s, _ := NewArenaStateAuto(a, 1)
 
 	if got := s.AddSubscription("channel-0"); got != transport.SubscriptionAdded {
 		t.Errorf("first add: want SubscriptionAdded, got %v", got)
@@ -195,7 +195,7 @@ func TestArenaState_AddSubscriptionResults(t *testing.T) {
 
 func TestArenaState_CloseIsIdempotent(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, _ := NewArenaState(1, a)
+	s, _ := NewArenaStateAuto(a, 1)
 
 	s.Close()
 	s.Close() // must not panic or double-free
@@ -205,17 +205,17 @@ func TestArenaState_CloseReleasesSlot(t *testing.T) {
 	a := newTestArena(t, 1)
 
 	// Exhaust the arena.
-	s1, err := NewArenaState(1, a)
+	s1, err := NewArenaStateAuto(a, 1)
 	if err != nil {
 		t.Fatalf("first alloc: %v", err)
 	}
-	if _, err := NewArenaState(2, a); err == nil {
+	if _, err := NewArenaStateAuto(a, 2); err == nil {
 		t.Fatal("expected ErrFull on second alloc")
 	}
 
 	// after close, a new alloc should succeed.
 	s1.Close()
-	s2, err := NewArenaState(3, a)
+	s2, err := NewArenaStateAuto(a, 3)
 	if err != nil {
 		t.Fatalf("alloc after close: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestArenaState_CloseReleasesSlot(t *testing.T) {
 
 func TestArenaState_ConcurrentReaders(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, _ := NewArenaState(1, a)
+	s, _ := NewArenaStateAuto(a, 1)
 
 	var wg sync.WaitGroup
 	// 100 readers looping on the hot-path check.
@@ -262,7 +262,7 @@ func TestArenaState_ConcurrentReaders(t *testing.T) {
 
 func TestArenaState_ConcurrentAddRemove(t *testing.T) {
 	a := newTestArena(t, 1)
-	s, _ := NewArenaState(1, a)
+	s, _ := NewArenaStateAuto(a, 1)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {

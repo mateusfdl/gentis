@@ -38,26 +38,6 @@ type ArenaState struct {
 
 var _ transport.SessionState = (*ArenaState)(nil)
 
-// NewArenaState allocates a slot from the given arena and returns a wrapper.
-// Returns ErrFull if the arena has no free slots. The session ID is supplied
-// by the caller.
-// NOTE: prefer NewArenaStateAuto when you want the ID to be
-// deterministically derived from the slot index.
-func NewArenaState(id int, a *Arena) (*ArenaState, error) {
-	ptr, idx, err := a.Alloc()
-	if err != nil {
-		return nil, err
-	}
-	slot := (*SessionSlot)(ptr)
-	slot.ID = uint64(id)
-	return &ArenaState{
-		id:    id,
-		arena: a,
-		slot:  slot,
-		idx:   idx,
-	}, nil
-}
-
 // NewArenaStateAuto allocates a slot and derives the session ID from the
 // slot index: id = baseID + int(idx). This pins the ID into a dense range
 // bounded by the arena capacity, which lets transports back their

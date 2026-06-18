@@ -35,8 +35,8 @@ func TestNewAlignsStride(t *testing.T) {
 		if err != nil {
 			t.Fatalf("New(%d): %v", c.slotSize, err)
 		}
-		if got := a.SlotSize(); got != c.want {
-			t.Errorf("New(%d).SlotSize() = %d, want %d", c.slotSize, got, c.want)
+		if got := a.slotSize; got != c.want {
+			t.Errorf("New(%d).slotSize = %d, want %d", c.slotSize, got, c.want)
 		}
 		if uintptr(a.base)%slotAlign != 0 {
 			t.Errorf("New(%d): base %x not %d-aligned", c.slotSize, a.base, slotAlign)
@@ -259,21 +259,6 @@ func TestAllocNoSpuriousFullUnderChurn(t *testing.T) {
 	wg.Wait()
 }
 
-func TestSlotPtr(t *testing.T) {
-	a, _ := New(testSlotSize, 4)
-	defer a.Close()
-
-	ptr0, idx0, _ := a.Alloc()
-	ptr1, idx1, _ := a.Alloc()
-
-	if a.SlotPtr(idx0) != ptr0 {
-		t.Fatal("SlotPtr(idx0) != original alloc pointer")
-	}
-	if a.SlotPtr(idx1) != ptr1 {
-		t.Fatal("SlotPtr(idx1) != original alloc pointer")
-	}
-}
-
 func TestClose(t *testing.T) {
 	a, _ := New(testSlotSize, 100)
 
@@ -309,9 +294,6 @@ func TestSlotPtrAfterCloseReturnsNil(t *testing.T) {
 	_, idx, _ := a.Alloc()
 	a.Close()
 
-	if p := a.SlotPtr(idx); p != nil {
-		t.Fatalf("SlotPtr after close = %v, want nil", p)
-	}
 }
 
 func TestSessionSlotInArena(t *testing.T) {

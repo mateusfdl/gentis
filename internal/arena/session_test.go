@@ -98,25 +98,6 @@ func TestIsSubscribedEmpty(t *testing.T) {
 	}
 }
 
-func TestClear(t *testing.T) {
-	var s SessionSlot
-	s.ID = 42
-	s.Authenticated = 1
-	s.SetSubject("user-1")
-	s.ExpiresAt = 1700000000
-	s.AddSubscription("chan-1")
-	s.AddSubscription("chan-2")
-
-	s.Clear()
-
-	if s.ID != 0 || s.Authenticated != 0 || s.SubjectLen != 0 || s.SubCount != 0 || s.ExpiresAt != 0 {
-		t.Fatal("Clear did not zero all fields")
-	}
-	if s.GetSubject() != "" {
-		t.Fatal("subject not cleared")
-	}
-}
-
 func TestChannelNameTruncation(t *testing.T) {
 	var s SessionSlot
 	long := strings.Repeat("c", MaxChanNameLen+50)

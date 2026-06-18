@@ -136,21 +136,6 @@ func (a *Arena) Free(idx uint32) {
 	a.freeMu.Unlock()
 }
 
-func (a *Arena) SlotPtr(idx uint32) unsafe.Pointer {
-	if a.closed.Load() {
-		return nil
-	}
-	return a.slotPtr(idx)
-}
-
-func (a *Arena) SlotSize() uintptr {
-	return a.slotSize
-}
-
-func (a *Arena) MaxSlots() uint32 {
-	return a.maxSlots
-}
-
 func (a *Arena) slotPtr(idx uint32) unsafe.Pointer {
 	return unsafe.Add(a.base, uintptr(idx)*a.slotSize)
 }
