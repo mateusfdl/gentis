@@ -247,10 +247,3 @@ func (w *Window) PumpPoint() (from, epoch uint64, room int) {
 	}
 	return w.delivered, w.epoch, room
 }
-
-// Inflight reports the current unconfirmed count and byte total.
-func (w *Window) Inflight() (int, int64) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return len(w.inflight), w.inflightBytes
-}

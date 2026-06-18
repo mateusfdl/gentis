@@ -167,12 +167,12 @@ func TestPoisonAfterMaxRedeliveries(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if c.Poisoned() == 1 {
+		if c.poisoned.Load() == 1 {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("Poisoned = %d, want 1", c.Poisoned())
+	t.Fatalf("Poisoned = %d, want 1", c.poisoned.Load())
 }
 
 func TestUnsubscribeRemovesWindow(t *testing.T) {
@@ -319,7 +319,7 @@ func TestLostGapResetsWindowAndKeepsFlowing(t *testing.T) {
 	}
 
 	c.Confirm("q", 1)
-	if got := c.LostGaps(); got != 1 {
+	if got := c.lostGaps.Load(); got != 1 {
 		t.Fatalf("LostGaps = %d, want 1 (offsets 2-4 evicted from history)", got)
 	}
 

@@ -146,18 +146,6 @@ func (c *Consumer) Confirm(channel string, offset uint64) {
 	c.pump(channel, w)
 }
 
-// Poisoned counts deliveries dropped after exhausting their redelivery
-// budget.
-func (c *Consumer) Poisoned() int64 {
-	return c.poisoned.Load()
-}
-
-// LostGaps counts catch-up attempts that failed because history had
-// already evicted the needed range.
-func (c *Consumer) LostGaps() int64 {
-	return c.lostGaps.Load()
-}
-
 func (c *Consumer) pump(channel string, w *Window) {
 	for {
 		from, epoch, room := w.PumpPoint()

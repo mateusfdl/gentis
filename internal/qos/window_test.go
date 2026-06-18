@@ -7,6 +7,12 @@ import (
 
 func sendOK() bool { return true }
 
+func windowInflight(w *Window) (int, int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.inflight), w.inflightBytes
+}
+
 func admitN(t *testing.T, w *Window, from, to uint64, size int, now int64) {
 	t.Helper()
 	for off := from; off <= to; off++ {
@@ -90,7 +96,7 @@ func TestWindowOversizedMessageStillAdmitsOnEmptyWindow(t *testing.T) {
 		t.Fatalf("Admit(1, size 150) into empty 100-byte window = %v, want Admitted (one over-budget message must not wedge the subscription)", v)
 	}
 
-	count, bytes := w.Inflight()
+	count, bytes := windowInflight(w)
 	if count != 1 || bytes != 150 {
 		t.Fatalf("Inflight after oversized admit = (%d, %d), want (1, 150)", count, bytes)
 	}
@@ -113,7 +119,7 @@ func TestWindowAdmitRebaselinesOnEpochChange(t *testing.T) {
 		t.Fatalf("PumpPoint after epoch change = (%d, %d), want (1, 99)", from, epoch)
 	}
 
-	count, bytes := w.Inflight()
+	count, bytes := windowInflight(w)
 	if count != 1 || bytes != 10 {
 		t.Fatalf("Inflight after epoch re-baseline = (%d, %d), want (1, 10): old-epoch inflight dropped", count, bytes)
 	}
@@ -151,7 +157,7 @@ func TestWindowCumulativeConfirm(t *testing.T) {
 
 	w.Confirm(4, 0)
 
-	count, bytes := w.Inflight()
+	count, bytes := windowInflight(w)
 	if count != 1 || bytes != 10 {
 		t.Fatalf("Inflight after Confirm(4) = (%d, %d), want (1, 10)", count, bytes)
 	}
@@ -218,7 +224,7 @@ func TestWindowRefusedAdmitCommitsNothing(t *testing.T) {
 	if v := w.Admit(2, 7, 10, 0, func() bool { return false }); v != Refused {
 		t.Fatalf("Admit(2) with failing send = %v, want Refused", v)
 	}
-	count, bytes := w.Inflight()
+	count, bytes := windowInflight(w)
 	if count != 1 || bytes != 10 {
 		t.Fatalf("Inflight after refused admit = (%d, %d), want (1, 10)", count, bytes)
 	}
@@ -226,7 +232,7 @@ func TestWindowRefusedAdmitCommitsNothing(t *testing.T) {
 	if v := w.Admit(2, 7, 10, 0, sendOK); v != Admitted {
 		t.Fatalf("Admit(2) retry = %v, want Admitted", v)
 	}
-	count, _ = w.Inflight()
+	count, _ = windowInflight(w)
 	if count != 2 {
 		t.Fatalf("Inflight = %d, want 2", count)
 	}
@@ -238,7 +244,7 @@ func TestWindowResetDropsBaseline(t *testing.T) {
 
 	w.Reset()
 
-	count, bytes := w.Inflight()
+	count, bytes := windowInflight(w)
 	if count != 0 || bytes != 0 {
 		t.Fatalf("Inflight after Reset = (%d, %d), want (0, 0)", count, bytes)
 	}
