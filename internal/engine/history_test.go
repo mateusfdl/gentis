@@ -131,7 +131,7 @@ func TestHistoryReplay(t *testing.T) {
 			h := newHistory(tt.capacity, time.Minute)
 			tt.setup(h)
 
-			items, ok := h.replay(tt.fromOffset)
+			items, ok := h.replayN(tt.fromOffset, 0)
 			if ok != tt.wantOK {
 				t.Fatalf("replay(%d) ok = %v, want %v", tt.fromOffset, ok, tt.wantOK)
 			}
@@ -157,7 +157,7 @@ func TestHistoryStoresSameBackingSlice(t *testing.T) {
 	var seq atomic.Uint64
 	h.appendNext(&seq, payload, 100)
 
-	items, ok := h.replay(0)
+	items, ok := h.replayN(0, 0)
 	if !ok || len(items) != 1 {
 		t.Fatalf("replay = %d items ok=%v, want 1 item ok=true", len(items), ok)
 	}
@@ -171,7 +171,7 @@ func TestHistorySweepWithoutTTLKeepsEverything(t *testing.T) {
 	appendN(h, 1, 3, 100)
 	h.sweep(int64(time.Hour))
 
-	items, ok := h.replay(0)
+	items, ok := h.replayN(0, 0)
 	if !ok || len(items) != 3 {
 		t.Fatalf("replay = %d items ok=%v, want 3 items ok=true", len(items), ok)
 	}

@@ -52,15 +52,10 @@ func (h *history) appendNext(seq *atomic.Uint64, data []byte, now int64) uint64 
 	return offset
 }
 
-// replay returns the items with offset > fromOffset, oldest first. ok is
+// replayN returns the items with offset > fromOffset, oldest first. ok is
 // false when the gap cannot be filled: the client is behind the retained
 // tail (evicted or expired entries) or claims an offset the channel never
-// assigned.
-func (h *history) replay(fromOffset uint64) ([]historyItem, bool) {
-	return h.replayN(fromOffset, 0)
-}
-
-// replayN is replay capped to max items (zero means unbounded).
+// assigned. max caps the returned items; zero means unbounded.
 func (h *history) replayN(fromOffset uint64, max int) ([]historyItem, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
