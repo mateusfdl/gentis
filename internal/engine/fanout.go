@@ -2,7 +2,6 @@ package engine
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"github.com/mateusfdl/gentis/internal/cacheline"
 )
@@ -30,9 +29,15 @@ type fanoutJob struct {
 // spawn overhead. Workers are created once at engine startup and consume jobs
 // from a shared channel, reusing their goroutine stacks across publishes.
 type fanoutPool struct {
-	jobs     chan fanoutJob
-	done     chan struct{}
-	stopped  atomic.Bool    // set when stop() is called, checked by submit
+	jobs chan fanoutJob
+	done chan struct{}
+
+	// mu makes submit's accept-decision atomic with stop's drain: stop
+	// takes the write lock to set stopped, so no submit can enqueue a job
+	// after the drain begins and orphan it. submit takes the read lock, so
+	// concurrent dispatches still run in parallel on the hot path.
+	mu       sync.RWMutex
+	stopped  bool
 	workerWg sync.WaitGroup // tracks worker goroutine lifetimes
 }
 
@@ -54,15 +59,13 @@ func newFanoutPool(workers int) *fanoutPool {
 // submit sends a job to the worker pool. Returns false if the pool is
 // shutting down, in which case the caller must handle the job's WaitGroup.
 func (p *fanoutPool) submit(job fanoutJob) bool {
-	if p.stopped.Load() {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.stopped {
 		return false
 	}
-	select {
-	case p.jobs <- job:
-		return true
-	case <-p.done:
-		return false
-	}
+	p.jobs <- job
+	return true
 }
 
 func (p *fanoutPool) worker() {
@@ -94,12 +97,16 @@ func (p *fanoutPool) worker() {
 // any orphaned jobs left in the buffer (completing their WaitGroups so
 // callers blocked on wg.Wait do not hang).
 func (p *fanoutPool) stop() {
-	p.stopped.Store(true)
+	p.mu.Lock()
+	p.stopped = true
+	p.mu.Unlock()
+
 	close(p.done)
 	p.workerWg.Wait()
 
-	// Drain orphaned jobs: workers may have exited via <-p.done before
-	// consuming all buffered jobs.
+	// Workers have exited and no further submit can enqueue (stopped is set
+	// under the same lock submit takes), so draining here completes the
+	// WaitGroups of orphaned jobs left in the buffer.
 	for {
 		select {
 		case job := <-p.jobs:
