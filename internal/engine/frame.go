@@ -10,8 +10,8 @@ import "sync/atomic"
 // recipient, so single-subscriber paths pay nothing.
 //
 // Safe for concurrent use. Encoding is not strictly single-shot: a brief race
-// on a cold frame may encode a few times, but only the first Store wins and
-// every subsequent reader is lock-free, which collapses the json encoder-pool
+// on a cold frame may encode a few times, but every encoding is byte-identical
+// and every reader is lock-free, which collapses the json encoder-pool
 // contention that per-subscriber marshaling caused.
 type EncodedFrame struct {
 	bytes atomic.Pointer[[]byte]
@@ -25,9 +25,9 @@ func (f *EncodedFrame) Load() (data []byte, ok bool) {
 	return nil, false
 }
 
-// Store publishes the wire bytes for reuse. The first Store wins; later ones
-// are dropped so all readers observe identical bytes. The slice must not be
-// mutated after Store.
+// Store publishes the wire bytes for reuse. Concurrent stores all carry
+// byte-identical encodings, so whichever wins is correct. The slice must not
+// be mutated after Store.
 func (f *EncodedFrame) Store(data []byte) {
-	f.bytes.CompareAndSwap(nil, &data)
+	f.bytes.Store(&data)
 }

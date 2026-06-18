@@ -12,20 +12,6 @@ func TestEncodedFrameLoadMissBeforeStore(t *testing.T) {
 	}
 }
 
-func TestEncodedFrameFirstStoreWins(t *testing.T) {
-	frame := &EncodedFrame{}
-	frame.Store([]byte("first"))
-	frame.Store([]byte("second"))
-
-	b, ok := frame.Load()
-	if !ok {
-		t.Fatal("Load after Store = miss, want hit")
-	}
-	if string(b) != "first" {
-		t.Fatalf("Load = %q, want %q (first store wins)", b, "first")
-	}
-}
-
 func TestEncodedFrameConcurrentStoreConverges(t *testing.T) {
 	frame := &EncodedFrame{}
 
