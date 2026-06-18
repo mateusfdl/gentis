@@ -1,9 +1,11 @@
 package ws
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"time"
@@ -207,8 +209,9 @@ func messageBytes(m *ServerMessage) ([]byte, error) {
 }
 
 // writeFrame encodes one or more messages (an array frame when 2+) and
-// writes them as a single websocket text frame.
-func (s *Server) writeFrame(sess *Session, conn net.Conn, batch []*ServerMessage) bool {
+// writes them as a single websocket text frame into w. The caller owns the
+// write deadline and the flush, so many frames can share one syscall.
+func (s *Server) writeFrame(sess *Session, w io.Writer, batch []*ServerMessage) bool {
 	data, err := s.encodeBatch(sess, batch)
 
 	enqueuedAt := batch[0].enqueuedAt
@@ -224,10 +227,7 @@ func (s *Server) writeFrame(sess *Session, conn net.Conn, batch []*ServerMessage
 		return true
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
-	err = wsutil.WriteServerMessage(conn, ws.OpText, data)
-	conn.SetWriteDeadline(time.Time{})
-	if err != nil {
+	if err := wsutil.WriteServerMessage(w, ws.OpText, data); err != nil {
 		sess.cancel()
 		return false
 	}
@@ -274,8 +274,64 @@ func (s *Server) encodeBatch(sess *Session, batch []*ServerMessage) ([]byte, err
 	return append(data, ']'), nil
 }
 
+// drainWrites buffers the dequeued message and every other message already
+// queued into one pass, then flushes a single time, so a spike of queued
+// deliveries costs one write syscall per buffer instead of one per frame. The
+// whole pass shares one write deadline, which also bounds the bufio
+// auto-flushes a large drain triggers. v2 sessions coalesce consecutive
+// deliveries into array frames; v1 ships one frame per message but shares the
+// flush. The frame cap yields back to the run loop so a relentless producer
+// cannot starve keepalive pings or cancellation.
+func (s *Server) drainWrites(sess *Session, conn net.Conn, bw *bufio.Writer, first *ServerMessage) bool {
+	conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+	defer conn.SetWriteDeadline(time.Time{})
+
+	msg := first
+	frames := 0
+	for {
+		batch, trailing := sess.batchFor(msg)
+		if !s.writeFrame(sess, bw, batch) {
+			return false
+		}
+		frames++
+		if trailing != nil {
+			if !s.writeFrame(sess, bw, []*ServerMessage{trailing}) {
+				return false
+			}
+			frames++
+		}
+
+		if frames >= maxDrainFrames {
+			break
+		}
+		next, ok := tryRecv(sess.sendCh)
+		if !ok {
+			break
+		}
+		msg = next
+	}
+
+	if err := bw.Flush(); err != nil {
+		sess.cancel()
+		return false
+	}
+	return true
+}
+
+// tryRecv pulls the next queued message without blocking; ok is false when
+// the send channel is momentarily empty.
+func tryRecv(ch <-chan *ServerMessage) (msg *ServerMessage, ok bool) {
+	select {
+	case msg = <-ch:
+		return msg, true
+	default:
+		return nil, false
+	}
+}
+
 func (s *Server) runWriter(sess *Session, conn net.Conn) {
 	defer conn.Close()
+	bw := bufio.NewWriterSize(conn, writeBufferSize)
 	var pingCh <-chan time.Time
 	if s.config.PingInterval > 0 {
 		ticker := time.NewTicker(s.config.PingInterval)
@@ -307,14 +363,8 @@ func (s *Server) runWriter(sess *Session, conn net.Conn) {
 			ws.WriteFrame(conn, frame)
 			return
 		case msg := <-sess.sendCh:
-			batch, trailing := sess.batchFor(msg)
-			if !s.writeFrame(sess, conn, batch) {
+			if !s.drainWrites(sess, conn, bw, msg) {
 				return
-			}
-			if trailing != nil {
-				if !s.writeFrame(sess, conn, []*ServerMessage{trailing}) {
-					return
-				}
 			}
 		}
 	}

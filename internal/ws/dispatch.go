@@ -13,6 +13,17 @@ const (
 	// maxBatchBytes caps the payload bytes one array frame accumulates,
 	// so a burst of large messages cannot balloon a single frame.
 	maxBatchBytes = 1 << 20
+
+	// writeBufferSize is the per-connection bufio.Writer capacity. The
+	// writer drains every queued message into this buffer and flushes once,
+	// so a spike costs one write syscall per bufferSize-worth of frames
+	// instead of one syscall per frame. Held for the connection's lifetime.
+	writeBufferSize = 16 << 10
+
+	// maxDrainFrames caps how many frames one drain pass buffers before it
+	// flushes and yields back to the run loop, so a relentless producer
+	// cannot starve keepalive pings or cancellation in the writer.
+	maxDrainFrames = 256
 )
 
 // DispatchMessage unmarshals a raw JSON payload and routes it to the
