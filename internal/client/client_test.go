@@ -1,18 +1,24 @@
 package client
 
 import (
-	"sort"
 	"sync"
 	"testing"
 
 	"github.com/mateusfdl/gentis/internal/auth"
 )
 
+func isSubscribedTo(s *State, channel string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.subscriptions[channel]
+	return ok
+}
+
 func TestNewState(t *testing.T) {
 	s := NewState(42)
 
-	if s.ID() != 42 {
-		t.Errorf("expected ID 42, got %d", s.ID())
+	if s.id != 42 {
+		t.Errorf("expected ID 42, got %d", s.id)
 	}
 
 	if s.IsAuthenticated() {
@@ -81,21 +87,21 @@ func TestAddAndRemoveSubscription(t *testing.T) {
 		t.Errorf("expected 2 subscriptions, got %d", s.SubscriptionCount())
 	}
 
-	if !s.IsSubscribedTo("channel-a") {
+	if !isSubscribedTo(s, "channel-a") {
 		t.Error("expected to be subscribed to channel-a")
 	}
 
-	if !s.IsSubscribedTo("channel-b") {
+	if !isSubscribedTo(s, "channel-b") {
 		t.Error("expected to be subscribed to channel-b")
 	}
 
-	if s.IsSubscribedTo("channel-c") {
+	if isSubscribedTo(s, "channel-c") {
 		t.Error("should not be subscribed to channel-c")
 	}
 
 	s.RemoveSubscription("channel-a")
 
-	if s.IsSubscribedTo("channel-a") {
+	if isSubscribedTo(s, "channel-a") {
 		t.Error("should not be subscribed to channel-a after removal")
 	}
 
@@ -127,49 +133,6 @@ func TestDuplicateSubscription(t *testing.T) {
 	}
 }
 
-func TestGetSubscriptions(t *testing.T) {
-	s := NewState(1)
-
-	s.AddSubscription("alpha")
-	s.AddSubscription("beta")
-	s.AddSubscription("gamma")
-
-	subs := s.GetSubscriptions()
-	if len(subs) != 3 {
-		t.Fatalf("expected 3 subscriptions, got %d", len(subs))
-	}
-
-	sort.Strings(subs)
-	expected := []string{"alpha", "beta", "gamma"}
-	for i, v := range expected {
-		if subs[i] != v {
-			t.Errorf("expected %s at index %d, got %s", v, i, subs[i])
-		}
-	}
-}
-
-func TestGetSubscriptionsEmpty(t *testing.T) {
-	s := NewState(1)
-
-	subs := s.GetSubscriptions()
-	if len(subs) != 0 {
-		t.Errorf("expected 0 subscriptions, got %d", len(subs))
-	}
-}
-
-func TestGetSubscriptionsIsolation(t *testing.T) {
-	s := NewState(1)
-	s.AddSubscription("ch1")
-
-	subs := s.GetSubscriptions()
-	// Modifying the returned slice should not affect internal state
-	subs[0] = "modified"
-
-	if s.GetSubscriptions()[0] == "modified" {
-		t.Error("GetSubscriptions should return a copy")
-	}
-}
-
 func TestConcurrentAuthenticate(t *testing.T) {
 	s := NewState(1)
 	var wg sync.WaitGroup
@@ -193,21 +156,19 @@ func TestConcurrentSubscriptions(t *testing.T) {
 	s := NewState(1)
 	var wg sync.WaitGroup
 
-	// Concurrent adds
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
-		go func(i int) {
+		go func() {
 			defer wg.Done()
 			s.AddSubscription("channel")
-			s.IsSubscribedTo("channel")
+			isSubscribedTo(s, "channel")
 			s.SubscriptionCount()
-			s.GetSubscriptions()
-		}(i)
+		}()
 	}
 
 	wg.Wait()
 
-	if !s.IsSubscribedTo("channel") {
+	if !isSubscribedTo(s, "channel") {
 		t.Error("expected subscription after concurrent adds")
 	}
 }
@@ -229,5 +190,4 @@ func TestConcurrentAddAndRemove(t *testing.T) {
 	}
 
 	wg.Wait()
-	// no race/panic ????
 }
