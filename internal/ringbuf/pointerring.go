@@ -93,12 +93,3 @@ func (r *PointerRing[T]) TryConsume() (*T, bool) {
 
 	return v, true
 }
-
-func (r *PointerRing[T]) Len() int {
-	head := r.head.Load()
-	return int(head - r.tail.Load())
-}
-
-func (r *PointerRing[T]) Cap() int {
-	return int(r.cap)
-}

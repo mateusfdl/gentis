@@ -20,13 +20,9 @@ func TestDrainSendRing(t *testing.T) {
 			t.Fatal("TryProduce failed during setup")
 		}
 	}
-	if ring.Len() != 3 {
-		t.Fatalf("setup Len = %d, want 3", ring.Len())
-	}
-
 	sess.drainSendRing()
 
-	if ring.Len() != 0 {
-		t.Fatalf("after drain Len = %d, want 0", ring.Len())
+	if _, ok := ring.TryConsume(); ok {
+		t.Fatal("send ring should be empty after drain")
 	}
 }

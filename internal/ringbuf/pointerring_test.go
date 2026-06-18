@@ -12,11 +12,11 @@ func TestNewPointer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPointer(8): %v", err)
 	}
-	if r.Cap() != 8 {
-		t.Fatalf("Cap() = %d, want 8", r.Cap())
+	if r.cap != 8 {
+		t.Fatalf("cap = %d, want 8", r.cap)
 	}
-	if r.Len() != 0 {
-		t.Fatalf("Len() = %d, want 0", r.Len())
+	if r.head.Load() != r.tail.Load() {
+		t.Fatalf("head = %d, tail = %d, want equal", r.head.Load(), r.tail.Load())
 	}
 }
 
@@ -108,42 +108,6 @@ func TestPointerRingClearsConsumedSlot(t *testing.T) {
 	}
 	if got := r.slots[0].ptr.Load(); got != nil {
 		t.Fatalf("slot retained pointer %v, want nil", *got)
-	}
-}
-
-func TestPointerRingLenRaceFree(t *testing.T) {
-	const n = 10000
-	r, _ := NewPointer[int](1024)
-	done := make(chan struct{})
-
-	go func() {
-		for i := range n {
-			v := i
-			for !r.TryProduce(&v) {
-				runtime.Gosched()
-			}
-		}
-	}()
-
-	go func() {
-		consumed := 0
-		for consumed < n {
-			if _, ok := r.TryConsume(); ok {
-				consumed++
-			} else {
-				runtime.Gosched()
-			}
-		}
-		close(done)
-	}()
-
-	for {
-		select {
-		case <-done:
-			return
-		default:
-			_ = r.Len()
-		}
 	}
 }
 

@@ -3,6 +3,8 @@ package relay
 import (
 	"context"
 	"testing"
+
+	gentisv1 "github.com/mateusfdl/gentis/api/gen/gentis/v1"
 )
 
 func TestSendRingHonorsBufferSize(t *testing.T) {
@@ -23,8 +25,14 @@ func TestSendRingHonorsBufferSize(t *testing.T) {
 			if sess == nil {
 				t.Fatal("createSession returned nil")
 			}
-			if got := sess.sendRing.Cap(); got != tc.wantCap {
-				t.Fatalf("sendRing.Cap() = %d, want %d", got, tc.wantCap)
+			msg := gentisv1.ServerMessage{}
+			for range tc.wantCap {
+				if !sess.sendRing.TryProduce(&msg) {
+					t.Fatalf("TryProduce failed before expected capacity %d", tc.wantCap)
+				}
+			}
+			if sess.sendRing.TryProduce(&msg) {
+				t.Fatalf("TryProduce succeeded beyond expected capacity %d", tc.wantCap)
 			}
 		})
 	}
