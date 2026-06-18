@@ -598,7 +598,11 @@ func (e *Engine) Subscribers(channel string) []SubscriberID {
 		return nil
 	}
 	defer ch.Release()
-	return ch.Subscribers()
+	// Copy out: ch.Subscribers() returns the live copy-on-write backing
+	// array that Publish reads and the next subscription change copies from.
+	// Handing it to an external caller would let a mutation corrupt that
+	// snapshot. slices.Clone(nil) is nil, preserving the empty-channel return.
+	return slices.Clone(ch.Subscribers())
 }
 
 func (e *Engine) ChannelCount() int {
