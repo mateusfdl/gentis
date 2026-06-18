@@ -114,7 +114,30 @@ func TestWriteFrameSingleSharedFrameOnWire(t *testing.T) {
 	}
 }
 
-func TestEncodeBatchReusesSharedFrameParts(t *testing.T) {
+func TestEncodeBatchReusesCachedFrameBytes(t *testing.T) {
+	srv := &Server{config: &Config{}, logger: gentislog.Nop()}
+
+	cached := getWSMsg(engine.Delivery{Channel: "c", Data: []byte(`"a"`), Offset: 1, Epoch: 7, Frame: &engine.EncodedFrame{}})
+	cached.frame.Store([]byte(`{"sentinel":"reused"}`))
+
+	plain := getWSMsg(engine.Delivery{Channel: "c", Data: []byte(`"b"`), Offset: 2, Epoch: 7})
+	plainBytes, err := messageBytes(plain)
+	if err != nil {
+		t.Fatalf("messageBytes: %v", err)
+	}
+
+	got, err := srv.encodeBatch(&Session{id: 1}, []*ServerMessage{cached, plain})
+	if err != nil {
+		t.Fatalf("encodeBatch: %v", err)
+	}
+
+	want := `[{"sentinel":"reused"},` + string(plainBytes) + `]`
+	if string(got) != want {
+		t.Fatalf("batch frame = %q, want %q", got, want)
+	}
+}
+
+func TestEncodeBatchProducesArrayFrame(t *testing.T) {
 	srv := &Server{config: &Config{}, logger: gentislog.Nop()}
 
 	deliveries := []engine.Delivery{

@@ -288,25 +288,41 @@ func TestMultipleConnections(t *testing.T) {
 		"publish": map[string]any{"channel": "broadcast", "data": "hi all"},
 	})
 
+	frames := make([][]byte, n)
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := range n {
 		go func(c net.Conn, idx int) {
 			defer wg.Done()
-			var msg ServerMessage
 			c.SetReadDeadline(time.Now().Add(2 * time.Second))
 			data, _, err := wsutil.ReadServerData(c)
 			if err != nil {
 				t.Errorf("conn %d read: %v", idx, err)
 				return
 			}
-			json.Unmarshal(data, &msg)
-			if msg.ChannelMessage == nil {
-				t.Errorf("conn %d: expected ChannelMessage, got %+v", idx, msg)
-			}
+			frames[idx] = data
 		}(conns[i], i)
 	}
 	wg.Wait()
+
+	for i, frame := range frames {
+		var msg ServerMessage
+		if err := json.Unmarshal(frame, &msg); err != nil {
+			t.Fatalf("conn %d unmarshal: %v", i, err)
+		}
+		if msg.ChannelMessage == nil {
+			t.Fatalf("conn %d: expected ChannelMessage, got %+v", i, msg)
+		}
+		if msg.ChannelMessage.Channel != "broadcast" {
+			t.Fatalf("conn %d: channel = %q, want %q", i, msg.ChannelMessage.Channel, "broadcast")
+		}
+		if string(msg.ChannelMessage.Data) != `"hi all"` {
+			t.Fatalf("conn %d: data = %s, want %q", i, msg.ChannelMessage.Data, `"hi all"`)
+		}
+		if string(frame) != string(frames[0]) {
+			t.Fatalf("conn %d frame = %s differs from conn 0 = %s; fan-out must deliver identical bytes", i, frame, frames[0])
+		}
+	}
 
 	pub.Close()
 	for _, c := range conns {
