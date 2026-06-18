@@ -30,6 +30,7 @@ func init() {
 	serveCmd.Flags().String("tls-key", "", "TLS private key file for gRPC and WebSocket listeners")
 	serveCmd.Flags().Int("max-message-size", 65536, "maximum publish payload size in bytes")
 	serveCmd.Flags().Int("max-subscriptions", 16, "maximum subscriptions per session, 0 for unlimited")
+	serveCmd.Flags().String("debug-addr", "", "pprof/debug HTTP server address (host:port), empty to disable")
 	addAuthFlags(serveCmd)
 	addWSFlags(serveCmd)
 	rootCmd.AddCommand(serveCmd)
@@ -40,6 +41,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	debugAddr, _ := cmd.Flags().GetString("debug-addr")
+	startDebugServer(debugAddr, logger)
 
 	addr, _ := cmd.Flags().GetString("addr")
 	metricsAddr, _ := cmd.Flags().GetString("metrics-addr")
