@@ -592,50 +592,6 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 	return result
 }
 
-func (e *Engine) Subscribers(channel string) []SubscriberID {
-	s := e.getShard(channel)
-	s.mu.RLock()
-	ch := s.channels[channel]
-	if ch != nil {
-		ch.Acquire()
-	}
-	s.mu.RUnlock()
-
-	if ch == nil {
-		return nil
-	}
-	defer ch.Release()
-	// Copy out: ch.Subscribers() returns the live copy-on-write backing
-	// array that Publish reads and the next subscription change copies from.
-	// Handing it to an external caller would let a mutation corrupt that
-	// snapshot. slices.Clone(nil) is nil, preserving the empty-channel return.
-	return slices.Clone(ch.Subscribers())
-}
-
-func (e *Engine) ChannelCount() int {
-	return int(e.channelCount.Load())
-}
-
-func (e *Engine) SubscriberCount(channel string) int {
-	s := e.getShard(channel)
-	s.mu.RLock()
-	ch := s.channels[channel]
-	if ch != nil {
-		ch.Acquire()
-	}
-	s.mu.RUnlock()
-
-	if ch == nil {
-		return 0
-	}
-	defer ch.Release()
-	return ch.SubscriberCount()
-}
-
-func (e *Engine) TotalSubscriptions() int {
-	return int(e.subscriptionCount.Load())
-}
-
 func (e *Engine) Stats() EngineStats {
 	var published, delivered, dropped, msgBytes int64
 	for i := range e.shards {

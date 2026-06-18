@@ -170,8 +170,8 @@ func TestUnsubscribeAllRemovesPatterns(t *testing.T) {
 	if r.Delivered != 0 {
 		t.Fatalf("Delivered = %d after UnsubscribeAll, want 0", r.Delivered)
 	}
-	if e.TotalSubscriptions() != 0 {
-		t.Fatalf("TotalSubscriptions = %d, want 0", e.TotalSubscriptions())
+	if int(e.Stats().TotalSubscribers) != 0 {
+		t.Fatalf("TotalSubscriptions = %d, want 0", int(e.Stats().TotalSubscribers))
 	}
 }
 
@@ -220,13 +220,13 @@ func TestPatternChannelReapedAfterLastPatternUnsubscribe(t *testing.T) {
 
 	e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver)
 	e.Publish("metrics:mem", []byte("v"), 0, rec.deliver)
-	if e.ChannelCount() != 2 {
-		t.Fatalf("ChannelCount = %d after pattern publishes, want 2", e.ChannelCount())
+	if int(e.Stats().Channels) != 2 {
+		t.Fatalf("ChannelCount = %d after pattern publishes, want 2", int(e.Stats().Channels))
 	}
 
 	e.UnsubscribePattern(1, "metrics:*")
-	if e.ChannelCount() != 0 {
-		t.Fatalf("ChannelCount = %d after last pattern unsubscribe, want 0", e.ChannelCount())
+	if int(e.Stats().Channels) != 0 {
+		t.Fatalf("ChannelCount = %d after last pattern unsubscribe, want 0", int(e.Stats().Channels))
 	}
 }
 
@@ -285,8 +285,8 @@ func TestPatternChurnUnderConcurrentPublish(t *testing.T) {
 	if r := e.Publish("metrics:cpu1", []byte("v"), 0, rec.deliver); r.Delivered != 0 {
 		t.Fatalf("Delivered = %d after churn drained all patterns, want 0", r.Delivered)
 	}
-	if e.TotalSubscriptions() != 0 {
-		t.Fatalf("TotalSubscriptions = %d, want 0", e.TotalSubscriptions())
+	if int(e.Stats().TotalSubscribers) != 0 {
+		t.Fatalf("TotalSubscriptions = %d, want 0", int(e.Stats().TotalSubscribers))
 	}
 }
 

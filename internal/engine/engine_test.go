@@ -13,6 +13,27 @@ import (
 	"github.com/mateusfdl/gentis/internal/namespace"
 )
 
+func engineSubscribers(e *Engine, channel string) []SubscriberID {
+	s := e.getShard(channel)
+	s.mu.RLock()
+	ch := s.channels[channel]
+	if ch != nil {
+		ch.Acquire()
+	}
+	s.mu.RUnlock()
+
+	if ch == nil {
+		return nil
+	}
+	defer ch.Release()
+	return ch.Subscribers()
+}
+
+func engineSubscriberCount(e *Engine, channel string) int {
+	subs := engineSubscribers(e, channel)
+	return len(subs)
+}
+
 func TestSubscribeAndUnsubscribe(t *testing.T) {
 	e := New()
 
@@ -24,12 +45,12 @@ func TestSubscribeAndUnsubscribe(t *testing.T) {
 		t.Error("expected duplicate subscribe to return false")
 	}
 
-	if e.ChannelCount() != 1 {
-		t.Errorf("expected 1 channel, got %d", e.ChannelCount())
+	if int(e.Stats().Channels) != 1 {
+		t.Errorf("expected 1 channel, got %d", int(e.Stats().Channels))
 	}
 
-	if e.SubscriberCount("test-channel") != 1 {
-		t.Errorf("expected 1 subscriber, got %d", e.SubscriberCount("test-channel"))
+	if engineSubscriberCount(e, "test-channel") != 1 {
+		t.Errorf("expected 1 subscriber, got %d", engineSubscriberCount(e, "test-channel"))
 	}
 
 	if !e.Unsubscribe(1, "test-channel") {
@@ -40,8 +61,8 @@ func TestSubscribeAndUnsubscribe(t *testing.T) {
 		t.Error("expected second unsubscribe to return false")
 	}
 
-	if e.ChannelCount() != 0 {
-		t.Errorf("expected 0 channels after last unsubscribe, got %d", e.ChannelCount())
+	if int(e.Stats().Channels) != 0 {
+		t.Errorf("expected 0 channels after last unsubscribe, got %d", int(e.Stats().Channels))
 	}
 }
 
@@ -52,7 +73,7 @@ func TestGetSubscribers(t *testing.T) {
 	e.Subscribe(2, "chat")
 	e.Subscribe(3, "chat")
 
-	subs := e.Subscribers("chat")
+	subs := engineSubscribers(e, "chat")
 	if len(subs) != 3 {
 		t.Errorf("expected 3 subscribers, got %d", len(subs))
 	}
@@ -77,22 +98,22 @@ func TestUnsubscribeAll(t *testing.T) {
 	e.Subscribe(1, "channel-c")
 	e.Subscribe(2, "channel-a")
 
-	if e.TotalSubscriptions() != 4 {
-		t.Errorf("expected 4 subscriptions, got %d", e.TotalSubscriptions())
+	if int(e.Stats().TotalSubscribers) != 4 {
+		t.Errorf("expected 4 subscriptions, got %d", int(e.Stats().TotalSubscribers))
 	}
 
 	e.UnsubscribeAll(1)
 
-	if e.TotalSubscriptions() != 1 {
-		t.Errorf("expected 1 subscription after UnsubscribeAll, got %d", e.TotalSubscriptions())
+	if int(e.Stats().TotalSubscribers) != 1 {
+		t.Errorf("expected 1 subscription after UnsubscribeAll, got %d", int(e.Stats().TotalSubscribers))
 	}
 
-	if e.SubscriberCount("channel-a") != 1 {
-		t.Errorf("expected 1 subscriber in channel-a, got %d", e.SubscriberCount("channel-a"))
+	if engineSubscriberCount(e, "channel-a") != 1 {
+		t.Errorf("expected 1 subscriber in channel-a, got %d", engineSubscriberCount(e, "channel-a"))
 	}
 
-	if e.ChannelCount() != 1 {
-		t.Errorf("expected 1 channel, got %d", e.ChannelCount())
+	if int(e.Stats().Channels) != 1 {
+		t.Errorf("expected 1 channel, got %d", int(e.Stats().Channels))
 	}
 }
 
@@ -202,8 +223,8 @@ func TestConcurrentSubscribe(t *testing.T) {
 
 	wg.Wait()
 
-	if e.SubscriberCount("concurrent-channel") != 100 {
-		t.Errorf("expected 100 subscribers, got %d", e.SubscriberCount("concurrent-channel"))
+	if engineSubscriberCount(e, "concurrent-channel") != 100 {
+		t.Errorf("expected 100 subscribers, got %d", engineSubscriberCount(e, "concurrent-channel"))
 	}
 }
 
@@ -343,7 +364,7 @@ func TestSubscriptionTracker(t *testing.T) {
 func TestSubscribersNonexistentChannel(t *testing.T) {
 	e := New()
 
-	subs := e.Subscribers("nonexistent")
+	subs := engineSubscribers(e, "nonexistent")
 	if subs != nil {
 		t.Errorf("expected nil for nonexistent channel, got %v", subs)
 	}
@@ -352,8 +373,8 @@ func TestSubscribersNonexistentChannel(t *testing.T) {
 func TestSubscriberCountNonexistentChannel(t *testing.T) {
 	e := New()
 
-	if e.SubscriberCount("nonexistent") != 0 {
-		t.Errorf("expected 0 for nonexistent channel, got %d", e.SubscriberCount("nonexistent"))
+	if engineSubscriberCount(e, "nonexistent") != 0 {
+		t.Errorf("expected 0 for nonexistent channel, got %d", engineSubscriberCount(e, "nonexistent"))
 	}
 }
 
@@ -362,8 +383,8 @@ func TestUnsubscribeAllNoSubscriptions(t *testing.T) {
 
 	e.UnsubscribeAll(999)
 
-	if e.TotalSubscriptions() != 0 {
-		t.Errorf("expected 0 subscriptions, got %d", e.TotalSubscriptions())
+	if int(e.Stats().TotalSubscribers) != 0 {
+		t.Errorf("expected 0 subscriptions, got %d", int(e.Stats().TotalSubscribers))
 	}
 }
 
@@ -548,22 +569,22 @@ func TestMultipleSubscribersMultipleChannels(t *testing.T) {
 	e.Subscribe(2, "ch1")
 	e.Subscribe(2, "ch3")
 
-	if e.ChannelCount() != 3 {
-		t.Errorf("expected 3 channels, got %d", e.ChannelCount())
+	if int(e.Stats().Channels) != 3 {
+		t.Errorf("expected 3 channels, got %d", int(e.Stats().Channels))
 	}
 
-	if e.TotalSubscriptions() != 4 {
-		t.Errorf("expected 4 subscriptions, got %d", e.TotalSubscriptions())
+	if int(e.Stats().TotalSubscribers) != 4 {
+		t.Errorf("expected 4 subscriptions, got %d", int(e.Stats().TotalSubscribers))
 	}
 
 	e.UnsubscribeAll(1)
 
-	if e.ChannelCount() != 2 {
-		t.Errorf("expected 2 channels after UnsubscribeAll(1), got %d", e.ChannelCount())
+	if int(e.Stats().Channels) != 2 {
+		t.Errorf("expected 2 channels after UnsubscribeAll(1), got %d", int(e.Stats().Channels))
 	}
 
-	if e.TotalSubscriptions() != 2 {
-		t.Errorf("expected 2 subscriptions, got %d", e.TotalSubscriptions())
+	if int(e.Stats().TotalSubscribers) != 2 {
+		t.Errorf("expected 2 subscriptions, got %d", int(e.Stats().TotalSubscribers))
 	}
 }
 
@@ -938,12 +959,12 @@ func waitChannelCount(t *testing.T, e *Engine, want int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if e.ChannelCount() == want {
+		if int(e.Stats().Channels) == want {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("ChannelCount = %d, want %d", e.ChannelCount(), want)
+	t.Fatalf("ChannelCount = %d, want %d", int(e.Stats().Channels), want)
 }
 
 func TestIdleReapDrainedHistoryChannel(t *testing.T) {
@@ -955,8 +976,8 @@ func TestIdleReapDrainedHistoryChannel(t *testing.T) {
 	r := e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver)
 	e.Unsubscribe(1, "metrics:cpu")
 
-	if e.ChannelCount() != 1 {
-		t.Fatalf("ChannelCount = %d right after drain, want 1 (history channel survives)", e.ChannelCount())
+	if int(e.Stats().Channels) != 1 {
+		t.Fatalf("ChannelCount = %d right after drain, want 1 (history channel survives)", int(e.Stats().Channels))
 	}
 
 	waitChannelCount(t, e, 0)
@@ -975,8 +996,8 @@ func TestIdleReapSkipsSubscribedChannel(t *testing.T) {
 	e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver)
 
 	time.Sleep(250 * time.Millisecond)
-	if e.ChannelCount() != 1 {
-		t.Fatalf("ChannelCount = %d, want 1 (subscribed channel must never be idle reaped)", e.ChannelCount())
+	if int(e.Stats().Channels) != 1 {
+		t.Fatalf("ChannelCount = %d, want 1 (subscribed channel must never be idle reaped)", int(e.Stats().Channels))
 	}
 }
 
@@ -993,8 +1014,8 @@ func TestIdleReapPublishResetsClock(t *testing.T) {
 		time.Sleep(40 * time.Millisecond)
 		e.Publish("metrics:cpu", []byte("v"), 0, rec.deliver)
 	}
-	if e.ChannelCount() != 1 {
-		t.Fatalf("ChannelCount = %d while publishing kept the channel active, want 1", e.ChannelCount())
+	if int(e.Stats().Channels) != 1 {
+		t.Fatalf("ChannelCount = %d while publishing kept the channel active, want 1", int(e.Stats().Channels))
 	}
 
 	waitChannelCount(t, e, 0)
@@ -1011,8 +1032,8 @@ func TestIdleReapMaterializedPatternChannel(t *testing.T) {
 	if r := e.Publish("flow:x", []byte("v"), 0, rec.deliver); r.Delivered != 1 {
 		t.Fatalf("Delivered = %d, want 1", r.Delivered)
 	}
-	if e.ChannelCount() != 1 {
-		t.Fatalf("ChannelCount = %d after materialization, want 1", e.ChannelCount())
+	if int(e.Stats().Channels) != 1 {
+		t.Fatalf("ChannelCount = %d after materialization, want 1", int(e.Stats().Channels))
 	}
 
 	waitChannelCount(t, e, 0)
