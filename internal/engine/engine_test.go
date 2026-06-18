@@ -500,14 +500,6 @@ func TestChannelNotEmptyAfterSubscribe(t *testing.T) {
 	}
 }
 
-func TestChannelName(t *testing.T) {
-	ch := NewChannel("my-channel")
-
-	if ch.Name() != "my-channel" {
-		t.Errorf("expected 'my-channel', got %q", ch.Name())
-	}
-}
-
 func TestChannelSubscribeIdempotent(t *testing.T) {
 	ch := NewChannel("test")
 

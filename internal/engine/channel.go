@@ -190,10 +190,6 @@ func (c *Channel) Unsubscribe(id SubscriberID) bool {
 	return true
 }
 
-func (c *Channel) Name() string {
-	return c.name
-}
-
 func (c *Channel) Subscribers() []SubscriberID {
 	ptr := c.subscribers.Load()
 
