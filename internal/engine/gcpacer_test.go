@@ -182,6 +182,10 @@ func TestGCPacerStopRestoresGOGC(t *testing.T) {
 	// Ensure the global guard is clear.
 	gcPacerActive.Store(false)
 
+	const preGOGC = 137
+	original := debug.SetGCPercent(preGOGC)
+	defer debug.SetGCPercent(original)
+
 	p := &gcPacer{
 		engine:         e,
 		done:           make(chan struct{}),
@@ -192,9 +196,11 @@ func TestGCPacerStopRestoresGOGC(t *testing.T) {
 		idleDuration:   1 * time.Hour,
 		spikeGOGC:      400,
 		normalGOGC:     100,
+		prevGOGC:       preGOGC,
 	}
 
-	// Force into spike mode — Stop() should restore normalGOGC.
+	// Drive GOGC away from the captured pre-pacer value; Stop() must restore
+	// the pre-pacer value, not normalGOGC.
 	p.inSpike.Store(true)
 	debug.SetGCPercent(400)
 
@@ -207,10 +213,31 @@ func TestGCPacerStopRestoresGOGC(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	p.Stop()
 
-	// SetGCPercent returns the previous value, which should be normalGOGC (100).
-	prev := debug.SetGCPercent(100)
-	if prev != 100 {
-		t.Errorf("expected GOGC restored to 100 after Stop(), got %d", prev)
+	got := debug.SetGCPercent(preGOGC)
+	if got != preGOGC {
+		t.Errorf("Stop() left GOGC at %d, want pre-pacer %d", got, preGOGC)
+	}
+}
+
+func TestGCPacerStopRestoresMemoryLimit(t *testing.T) {
+	gcPacerActive.Store(false)
+
+	original := debug.SetMemoryLimit(-1)
+	defer debug.SetMemoryLimit(original)
+
+	e := newTestEngine()
+	cfg := defaultGCPacerConfig()
+	cfg.enabled = true
+	cfg.memoryLimit = 8 << 30
+
+	p := newGCPacer(e, cfg)
+	if got := debug.SetMemoryLimit(-1); got != cfg.memoryLimit {
+		t.Fatalf("active pacer set memory limit to %d, want %d", got, cfg.memoryLimit)
+	}
+
+	p.Stop()
+	if got := debug.SetMemoryLimit(-1); got != original {
+		t.Errorf("Stop() left memory limit at %d, want pre-pacer %d", got, original)
 	}
 }
 

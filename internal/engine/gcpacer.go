@@ -40,6 +40,15 @@ type gcPacer struct {
 	normalGOGC     int
 	memoryLimit    int64
 
+	// prevGOGC and prevMemoryLimit hold the process-global runtime settings
+	// captured at construction so Stop can restore them. SetGCPercent and
+	// SetMemoryLimit are process-global; leaving them changed would leak the
+	// pacer's tuning into the rest of the process. memoryLimitSet records
+	// whether the pacer actually changed the limit (only when configured).
+	prevGOGC        int
+	prevMemoryLimit int64
+	memoryLimitSet  bool
+
 	inSpike    atomic.Bool
 	lastGCTime atomic.Int64
 }
@@ -71,6 +80,16 @@ func defaultGCPacerConfig() gcPacerConfig {
 // only exited at spikeExitFactor × spikeMultiple (e.g., enter at 2.0, exit at 1.4).
 const spikeExitFactor = 0.7
 
+// currentGCPercent reads the process GOGC setting without leaving it changed.
+// debug has no getter, so this round-trips through SetGCPercent: the -1 call
+// returns the current value (and disables GC for the nanoseconds until the
+// second call restores it).
+func currentGCPercent() int {
+	prev := debug.SetGCPercent(-1)
+	debug.SetGCPercent(prev)
+	return prev
+}
+
 func newGCPacer(e *Engine, cfg gcPacerConfig) *gcPacer {
 	if !gcPacerActive.CompareAndSwap(false, true) {
 		e.logger.Warn("gc pacer already active, returning no-op pacer; " +
@@ -90,9 +109,11 @@ func newGCPacer(e *Engine, cfg gcPacerConfig) *gcPacer {
 		spikeGOGC:      cfg.spikeGOGC,
 		normalGOGC:     cfg.normalGOGC,
 		memoryLimit:    cfg.memoryLimit,
+		prevGOGC:       currentGCPercent(),
 	}
 	if cfg.memoryLimit > 0 {
-		debug.SetMemoryLimit(cfg.memoryLimit)
+		p.prevMemoryLimit = debug.SetMemoryLimit(cfg.memoryLimit)
+		p.memoryLimitSet = true
 	}
 	p.wg.Add(1)
 	go func() {
@@ -105,11 +126,19 @@ func newGCPacer(e *Engine, cfg gcPacerConfig) *gcPacer {
 func (p *gcPacer) Stop() {
 	close(p.done)
 	p.wg.Wait()
-	// Release the process-global guard so another pacer can be created
-	// (e.g., in tests that create multiple engines sequentially).
-	if p.engine != nil {
-		gcPacerActive.Store(false)
+	// run() has returned, so nothing races these writes. Restore the
+	// process-global runtime settings the pacer changed, then release the
+	// guard so another pacer can be created (e.g., in tests that create and
+	// stop multiple engines sequentially). A no-op pacer (engine == nil)
+	// never changed anything and must not restore.
+	if p.engine == nil {
+		return
 	}
+	debug.SetGCPercent(p.prevGOGC)
+	if p.memoryLimitSet {
+		debug.SetMemoryLimit(p.prevMemoryLimit)
+	}
+	gcPacerActive.Store(false)
 }
 
 // pacerState holds the mutable state for the EMA-based sampling loop.
@@ -204,10 +233,8 @@ func (p *gcPacer) run() {
 	for {
 		select {
 		case <-p.done:
-			// restore normal GOGC on shutdown
-			if p.inSpike.Load() {
-				debug.SetGCPercent(p.normalGOGC)
-			}
+			// Stop restores the process-global GC settings after this
+			// goroutine returns, so no restoration races here.
 			return
 		case <-ticker.C:
 		}
