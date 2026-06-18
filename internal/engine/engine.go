@@ -31,6 +31,13 @@ type Delivery struct {
 	Frame *EncodedFrame
 }
 
+// DeliveryFunc fans a publication out to one subscriber, returning whether the
+// delivery was accepted (false counts as dropped). The engine may invoke it
+// concurrently from multiple goroutines for one Publish once a channel crosses
+// the fanout threshold with workers enabled, but it never delivers the same id
+// from two goroutines at once. Implementations may therefore touch per-id state
+// without locking; any id-independent shared state they touch must be
+// synchronized.
 type DeliveryFunc func(id SubscriberID, d Delivery) bool
 
 type MetricsObserver interface {
