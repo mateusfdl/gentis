@@ -116,19 +116,6 @@ func (d *Deduplicator) Stop() {
 	close(d.done)
 }
 
-// Len returns the total number of entries across all shards.
-// Intended for testing and monitoring, not for hot-path use.
-func (d *Deduplicator) Len() int {
-	total := 0
-	for i := range d.shards {
-		sh := &d.shards[i]
-		sh.mu.RLock()
-		total += len(sh.seen)
-		sh.mu.RUnlock()
-	}
-	return total
-}
-
 // createKey uses maphash (hardware-accelerated on amd64) instead of fnv.New64a().
 // No allocations: maphash.Bytes and maphash.String are single function calls.
 func (d *Deduplicator) createKey(channel string, epoch, offset uint64) uint64 {

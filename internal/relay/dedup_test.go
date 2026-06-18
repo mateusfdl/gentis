@@ -6,6 +6,17 @@ import (
 	"time"
 )
 
+func dedupLen(d *Deduplicator) int {
+	total := 0
+	for i := range d.shards {
+		sh := &d.shards[i]
+		sh.mu.RLock()
+		total += len(sh.seen)
+		sh.mu.RUnlock()
+	}
+	return total
+}
+
 func TestDedupFirstCallAllowed(t *testing.T) {
 	d := NewDeduplicator(5 * time.Second)
 	defer d.Stop()
@@ -124,7 +135,7 @@ func TestDedupCleanupRemovesExpired(t *testing.T) {
 
 	time.Sleep(7 * time.Second)
 
-	count := d.Len()
+	count := dedupLen(d)
 
 	if count > 0 {
 		t.Errorf("expected 0 entries after cleanup, got %d", count)
