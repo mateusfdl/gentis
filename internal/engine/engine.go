@@ -24,6 +24,11 @@ type Delivery struct {
 	Data    []byte
 	Offset  uint64
 	Epoch   uint64
+
+	// Frame memoizes the wire encoding shared across this publish's
+	// fan-out, so N subscribers encode the payload once. Nil on cold
+	// paths (replay, recovery) where there is a single recipient.
+	Frame *EncodedFrame
 }
 
 type DeliveryFunc func(id SubscriberID, d Delivery) bool
@@ -530,6 +535,14 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 		}
 		fallthrough
 	default:
+		// Share one wire encoding across the fan-out: with 2+ recipients
+		// the channel_message payload is identical, so encoding it once
+		// removes the per-subscriber marshal and its encoder-pool
+		// contention. A single recipient gets no shared frame and pays
+		// nothing.
+		if len(subscribers) > 1 {
+			d.Frame = &EncodedFrame{}
+		}
 		// Use parallel fan-out for high-subscriber channels to reduce
 		// publish latency by distributing delivery across multiple
 		// goroutines.

@@ -3,6 +3,8 @@ package ws
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/mateusfdl/gentis/internal/engine"
 )
 
 const (
@@ -81,6 +83,12 @@ type ServerMessage struct {
 	Error          *ErrorResponse         `json:"error,omitempty"`
 	Published      *PublishResponse       `json:"published,omitempty"`
 	Refreshed      *RefreshResponse       `json:"refreshed,omitempty"`
+
+	// frame is the wire-encoding cache shared across a publish's fan-out,
+	// set for deliveries with 2+ recipients. The first writer to encode
+	// stores into it; the rest reuse, so a broadcast payload is marshaled
+	// once instead of once per subscriber.
+	frame *engine.EncodedFrame
 
 	enqueuedAt time.Time
 }

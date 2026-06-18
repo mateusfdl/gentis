@@ -1250,80 +1250,81 @@ func TestQoSSlowConsumerNoDrops(t *testing.T) {
 	}
 }
 
-func TestBatchedDelivery(t *testing.T) {
-	addr, _ := startTestServer(t)
+func TestBatchedDeliveryCoalescesQueuedFramesForV2(t *testing.T) {
+	srv := &Server{config: &Config{WriteTimeout: time.Second}, logger: gentislog.Nop()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &Session{id: 1, ctx: ctx, cancel: cancel, sendCh: make(chan *ServerMessage, maxBatchSize*2)}
+	sess.protoVersion.Store(2)
 
-	sub := dialWS(t, addr)
-	defer sub.Close()
-	sendJSON(t, sub, map[string]any{
-		"id":      "c1",
-		"connect": map[string]any{"auth_token": "t", "protocol_version": 2},
-	})
-	var resp ServerMessage
-	readJSON(t, sub, &resp)
-	if resp.Connected == nil || resp.Connected.ProtocolVersion != 2 {
-		t.Fatalf("expected protocol_version 2, got %+v", resp)
-	}
-	sendJSON(t, sub, map[string]any{"id": "s", "subscribe": map[string]any{"channel": "ws-burst"}})
-	readJSON(t, sub, &resp)
-	if resp.Subscribed == nil {
-		t.Fatalf("subscribe failed: %+v", resp)
-	}
-
-	pub := dialWS(t, addr)
-	defer pub.Close()
-	authenticate(t, pub)
-	const total = 40
+	const total = 8
 	for i := 1; i <= total; i++ {
-		sendJSON(t, pub, map[string]any{
-			"publish": map[string]any{"channel": "ws-burst", "data": json.RawMessage(fmt.Sprintf(`"m-%d"`, i))},
-		})
+		sess.sendCh <- getWSMsg(engine.Delivery{Channel: "ws-burst", Data: fmt.Appendf(nil, `"m-%d"`, i), Offset: uint64(i), Epoch: 7})
 	}
 
-	received := 0
-	arrays := 0
-	var offsets []uint64
-	for received < total {
-		sub.SetReadDeadline(time.Now().Add(3 * time.Second))
-		data, _, err := wsutil.ReadServerData(sub)
-		if err != nil {
-			t.Fatalf("read: %v (received %d)", err, received)
-		}
-		if len(data) > 0 && data[0] == '[' {
-			var batch []ServerMessage
-			if err := json.Unmarshal(data, &batch); err != nil {
-				t.Fatalf("unmarshal array frame: %v", err)
-			}
-			if len(batch) < 2 {
-				t.Fatalf("array frame with %d messages, batches must hold 2+", len(batch))
-			}
-			arrays++
-			for _, m := range batch {
-				if m.ChannelMessage == nil {
-					t.Fatalf("array frame contains non-delivery: %+v", m)
-				}
-				offsets = append(offsets, m.ChannelMessage.Offset)
-				received++
-			}
-			continue
-		}
-		var m ServerMessage
-		if err := json.Unmarshal(data, &m); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if m.ChannelMessage != nil {
-			offsets = append(offsets, m.ChannelMessage.Offset)
-			received++
-		}
+	first := <-sess.sendCh
+	batch, trailing := sess.batchFor(first)
+	if len(batch) != total {
+		t.Fatalf("v2 batch coalesced %d of %d queued deliveries", len(batch), total)
+	}
+	if trailing != nil {
+		t.Fatalf("unexpected trailing message: %+v", trailing)
 	}
 
-	if arrays == 0 {
-		t.Fatal("burst of 40 produced zero array frames for a v2 client")
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan bool, 1)
+	go func() { done <- srv.writeFrame(sess, server, batch) }()
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	data, err := wsutil.ReadServerText(client)
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
 	}
-	for i, off := range offsets {
-		if off != uint64(i+1) {
-			t.Fatalf("offsets = %v..., want 1..%d in order", offsets[:i+1], total)
+	if !<-done {
+		t.Fatal("writeFrame = false, want true")
+	}
+
+	if len(data) == 0 || data[0] != '[' {
+		t.Fatalf("v2 delivery frame is not an array: %q", data)
+	}
+	var got []ServerMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal array frame: %v", err)
+	}
+	if len(got) != total {
+		t.Fatalf("array frame carries %d messages, want %d", len(got), total)
+	}
+	for i, m := range got {
+		if m.ChannelMessage == nil {
+			t.Fatalf("array frame contains non-delivery at %d: %+v", i, m)
 		}
+		if m.ChannelMessage.Offset != uint64(i+1) {
+			t.Fatalf("offsets = out of order at %d: got %d, want %d", i, m.ChannelMessage.Offset, i+1)
+		}
+	}
+}
+
+func TestBatchForV1ShipsSingleMessageFrames(t *testing.T) {
+	sess := &Session{id: 1, sendCh: make(chan *ServerMessage, maxBatchSize*2)}
+	sess.protoVersion.Store(1)
+
+	for i := 1; i <= 4; i++ {
+		sess.sendCh <- getWSMsg(engine.Delivery{Channel: "c", Data: []byte(`"x"`), Offset: uint64(i), Epoch: 7})
+	}
+
+	first := <-sess.sendCh
+	batch, trailing := sess.batchFor(first)
+	if len(batch) != 1 {
+		t.Fatalf("v1 batch holds %d messages, want 1 (v1 never coalesces)", len(batch))
+	}
+	if trailing != nil {
+		t.Fatalf("unexpected trailing message: %+v", trailing)
+	}
+	if len(sess.sendCh) != 3 {
+		t.Fatalf("v1 batchFor drained the queue to %d, want 3 left untouched", len(sess.sendCh))
 	}
 }
 

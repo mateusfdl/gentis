@@ -22,6 +22,7 @@ func getWSMsg(d engine.Delivery) *ServerMessage {
 	msg.ChannelMessage.Data = json.RawMessage(d.Data)
 	msg.ChannelMessage.Offset = d.Offset
 	msg.ChannelMessage.Epoch = d.Epoch
+	msg.frame = d.Frame
 	return msg
 }
 
@@ -30,6 +31,7 @@ func putWSMsg(msg *ServerMessage) {
 	msg.ChannelMessage.Data = nil
 	msg.ChannelMessage.Offset = 0
 	msg.ChannelMessage.Epoch = 0
+	msg.frame = nil
 	msg.enqueuedAt = time.Time{}
 	wsMsgPool.Put(msg)
 }

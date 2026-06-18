@@ -151,6 +151,18 @@ func (s *Server) runReader(sess *Session, rawConn net.Conn) {
 	}
 }
 
+// batchFor decides how a dequeued message is framed. Deliveries on a v2+
+// session coalesce with other queued deliveries into one array frame; v1
+// sessions and control responses ship one message per frame. The trailing
+// message, when present, is a control response that stopped the drain and
+// must keep its own frame in order.
+func (sess *Session) batchFor(msg *ServerMessage) (batch []*ServerMessage, trailing *ServerMessage) {
+	if sess.protoVersion.Load() >= 2 && msg.ChannelMessage != nil && msg.ID == "" {
+		return drainBatch(sess, msg)
+	}
+	return []*ServerMessage{msg}, nil
+}
+
 // drainBatch opportunistically collects more deliveries already queued in
 // the send channel so they ship as one array frame. A non-delivery message
 // stops the drain and is returned separately so control responses keep
@@ -173,22 +185,31 @@ func drainBatch(sess *Session, first *ServerMessage) (batch []*ServerMessage, tr
 	return batch, nil
 }
 
-// writeFrame marshals one or more messages (an array frame when 2+) and
+// messageBytes returns the wire encoding of one message. When the message
+// carries a shared fan-out frame, the first writer to reach it encodes and
+// stores the bytes and every other subscriber reuses them, so a broadcast
+// payload is marshaled once rather than once per subscriber. The encoding of
+// the per-session message is byte-identical across subscribers, so reusing
+// the first writer's result is sound.
+func messageBytes(m *ServerMessage) ([]byte, error) {
+	if m.frame == nil {
+		return json.Marshal(m)
+	}
+	if b, ok := m.frame.Load(); ok {
+		return b, nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	m.frame.Store(b)
+	return b, nil
+}
+
+// writeFrame encodes one or more messages (an array frame when 2+) and
 // writes them as a single websocket text frame.
 func (s *Server) writeFrame(sess *Session, conn net.Conn, batch []*ServerMessage) bool {
-	var data []byte
-	var err error
-	if len(batch) >= 2 {
-		data, err = json.Marshal(batch)
-		if err != nil {
-			// One unmarshalable payload must not drop its batch
-			// neighbors: salvage the valid messages into the frame and
-			// drop only the poisoned ones.
-			data, err = s.marshalSalvaged(sess, batch)
-		}
-	} else {
-		data, err = json.Marshal(batch[0])
-	}
+	data, err := s.encodeBatch(sess, batch)
 
 	enqueuedAt := batch[0].enqueuedAt
 	deliveries := 0
@@ -217,14 +238,20 @@ func (s *Server) writeFrame(sess *Session, conn net.Conn, batch []*ServerMessage
 	return true
 }
 
-// marshalSalvaged marshals each message of a failed batch individually,
-// dropping the unmarshalable ones with a warning, and packs the survivors
-// into one array frame.
-func (s *Server) marshalSalvaged(sess *Session, batch []*ServerMessage) ([]byte, error) {
+// encodeBatch produces the wire bytes for a frame. A single message ships
+// as its own object; 2+ messages are concatenated into one array frame.
+// Either way each message's bytes come from messageBytes, so shared
+// fan-out frames are reused and an unmarshalable payload is dropped with a
+// warning without poisoning its batch neighbors.
+func (s *Server) encodeBatch(sess *Session, batch []*ServerMessage) ([]byte, error) {
+	if len(batch) == 1 {
+		return messageBytes(batch[0])
+	}
+
 	parts := make([][]byte, 0, len(batch))
 	size := 1
 	for _, m := range batch {
-		p, err := json.Marshal(m)
+		p, err := messageBytes(m)
 		if err != nil {
 			s.logger.Warn("message dropped, unmarshalable payload",
 				"session_id", sess.id, "channel", m.ChannelMessage.Channel, "offset", m.ChannelMessage.Offset)
@@ -280,14 +307,7 @@ func (s *Server) runWriter(sess *Session, conn net.Conn) {
 			ws.WriteFrame(conn, frame)
 			return
 		case msg := <-sess.sendCh:
-			var batch []*ServerMessage
-			var trailing *ServerMessage
-			if sess.protoVersion.Load() >= 2 && msg.ChannelMessage != nil && msg.ID == "" {
-				batch, trailing = drainBatch(sess, msg)
-			} else {
-				batch = []*ServerMessage{msg}
-			}
-
+			batch, trailing := sess.batchFor(msg)
 			if !s.writeFrame(sess, conn, batch) {
 				return
 			}
