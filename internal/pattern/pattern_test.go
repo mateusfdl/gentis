@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func cacheLen[V any](c *Cache[V]) int {
+	c.mu.RLock()
+	n := len(c.entries)
+	c.mu.RUnlock()
+	return n
+}
+
 func TestMatch(t *testing.T) {
 	tests := []struct {
 		pattern string
@@ -114,7 +121,7 @@ func TestCacheEviction(t *testing.T) {
 		c.Set(fmt.Sprintf("key-%d", i), i)
 	}
 
-	if got := c.Len(); got != 7 {
+	if got := cacheLen(c); got != 7 {
 		t.Errorf("cache size = %d, want 7 (fill 8, then one insert evicts 8/4=2)", got)
 	}
 }
@@ -125,8 +132,8 @@ func TestCacheClear(t *testing.T) {
 	c.Set("b", 2)
 	c.Clear()
 
-	if c.Len() != 0 {
-		t.Errorf("Len after Clear = %d, want 0", c.Len())
+	if got := cacheLen(c); got != 0 {
+		t.Errorf("Len after Clear = %d, want 0", got)
 	}
 	if _, ok := c.Get("a"); ok {
 		t.Fatal("Get after Clear returned ok")
@@ -146,7 +153,7 @@ func TestNewCacheClampsNonPositiveMaxSize(t *testing.T) {
 	}
 
 	c.Set("b", 2)
-	if l := c.Len(); l != 1 {
+	if l := cacheLen(c); l != 1 {
 		t.Errorf("Len = %d, want 1 (maxSize clamped to 1)", l)
 	}
 }
@@ -159,7 +166,7 @@ func TestCacheSetExistingKeyDoesNotEvict(t *testing.T) {
 
 	c.Set("key-0", 100)
 
-	if got := c.Len(); got != 8 {
+	if got := cacheLen(c); got != 8 {
 		t.Fatalf("Len = %d, want 8 (updating an existing key must not evict)", got)
 	}
 	got, ok := c.Get("key-0")
@@ -177,7 +184,7 @@ func TestCacheTinyMaxSizeStillEvicts(t *testing.T) {
 	c.Set("b", 2)
 	c.Set("c", 3)
 
-	if got := c.Len(); got > 2 {
+	if got := cacheLen(c); got > 2 {
 		t.Fatalf("Len = %d, want <= 2 (eviction must fire even when len/4 truncates to 0)", got)
 	}
 	if _, ok := c.Get("c"); !ok {

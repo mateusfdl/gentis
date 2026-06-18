@@ -107,10 +107,3 @@ func (c *Cache[V]) Clear() {
 	clear(c.entries)
 	c.mu.Unlock()
 }
-
-func (c *Cache[V]) Len() int {
-	c.mu.RLock()
-	n := len(c.entries)
-	c.mu.RUnlock()
-	return n
-}

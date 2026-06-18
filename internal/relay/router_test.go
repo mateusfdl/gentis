@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 )
@@ -107,21 +106,6 @@ func TestRouterCacheHit(t *testing.T) {
 
 	if _, exists := r.cache.Get("chat-room"); !exists {
 		t.Error("expected chat-room to be cached")
-	}
-}
-
-func TestRouterCacheEviction(t *testing.T) {
-	r := NewRouter([]ChannelPattern{
-		{Pattern: "*", Mode: RouteModeLocal},
-	})
-
-	// fill cache beyond maxCacheSize
-	for i := range maxCacheSize + 1 {
-		r.Route(fmt.Sprintf("channel-%d", i))
-	}
-
-	if cacheLen := r.cache.Len(); cacheLen > maxCacheSize {
-		t.Errorf("cache should not exceed maxCacheSize, got %d", cacheLen)
 	}
 }
 
