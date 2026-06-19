@@ -7,7 +7,6 @@ import {
   PAYLOAD_SIZE,
   PROTO_DIR,
   PROTO_FILE,
-  RELAY_ADDR,
   SERVER_ADDR,
   SERVICE_METHOD,
 } from './lib/config.js';
@@ -78,7 +77,7 @@ export async function subscriber() {
   let firstMsgRecorded = false;
   const subscribeTime = Date.now();
 
-  const conn = connect(subscriberClient, RELAY_ADDR, authToken(), (msg) => {
+  const conn = connect(subscriberClient, SERVER_ADDR, authToken(), (msg) => {
     if (msg.channelMessage) {
       if (!firstMsgRecorded) {
         firstMsgRecorded = true;
@@ -92,7 +91,7 @@ export async function subscriber() {
   });
 
   if (!conn) {
-    check(null, { 'subscriber connected to relay': () => false });
+    check(null, { 'subscriber connected': () => false });
     await delay(2000);
     return;
   }
@@ -172,7 +171,7 @@ export function handleSummary(data) {
     padLine('Connect Latency p95', metricValue(data, 'connect_latency_ms', 'p(95)') + 'ms'),
     '  ' + '-'.repeat(40),
     padLine('Publishers → Server', SERVER_ADDR),
-    padLine('Subscribers → Relay', RELAY_ADDR),
+    padLine('Subscribers → Server', SERVER_ADDR),
     '  ' + '-'.repeat(40),
     padLine('Published Messages', metricValue(data, 'published_messages', 'count')),
     padLine('Received Messages', metricValue(data, 'received_messages', 'count')),
