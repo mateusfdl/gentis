@@ -51,14 +51,18 @@ export const stressStages = [
 ];
 
 export function spikeScenarios() {
+  const subVUs = envInt('SPIKE_SUB_VUS', 1600);
+  const pubVUs = envInt('SPIKE_PUB_VUS', 400);
+  const subRamp = Math.max(1, Math.round(subVUs / 2));
+  const pubRamp = Math.max(1, Math.round(pubVUs / 2));
   return {
     subscribers: {
       executor: 'ramping-vus',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 800 },
-        { duration: '30s', target: 1600 },
-        { duration: '3m', target: 1600 },
+        { duration: '30s', target: subRamp },
+        { duration: '30s', target: subVUs },
+        { duration: '3m', target: subVUs },
         { duration: '30s', target: 0 },
       ],
       exec: 'subscriber',
@@ -69,9 +73,9 @@ export function spikeScenarios() {
       executor: 'ramping-vus',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 200 },
-        { duration: '30s', target: 400 },
-        { duration: '2m', target: 400 },
+        { duration: '30s', target: pubRamp },
+        { duration: '30s', target: pubVUs },
+        { duration: '2m', target: pubVUs },
         { duration: '30s', target: 0 },
       ],
       startTime: '1m',
