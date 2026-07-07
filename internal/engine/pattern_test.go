@@ -184,8 +184,7 @@ func BenchmarkPatternChurnWithPopulation(b *testing.B) {
 		}
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		if err := e.SubscribePattern(5, "metrics:churn*"); err != nil {
 			b.Fatalf("SubscribePattern: %v", err)
 		}

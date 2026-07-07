@@ -72,14 +72,6 @@ func (cs *channelSet) remove(channel string) {
 	}
 }
 
-func (cs *channelSet) has(channel string) bool {
-	if cs.m != nil {
-		_, ok := cs.m[channel]
-		return ok
-	}
-	return slices.Contains(cs.flat, channel)
-}
-
 func (cs *channelSet) len() int {
 	if cs.m != nil {
 		return len(cs.m)

@@ -11,7 +11,7 @@ func appendN(h *history, from, to uint64, storedAt int64) {
 	var seq atomic.Uint64
 	seq.Store(from - 1)
 	for off := from; off <= to; off++ {
-		h.appendNext(&seq, []byte(fmt.Sprintf("msg-%d", off)), storedAt)
+		h.appendNext(&seq, fmt.Appendf(nil, "msg-%d", off), storedAt)
 	}
 }
 
@@ -190,8 +190,7 @@ func TestHistoryReplay(t *testing.T) {
 func BenchmarkHistoryReplayNearTip(b *testing.B) {
 	h := newHistory(8192, 0)
 	appendN(h, 1, 8192, 100)
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		items, ok := h.replayN(8190, 64)
 		if !ok || len(items) != 2 {
 			b.Fatalf("items = %d ok = %v, want 2 true", len(items), ok)

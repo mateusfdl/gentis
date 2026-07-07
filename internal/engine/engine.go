@@ -339,7 +339,7 @@ func roundRobinDeliver(ch *Channel, subs []SubscriberID, d Delivery, exclude Sub
 	}
 	start := ch.rr.Add(1) - 1
 	tried := 0
-	for i := uint64(0); i < n; i++ {
+	for i := range n {
 		id := subs[(start+i)%n]
 		if id == exclude {
 			continue
@@ -718,11 +718,7 @@ func historySweepInterval(cfg *config) time.Duration {
 	if minTTL == 0 {
 		return 0
 	}
-	interval := minTTL / 2
-	if interval < 10*time.Millisecond {
-		interval = 10 * time.Millisecond
-	}
-	return interval
+	return max(minTTL/2, 10*time.Millisecond)
 }
 
 // runHistorySweeper trims expired history entries across all shards and
