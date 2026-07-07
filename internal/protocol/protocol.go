@@ -40,7 +40,10 @@ type Engine interface {
 // satisfies it; a fake lets tests pin the install-before-subscribe and
 // rollback-on-error ordering directly.
 type Consumer interface {
-	Subscribe(channel string, w *qos.Window)
+	// Subscribe installs a window unless the channel already has one;
+	// false means the existing window stayed authoritative and the
+	// caller must not roll it back on a failed subscribe.
+	Subscribe(channel string, w *qos.Window) bool
 	Unsubscribe(channel string)
 	Confirm(channel string, offset uint64)
 	Deliver(d engine.Delivery) bool

@@ -75,14 +75,25 @@ func (f *fakeEngine) Publish(channel string, data []byte, exclude engine.Subscri
 }
 
 type fakeConsumer struct {
-	rec *recorder
+	rec       *recorder
+	installed map[string]bool
 }
 
-func (f *fakeConsumer) Subscribe(channel string, w *qos.Window) {
+func (f *fakeConsumer) Subscribe(channel string, w *qos.Window) bool {
+	if f.installed[channel] {
+		f.rec.add("qos.subscribe-refused %s", channel)
+		return false
+	}
+	if f.installed == nil {
+		f.installed = make(map[string]bool)
+	}
+	f.installed[channel] = true
 	f.rec.add("qos.subscribe %s", channel)
+	return true
 }
 
 func (f *fakeConsumer) Unsubscribe(channel string) {
+	delete(f.installed, channel)
 	f.rec.add("qos.unsubscribe %s", channel)
 }
 
@@ -339,6 +350,29 @@ func TestSubscribeRollsBackWindowOnEngineError(t *testing.T) {
 	}
 	if s.state.SubscriptionCount() != 0 {
 		t.Fatal("failed subscribe must not register in session state")
+	}
+}
+
+func TestRejectedDuplicateSubscribeKeepsExistingWindow(t *testing.T) {
+	s := newFakeSession()
+	authenticate(t, s)
+
+	Subscribe(s, SubscribeRequest{Channel: "jobs:q", HasWindow: true, Window: Window{Count: 4}}, "s1")
+	s.rec.events = nil
+
+	s.eng.subscribeErr = engine.ErrAlreadySubscribed
+	Subscribe(s, SubscribeRequest{Channel: "jobs:q", HasWindow: true, Window: Window{Count: 4}}, "s2")
+
+	want := []string{
+		"qos.subscribe-refused jobs:q",
+		"engine.subscribe jobs:q prio=0",
+		fmt.Sprintf("send.error code=%d msg=%s", CodeAlreadySubscribed, engine.ErrAlreadySubscribed.Error()),
+	}
+	if !slices.Equal(s.rec.events, want) {
+		t.Errorf("events = %v, want %v", s.rec.events, want)
+	}
+	if !s.consumer.installed["jobs:q"] {
+		t.Fatal("rejected duplicate subscribe must leave the original window installed")
 	}
 }
 

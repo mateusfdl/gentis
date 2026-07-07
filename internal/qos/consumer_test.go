@@ -1,6 +1,7 @@
 package qos
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -334,6 +335,27 @@ func TestLostGapResetsWindowAndKeepsFlowing(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("offsets = %v, want [1 7]: window never re-baselined after lost gap", s.offsets())
+}
+
+func TestSubscribeDoesNotReplaceActiveWindow(t *testing.T) {
+	e := newQoSEngine(t)
+	s := &sink{}
+	c := NewConsumer(e, s.deliver, time.Hour, nil)
+	defer c.Stop()
+
+	if !c.Subscribe("q", NewWindow(1, 0, time.Minute, 2)) {
+		t.Fatal("first Subscribe must install the window")
+	}
+	c.Deliver(engine.Delivery{Channel: "q", Offset: 1, Epoch: 5})
+
+	if c.Subscribe("q", NewWindow(100, 0, time.Minute, 2)) {
+		t.Fatal("Subscribe on a channel with an active window must refuse")
+	}
+	c.Deliver(engine.Delivery{Channel: "q", Offset: 2, Epoch: 5})
+
+	if got := s.offsets(); !slices.Equal(got, []uint64{1}) {
+		t.Fatalf("offsets = %v, want [1]: offset 2 must wait on the original window's credit", got)
+	}
 }
 
 func TestSubscribeAfterStopDoesNotStartLoop(t *testing.T) {

@@ -113,6 +113,10 @@ func Subscribe(s Session, req SubscribeRequest, reqID string) {
 	// The window is installed and pinned before live fanout starts:
 	// deliveries must never bypass the gate, and a live publish racing
 	// the replay must not baseline the window past the recover point.
+	// The rollback below is scoped to the window this request installed:
+	// a rejected duplicate subscribe must not tear down the live window
+	// the original subscription still depends on.
+	installed := false
 	if req.HasWindow {
 		enabled, timeout, maxRedeliveries := s.Engine().QoSPolicy(req.Channel)
 		if !enabled {
@@ -123,11 +127,13 @@ func Subscribe(s Session, req SubscribeRequest, reqID string) {
 		if req.HasRecover {
 			w.Baseline(req.Recover.Offset, req.Recover.Epoch)
 		}
-		s.QoS().Subscribe(req.Channel, w)
+		installed = s.QoS().Subscribe(req.Channel, w)
 	}
 
 	if err := s.Engine().SubscribePriority(s.SubscriberID(), req.Channel, int(req.Priority)); err != nil {
-		s.QoS().Unsubscribe(req.Channel)
+		if installed {
+			s.QoS().Unsubscribe(req.Channel)
+		}
 		s.SendError(SubscribeErrorCode(err), err.Error(), reqID)
 		return
 	}

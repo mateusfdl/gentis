@@ -67,9 +67,15 @@ func NewConsumer(rec Recoverer, deliver func(engine.Delivery) bool, interval tim
 }
 
 // Subscribe registers an at-least-once window for a channel and starts
-// the redelivery loop on first use.
-func (c *Consumer) Subscribe(channel string, w *Window) {
+// the redelivery loop on first use. It never replaces an active window:
+// a duplicate subscribe reports false and the existing window, with its
+// inflight and confirm state, stays authoritative.
+func (c *Consumer) Subscribe(channel string, w *Window) bool {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.windows[channel] != nil {
+		return false
+	}
 	if c.windows == nil {
 		c.windows = make(map[string]*Window)
 	}
@@ -79,8 +85,8 @@ func (c *Consumer) Subscribe(channel string, w *Window) {
 		c.wg.Add(1)
 		go c.run()
 	}
-	c.mu.Unlock()
 	c.active.Store(true)
+	return true
 }
 
 func (c *Consumer) Unsubscribe(channel string) {
