@@ -117,18 +117,6 @@ func (p *fanoutPool) stop() {
 	}
 }
 
-// resultsPool avoids allocating a []fanoutResult on every parallelFanout call.
-// The pool stores slices of the maximum worker count size; each call slices to
-// the actual numChunks needed.
-var resultsPool = sync.Pool{
-	New: func() any {
-		// Allocate for a generous default; callers with more workers will
-		// fall through to make().
-		s := make([]fanoutResult, 16)
-		return &s
-	},
-}
-
 // parallelFanout splits the subscriber slice into chunks and delivers in parallel.
 // The calling goroutine processes the first chunk directly (saving one goroutine spawn),
 // while additional goroutines handle the remaining chunks.
@@ -149,80 +137,51 @@ func (e *Engine) parallelFanout(
 	chunkSize := (n + workers - 1) / workers
 	numChunks := (n + chunkSize - 1) / chunkSize
 
-	// Get results slice from pool or allocate if too small
-	var results []fanoutResult
-	if ptr := resultsPool.Get().(*[]fanoutResult); len(*ptr) >= numChunks {
-		results = (*ptr)[:numChunks]
-		// zero the portion we'll use
-		for i := range results {
-			results[i].delivered = 0
-			results[i].dropped = 0
-		}
-		defer func() { resultsPool.Put(ptr) }()
-	} else {
-		resultsPool.Put(ptr) // return the too-small slice to avoid leaking it
-		results = make([]fanoutResult, numChunks)
+	// numChunks never exceeds the worker count, so a pooled slice sized to
+	// the engine's configured workers always fits and no publish falls back
+	// to a fresh allocation.
+	ptr := e.fanoutResults.Get().(*[]fanoutResult)
+	results := (*ptr)[:numChunks]
+	for i := range results {
+		results[i].delivered = 0
+		results[i].dropped = 0
 	}
+	defer e.fanoutResults.Put(ptr)
 
 	var wg sync.WaitGroup
 
-	// Dispatch chunks 1..N to the worker pool (chunk 0 runs on caller goroutine)
-	if e.fanoutPool != nil {
-		for i := 1; i < numChunks; i++ {
-			start := i * chunkSize
-			end := start + chunkSize
-			if end > n {
-				end = n
-			}
-			wg.Add(1)
-			if !e.fanoutPool.submit(fanoutJob{
-				chunk:   subscribers[start:end],
-				d:       d,
-				exclude: exclude,
-				deliver: deliver,
-				result:  &results[i],
-				wg:      &wg,
-			}) {
-				// Pool is shutting down; execute inline to avoid deadlock.
-				var del, drp int
-				for _, id := range subscribers[start:end] {
-					if id == exclude {
-						continue
-					}
-					if deliver(id, d) {
-						del++
-					} else {
-						drp++
-					}
-				}
-				results[i] = fanoutResult{delivered: del, dropped: drp}
-				wg.Done()
-			}
+	// Dispatch chunks 1..N to the worker pool (chunk 0 runs on the caller
+	// goroutine). The pool always exists here: parallelFanout and the pool
+	// share the fanoutWorkers > 1 gate.
+	for i := 1; i < numChunks; i++ {
+		start := i * chunkSize
+		end := start + chunkSize
+		if end > n {
+			end = n
 		}
-	} else {
-		// Fallback: spawn ad-hoc goroutines (for engines without a pool)
-		for i := 1; i < numChunks; i++ {
-			start := i * chunkSize
-			end := start + chunkSize
-			if end > n {
-				end = n
-			}
-			wg.Add(1)
-			go func(idx int, chunk []SubscriberID) {
-				defer wg.Done()
-				var del, drp int
-				for _, id := range chunk {
-					if id == exclude {
-						continue
-					}
-					if deliver(id, d) {
-						del++
-					} else {
-						drp++
-					}
+		wg.Add(1)
+		if !e.fanoutPool.submit(fanoutJob{
+			chunk:   subscribers[start:end],
+			d:       d,
+			exclude: exclude,
+			deliver: deliver,
+			result:  &results[i],
+			wg:      &wg,
+		}) {
+			// Pool is shutting down; execute inline to avoid deadlock.
+			var del, drp int
+			for _, id := range subscribers[start:end] {
+				if id == exclude {
+					continue
 				}
-				results[idx] = fanoutResult{delivered: del, dropped: drp}
-			}(i, subscribers[start:end])
+				if deliver(id, d) {
+					del++
+				} else {
+					drp++
+				}
+			}
+			results[i] = fanoutResult{delivered: del, dropped: drp}
+			wg.Done()
 		}
 	}
 

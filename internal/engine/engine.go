@@ -81,6 +81,7 @@ type Engine struct {
 	observer      MetricsObserver
 	pacer         *gcPacer
 	fanoutPool    *fanoutPool
+	fanoutResults sync.Pool
 	hashSeed      maphash.Seed
 	logger        *slog.Logger
 
@@ -128,6 +129,11 @@ func New(opts ...Option) *Engine {
 
 	if cfg.fanoutWorkers > 1 {
 		e.fanoutPool = newFanoutPool(cfg.fanoutWorkers)
+		workers := cfg.fanoutWorkers
+		e.fanoutResults.New = func() any {
+			s := make([]fanoutResult, workers)
+			return &s
+		}
 	}
 
 	if interval := historySweepInterval(cfg); interval > 0 {
