@@ -295,15 +295,15 @@ func (e *Engine) materializeChannel(channel string) *Channel {
 	return ch
 }
 
-// deliverPatterns fans the publication out to wildcard subscribers whose
-// patterns match the channel, skipping anyone the exact fan-out already
-// reached. exact must be the same snapshot the exact fan-out used, so a
-// subscriber churning between the two passes is never double-delivered or
-// skipped. Returns counts instead of mutating the result so Publish never
-// takes the result's address: that would demote the exact fan-out loop's
-// counter increments from registers to memory.
-func (e *Engine) deliverPatterns(exact []SubscriberID, d Delivery, exclude SubscriberID, deliver DeliveryFunc) (delivered, dropped int) {
-	patternIDs := e.patterns.subscribersFor(d.Channel)
+// deliverPatterns fans the publication out to the wildcard subscribers in
+// patternIDs (the match set Publish already resolved for this channel),
+// skipping anyone the exact fan-out already reached. exact must be the
+// same snapshot the exact fan-out used, so a subscriber churning between
+// the two passes is never double-delivered or skipped. Returns counts
+// instead of mutating the result so Publish never takes the result's
+// address: that would demote the exact fan-out loop's counter increments
+// from registers to memory.
+func (e *Engine) deliverPatterns(exact, patternIDs []SubscriberID, d Delivery, exclude SubscriberID, deliver DeliveryFunc) (delivered, dropped int) {
 	if len(patternIDs) == 0 {
 		return 0, 0
 	}
@@ -542,6 +542,13 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 
 	subscribers := ch.Subscribers()
 
+	// Resolved once here (a sharded cache hit after the first publish) and
+	// reused by both the frame decision and the pattern fan-out below.
+	var patternIDs []SubscriberID
+	if e.patternSubs.Load() != 0 {
+		patternIDs = e.patterns.subscribersFor(channel)
+	}
+
 	switch ch.fanout {
 	case namespace.RoundRobin:
 		result.Delivered, result.Dropped = roundRobinDeliver(ch, subscribers, d, exclude, deliver)
@@ -554,9 +561,10 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 		// Share one wire encoding across the fan-out: with 2+ recipients
 		// the channel_message payload is identical, so encoding it once
 		// removes the per-subscriber marshal and its encoder-pool
-		// contention. A single recipient gets no shared frame and pays
-		// nothing.
-		if len(subscribers) > 1 {
+		// contention. Pattern recipients count: a broadcast reaching one
+		// exact and one wildcard subscriber still marshals once. A single
+		// recipient gets no shared frame and pays nothing.
+		if len(subscribers)+len(patternIDs) > 1 {
 			d.Frame = &EncodedFrame{}
 		}
 		// Use parallel fan-out for high-subscriber channels to reduce
@@ -578,8 +586,8 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 		}
 	}
 
-	if e.patternSubs.Load() != 0 {
-		pd, pdrop := e.deliverPatterns(subscribers, d, exclude, deliver)
+	if len(patternIDs) > 0 {
+		pd, pdrop := e.deliverPatterns(subscribers, patternIDs, d, exclude, deliver)
 		result.Delivered += pd
 		result.Dropped += pdrop
 	}

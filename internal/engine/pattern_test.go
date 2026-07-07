@@ -175,6 +175,58 @@ func TestUnsubscribeAllRemovesPatterns(t *testing.T) {
 	}
 }
 
+func publishFrames(t *testing.T, exact, patterns []SubscriberID) []*EncodedFrame {
+	t.Helper()
+	e := New()
+	t.Cleanup(e.Stop)
+	for _, id := range exact {
+		if err := e.Subscribe(id, "metrics:cpu"); err != nil {
+			t.Fatalf("Subscribe(%d): %v", id, err)
+		}
+	}
+	for _, id := range patterns {
+		if err := e.SubscribePattern(id, "metrics:*"); err != nil {
+			t.Fatalf("SubscribePattern(%d): %v", id, err)
+		}
+	}
+	var frames []*EncodedFrame
+	e.Publish("metrics:cpu", []byte("v"), 0, func(id SubscriberID, d Delivery) bool {
+		frames = append(frames, d.Frame)
+		return true
+	})
+	return frames
+}
+
+func TestFrameSharedAcrossAllRecipients(t *testing.T) {
+	tests := []struct {
+		name      string
+		exact     []SubscriberID
+		patterns  []SubscriberID
+		wantFrame bool
+	}{
+		{name: "single exact recipient pays no frame", exact: []SubscriberID{1}, wantFrame: false},
+		{name: "two exact recipients share one frame", exact: []SubscriberID{1, 2}, wantFrame: true},
+		{name: "two pattern recipients share one frame", patterns: []SubscriberID{1, 2}, wantFrame: true},
+		{name: "one exact plus one pattern share one frame", exact: []SubscriberID{1}, patterns: []SubscriberID{2}, wantFrame: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frames := publishFrames(t, tt.exact, tt.patterns)
+			if len(frames) != len(tt.exact)+len(tt.patterns) {
+				t.Fatalf("deliveries = %d, want %d", len(frames), len(tt.exact)+len(tt.patterns))
+			}
+			for i, f := range frames {
+				if (f != nil) != tt.wantFrame {
+					t.Fatalf("delivery %d frame presence = %v, want %v", i, f != nil, tt.wantFrame)
+				}
+				if f != frames[0] {
+					t.Fatalf("delivery %d does not share delivery 0's frame", i)
+				}
+			}
+		})
+	}
+}
+
 func TestPatternScopedToItsNamespaceUnderRegistry(t *testing.T) {
 	reg := mustRegistry(namespace.NewRegistry(namespace.Config{
 		Default: namespace.Settings{AllowPublish: true, AllowWildcard: true},
