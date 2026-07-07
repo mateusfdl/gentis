@@ -52,6 +52,7 @@ type Server struct {
 	config    *Config
 	engine    *engine.Engine
 	store     *transport.SessionStore
+	sweeper   *qos.Sweeper
 	sessArena *arena.Arena // nil when arena is disabled
 	upstream  *Upstream
 	router    *Router
@@ -167,6 +168,7 @@ func New(opts ...Option) *Server {
 		config:     config,
 		engine:     eng,
 		store:      config.SessionStore,
+		sweeper:    qos.NewSweeper(redeliveryCheckInterval),
 		router:     NewRouter(nil),
 		dedup:      NewDeduplicator(5 * time.Second),
 		incomingCh: make(chan incomingMsg, config.IncomingBufferSize),
@@ -293,6 +295,7 @@ func (s *Server) Stop() error {
 	}
 
 	s.wg.Wait()
+	s.sweeper.Stop()
 
 	// Close the arena after all session cleanups have run (GracefulStop
 	// drains in-flight streams which triggers Stream() → cleanupSession
@@ -427,7 +430,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		channels:   make(map[string]struct{}),
 	}
 	sess.logger = s.logger.With("session_id", id)
-	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, sess.logger)
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, s.sweeper, sess.logger)
 	if s.store != nil {
 		sess.deliverFn = s.store.Deliver
 	} else {

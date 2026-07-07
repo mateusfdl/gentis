@@ -243,7 +243,7 @@ func (s *Server) createSession(parentCtx context.Context) *Session {
 		ctx:        ctx,
 		cancel:     cancel,
 	}
-	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, sess.logger)
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, s.sweeper, sess.logger)
 	if s.store != nil {
 		sess.deliverFn = s.store.Deliver
 	} else {

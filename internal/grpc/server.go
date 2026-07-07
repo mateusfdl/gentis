@@ -19,6 +19,7 @@ import (
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
+	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
@@ -30,6 +31,7 @@ type Server struct {
 	grpcSrv   *grpc.Server
 	engine    *engine.Engine
 	store     *transport.SessionStore
+	sweeper   *qos.Sweeper
 	sessArena *arena.Arena
 	sessions  sync.Map
 	nextID    atomic.Int32
@@ -72,12 +74,13 @@ func New(address string, opts ...Option) *Server {
 	logger = logger.With("component", "grpc")
 
 	s := &Server{
-		config: cfg,
-		engine: eng,
-		store:  cfg.SessionStore,
-		logger: logger,
-		ctx:    ctx,
-		cancel: cancel,
+		config:  cfg,
+		engine:  eng,
+		store:   cfg.SessionStore,
+		sweeper: qos.NewSweeper(redeliveryCheckInterval),
+		logger:  logger,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 	// When arena is on, counter-based IDs (arena-exhausted fallback)
 	// must start ABOVE the arena range so they never collide with
@@ -179,6 +182,7 @@ func (s *Server) Stop() error {
 	}
 
 	s.wg.Wait()
+	s.sweeper.Stop()
 
 	// Close the arena after all session cleanups have run
 	// (GracefulStop drains in-flight streams

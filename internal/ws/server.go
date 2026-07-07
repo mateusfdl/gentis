@@ -15,6 +15,7 @@ import (
 
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
+	"github.com/mateusfdl/gentis/internal/qos"
 	"github.com/mateusfdl/gentis/internal/transport"
 )
 
@@ -24,6 +25,7 @@ type Server struct {
 	httpSrv  *http.Server
 	engine   *engine.Engine
 	store    *transport.SessionStore
+	sweeper  *qos.Sweeper
 	logger   *slog.Logger
 	sessions sync.Map
 	nextID   atomic.Int64
@@ -60,12 +62,13 @@ func New(address string, opts ...Option) *Server {
 	logger = logger.With("component", "ws")
 
 	s := &Server{
-		config: cfg,
-		engine: eng,
-		store:  store,
-		logger: logger,
-		ctx:    ctx,
-		cancel: cancel,
+		config:  cfg,
+		engine:  eng,
+		store:   store,
+		sweeper: qos.NewSweeper(redeliveryCheckInterval),
+		logger:  logger,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 	// ws session IDs are offset above the gRPC counter range so the two
 	// transports never collide in a shared SessionStore.
@@ -124,6 +127,7 @@ func (s *Server) Stop() error {
 	}
 
 	s.wg.Wait()
+	s.sweeper.Stop()
 	return nil
 }
 

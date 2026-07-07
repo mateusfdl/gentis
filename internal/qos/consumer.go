@@ -30,45 +30,45 @@ type Recoverer interface {
 // Consumer manages the at-least-once windows of one transport session.
 // Sessions without QoS1 subscriptions pay one atomic load per delivery.
 type Consumer struct {
-	rec      Recoverer
-	deliver  func(engine.Delivery) bool
-	interval time.Duration
-	logger   *slog.Logger
-	now      func() int64
+	rec     Recoverer
+	deliver func(engine.Delivery) bool
+	sweeper *Sweeper
+	logger  *slog.Logger
+	now     func() int64
 
 	mu      sync.RWMutex
 	windows map[string]*Window
+	stopped bool
 	active  atomic.Bool
+
+	// tickMu serializes Tick bodies and gives Stop its join: taking it
+	// after setting stopped proves no tick is mid-delivery.
+	tickMu sync.Mutex
 
 	poisoned atomic.Int64
 	lostGaps atomic.Int64
-
-	running bool
-	stopped bool
-	wg      sync.WaitGroup
-	stop    chan struct{}
 }
 
 // NewConsumer wires a consumer to its history source and its transport
-// delivery function. interval is the redelivery check cadence. A nil
+// delivery function. The sweeper drives redelivery ticks; nil opts out of
+// background redelivery (callers then drive Tick themselves). A nil
 // logger falls back to slog.Default.
-func NewConsumer(rec Recoverer, deliver func(engine.Delivery) bool, interval time.Duration, logger *slog.Logger) *Consumer {
+func NewConsumer(rec Recoverer, deliver func(engine.Delivery) bool, sweeper *Sweeper, logger *slog.Logger) *Consumer {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Consumer{
-		rec:      rec,
-		deliver:  deliver,
-		interval: interval,
-		logger:   logger,
-		now:      monotonicNanos,
-		stop:     make(chan struct{}),
+		rec:     rec,
+		deliver: deliver,
+		sweeper: sweeper,
+		logger:  logger,
+		now:     monotonicNanos,
 	}
 }
 
-// Subscribe registers an at-least-once window for a channel and starts
-// the redelivery loop on first use. It never replaces an active window:
-// a duplicate subscribe reports false and the existing window, with its
+// Subscribe registers an at-least-once window for a channel and joins the
+// sweeper's tick set on first use. It never replaces an active window: a
+// duplicate subscribe reports false and the existing window, with its
 // inflight and confirm state, stays authoritative.
 func (c *Consumer) Subscribe(channel string, w *Window) bool {
 	c.mu.Lock()
@@ -80,10 +80,8 @@ func (c *Consumer) Subscribe(channel string, w *Window) bool {
 		c.windows = make(map[string]*Window)
 	}
 	c.windows[channel] = w
-	if !c.stopped && !c.running {
-		c.running = true
-		c.wg.Add(1)
-		go c.run()
+	if !c.stopped && len(c.windows) == 1 && c.sweeper != nil {
+		c.sweeper.add(c)
 	}
 	c.active.Store(true)
 	return true
@@ -94,26 +92,28 @@ func (c *Consumer) Unsubscribe(channel string) {
 	delete(c.windows, channel)
 	if len(c.windows) == 0 {
 		c.active.Store(false)
+		if c.sweeper != nil {
+			c.sweeper.remove(c)
+		}
 	}
 	c.mu.Unlock()
 }
 
-// Stop terminates the redelivery loop and joins it before returning, so no
-// pump can touch the transport afterward. Serializing against Subscribe under
-// the same lock closes the start/stop race: a Subscribe that loses the race
-// observes stopped and never launches the loop. Safe to call concurrently and
-// more than once.
+// Stop deregisters the consumer from its sweeper and joins any in-flight
+// tick before returning, so no tick-driven pump can touch the transport
+// afterward. Safe to call concurrently and more than once.
 func (c *Consumer) Stop() {
 	c.mu.Lock()
-	if c.stopped {
-		c.mu.Unlock()
-		c.wg.Wait()
-		return
+	if !c.stopped {
+		c.stopped = true
+		if c.sweeper != nil {
+			c.sweeper.remove(c)
+		}
 	}
-	c.stopped = true
-	close(c.stop)
 	c.mu.Unlock()
-	c.wg.Wait()
+
+	c.tickMu.Lock()
+	defer c.tickMu.Unlock()
 }
 
 func (c *Consumer) window(channel string) *Window {
@@ -188,43 +188,41 @@ func (c *Consumer) pump(channel string, w *Window) {
 	}
 }
 
-func (c *Consumer) run() {
-	defer c.wg.Done()
+// Tick runs one redelivery pass over every window: timed-out heads are
+// rescheduled and the pump resumes whatever the credit window admits.
+// Normally driven by the shared sweeper; inert once the consumer stopped.
+func (c *Consumer) Tick() {
+	c.tickMu.Lock()
+	defer c.tickMu.Unlock()
 
-	ticker := time.NewTicker(c.interval)
-	defer ticker.Stop()
+	if !c.active.Load() {
+		return
+	}
+	c.mu.RLock()
+	if c.stopped {
+		c.mu.RUnlock()
+		return
+	}
+	channels := make([]string, 0, len(c.windows))
+	for ch := range c.windows {
+		channels = append(channels, ch)
+	}
+	c.mu.RUnlock()
 
-	for {
-		select {
-		case <-c.stop:
-			return
-		case <-ticker.C:
-			if !c.active.Load() {
-				continue
-			}
-			c.mu.RLock()
-			channels := make([]string, 0, len(c.windows))
-			for ch := range c.windows {
-				channels = append(channels, ch)
-			}
-			c.mu.RUnlock()
-
-			now := c.now()
-			for _, ch := range channels {
-				w := c.window(ch)
-				if w == nil {
-					continue
-				}
-				action := w.CheckRedelivery(now)
-				if action.Poisoned != 0 {
-					c.poisoned.Add(1)
-					c.logger.Warn("qos delivery poisoned after exhausting redeliveries", "channel", ch, "offset", action.Poisoned)
-				}
-				// Pump unconditionally: a refused enqueue with an empty
-				// window leaves nothing inflight to time out, so the tick
-				// is the only thing that can resume delivery.
-				c.pump(ch, w)
-			}
+	now := c.now()
+	for _, ch := range channels {
+		w := c.window(ch)
+		if w == nil {
+			continue
 		}
+		action := w.CheckRedelivery(now)
+		if action.Poisoned != 0 {
+			c.poisoned.Add(1)
+			c.logger.Warn("qos delivery poisoned after exhausting redeliveries", "channel", ch, "offset", action.Poisoned)
+		}
+		// Pump unconditionally: a refused enqueue with an empty window
+		// leaves nothing inflight to time out, so the tick is the only
+		// thing that can resume delivery.
+		c.pump(ch, w)
 	}
 }

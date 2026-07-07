@@ -82,7 +82,7 @@ func (s *Server) createSession() *Session {
 	sess.logger = s.logger.With("session_id", id)
 	sess.deliverFn = s.store.Deliver
 	sess.lastRecv.Store(time.Now().UnixNano())
-	sess.qosc = qos.NewConsumer(s.engine, sess.produce, redeliveryCheckInterval, sess.logger)
+	sess.qosc = qos.NewConsumer(s.engine, sess.produce, s.sweeper, sess.logger)
 	if d := s.config.AuthDeadline; d > 0 {
 		sess.authTimer = time.AfterFunc(d, func() {
 			if sess.state.IsAuthenticated() {

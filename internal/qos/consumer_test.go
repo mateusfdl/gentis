@@ -55,10 +55,19 @@ func newQoSEngine(t *testing.T) *engine.Engine {
 	return e
 }
 
+func newSweptConsumer(t *testing.T, e *engine.Engine, deliver func(engine.Delivery) bool, interval time.Duration) *Consumer {
+	t.Helper()
+	sw := NewSweeper(interval)
+	t.Cleanup(sw.Stop)
+	c := NewConsumer(e, deliver, sw, nil)
+	t.Cleanup(c.Stop)
+	return c
+}
+
 func TestSlowConsumerNeverDrops(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 10*time.Millisecond, nil)
+	c := newSweptConsumer(t, e, s.deliver, 10*time.Millisecond)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -96,7 +105,7 @@ func TestSlowConsumerNeverDrops(t *testing.T) {
 func TestRedeliveryAfterTimeout(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
+	c := newSweptConsumer(t, e, s.deliver, 5*time.Millisecond)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -124,7 +133,7 @@ func TestRedeliveryAfterTimeout(t *testing.T) {
 func TestRedeliveryDrivenByMonotonicClockNotWallClock(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
+	c := newSweptConsumer(t, e, s.deliver, 5*time.Millisecond)
 	clock := int64(1000)
 	c.now = func() int64 { return atomic.LoadInt64(&clock) }
 	defer c.Stop()
@@ -155,7 +164,7 @@ func TestRedeliveryDrivenByMonotonicClockNotWallClock(t *testing.T) {
 func TestPoisonAfterMaxRedeliveries(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
+	c := newSweptConsumer(t, e, s.deliver, 5*time.Millisecond)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -179,7 +188,7 @@ func TestPoisonAfterMaxRedeliveries(t *testing.T) {
 func TestUnsubscribeRemovesWindow(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, time.Hour, nil)
+	c := NewConsumer(e, s.deliver, nil, nil)
 	defer c.Stop()
 
 	c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
@@ -194,31 +203,27 @@ func TestUnsubscribeRemovesWindow(t *testing.T) {
 	}
 }
 
-func TestIdleTickerDoesNoWorkAfterUnsubscribe(t *testing.T) {
+func TestTickDoesNoWorkAfterUnsubscribe(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
+	c := NewConsumer(e, s.deliver, nil, nil)
 	var nowCalls int64
 	c.now = func() int64 { atomic.AddInt64(&nowCalls, 1); return 0 }
 	defer c.Stop()
 
 	c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
 	c.Unsubscribe("q")
+	c.Tick()
 
-	time.Sleep(40 * time.Millisecond)
-	before := atomic.LoadInt64(&nowCalls)
-	time.Sleep(60 * time.Millisecond)
-	after := atomic.LoadInt64(&nowCalls)
-
-	if after != before {
-		t.Fatalf("idle ticker kept working after Unsubscribe: now() calls %d -> %d, want no growth (tick body must short-circuit when inactive)", before, after)
+	if got := atomic.LoadInt64(&nowCalls); got != 0 {
+		t.Fatalf("Tick after the last Unsubscribe called now() %d times, want 0 (tick body must short-circuit when inactive)", got)
 	}
 }
 
 func TestDeliverWithoutWindowsIsPassthrough(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, time.Hour, nil)
+	c := NewConsumer(e, s.deliver, nil, nil)
 	defer c.Stop()
 
 	d := engine.Delivery{Channel: "any", Data: []byte("x"), Offset: 9, Epoch: 1}
@@ -236,7 +241,7 @@ func TestConcurrentConfirmKeepsStrictOrder(t *testing.T) {
 	e := engine.New(engine.WithHistory(total, 0))
 	t.Cleanup(e.Stop)
 	s := &sink{failEvery: 7}
-	c := NewConsumer(e, s.deliver, 2*time.Millisecond, nil)
+	c := newSweptConsumer(t, e, s.deliver, 2*time.Millisecond)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -279,7 +284,7 @@ func TestConcurrentConfirmKeepsStrictOrder(t *testing.T) {
 func TestTickerPumpResumesAfterRefusedDelivery(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
+	c := newSweptConsumer(t, e, s.deliver, 5*time.Millisecond)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -307,7 +312,7 @@ func TestLostGapResetsWindowAndKeepsFlowing(t *testing.T) {
 	e := engine.New(engine.WithHistory(2, 0))
 	t.Cleanup(e.Stop)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, 5*time.Millisecond, nil)
+	c := newSweptConsumer(t, e, s.deliver, 5*time.Millisecond)
 	defer c.Stop()
 
 	e.Subscribe(1, "q")
@@ -340,7 +345,7 @@ func TestLostGapResetsWindowAndKeepsFlowing(t *testing.T) {
 func TestSubscribeDoesNotReplaceActiveWindow(t *testing.T) {
 	e := newQoSEngine(t)
 	s := &sink{}
-	c := NewConsumer(e, s.deliver, time.Hour, nil)
+	c := NewConsumer(e, s.deliver, nil, nil)
 	defer c.Stop()
 
 	if !c.Subscribe("q", NewWindow(1, 0, time.Minute, 2)) {
@@ -358,26 +363,12 @@ func TestSubscribeDoesNotReplaceActiveWindow(t *testing.T) {
 	}
 }
 
-func TestSubscribeAfterStopDoesNotStartLoop(t *testing.T) {
-	e := newQoSEngine(t)
-	s := &sink{}
-	c := NewConsumer(e, s.deliver, time.Hour, nil)
-
-	c.Stop()
-	c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
-
-	c.mu.Lock()
-	running := c.running
-	c.mu.Unlock()
-	if running {
-		t.Fatal("Subscribe after Stop started the redelivery loop; Stop's join contract is unsound")
-	}
-}
-
 func TestSubscribeStopConcurrent(t *testing.T) {
 	for range 50 {
 		e := newQoSEngine(t)
-		c := NewConsumer(e, func(engine.Delivery) bool { return true }, time.Millisecond, nil)
+		sw := NewSweeper(time.Millisecond)
+		t.Cleanup(sw.Stop)
+		c := NewConsumer(e, func(engine.Delivery) bool { return true }, sw, nil)
 
 		var wg sync.WaitGroup
 		wg.Add(2)
@@ -396,7 +387,7 @@ func TestSubscribeStopConcurrent(t *testing.T) {
 
 func TestConsumerStopConcurrent(t *testing.T) {
 	e := newQoSEngine(t)
-	c := NewConsumer(e, func(engine.Delivery) bool { return true }, time.Hour, nil)
+	c := NewConsumer(e, func(engine.Delivery) bool { return true }, nil, nil)
 	c.Subscribe("q", NewWindow(1, 0, time.Minute, 1))
 
 	var wg sync.WaitGroup
