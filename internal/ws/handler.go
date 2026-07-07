@@ -121,21 +121,18 @@ func (c *liveConn) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// runReader blocks in Read with no deadline: cancellation surfaces through
+// runWriter, which exits on ctx.Done and closes the connection, failing the
+// read immediately. Deadline polling would cost two timer updates per read
+// and a wakeup per idle second per connection, and a frame trickling across
+// the deadline would fail mid-parse and desync the stream on the retry.
 func (s *Server) runReader(sess *Session, rawConn net.Conn) {
 	conn := &liveConn{Conn: rawConn, sess: sess}
 	for {
-		// using a short read deadline to check context cancellation periodically
-		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-
 		data, _, err := wsutil.ReadClientData(conn)
 		if err != nil {
 			if sess.ctx.Err() != nil {
 				return
-			}
-
-			var netErr net.Error
-			if errors.As(err, &netErr) && netErr.Timeout() {
-				continue
 			}
 
 			var closeErr wsutil.ClosedError
