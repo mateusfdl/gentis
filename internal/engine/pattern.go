@@ -88,6 +88,37 @@ func (p *patternRegistry) publishLocked() {
 			next.entries = append(next.entries, patternEntry{pat: pat, ns: namespace.Prefix(pat), subs: slices.Clone(ids)})
 		}
 	}
+	p.swapLocked(next)
+}
+
+// publishEntryLocked derives the next snapshot from the previous one by
+// replacing only the touched pattern's entry and sharing every other one,
+// which entries can afford because they are immutable once stored: a
+// single wildcard subscribe or unsubscribe clones one subscriber slice,
+// not every slice in the registry. Caller must hold p.mu.
+func (p *patternRegistry) publishEntryLocked(pat string) {
+	old := p.snap.Load()
+	next := &patternSnapshot{gen: old.gen + 1}
+	ids, live := p.subs[pat]
+	next.entries = make([]patternEntry, 0, len(old.entries)+1)
+	found := false
+	for _, e := range old.entries {
+		if e.pat == pat {
+			found = true
+			if live {
+				next.entries = append(next.entries, patternEntry{pat: pat, ns: e.ns, subs: slices.Clone(ids)})
+			}
+			continue
+		}
+		next.entries = append(next.entries, e)
+	}
+	if live && !found {
+		next.entries = append(next.entries, patternEntry{pat: pat, ns: namespace.Prefix(pat), subs: slices.Clone(ids)})
+	}
+	p.swapLocked(next)
+}
+
+func (p *patternRegistry) swapLocked(next *patternSnapshot) {
 	p.snap.Store(next)
 	for _, c := range p.caches {
 		c.Clear()
@@ -102,7 +133,7 @@ func (p *patternRegistry) add(id SubscriberID, pat string) bool {
 	}
 	p.subs[pat] = append(p.subs[pat], id)
 	p.byID[id] = append(p.byID[id], pat)
-	p.publishLocked()
+	p.publishEntryLocked(pat)
 	return true
 }
 
@@ -112,7 +143,7 @@ func (p *patternRegistry) remove(id SubscriberID, pat string) bool {
 	if !p.removeLocked(id, pat) {
 		return false
 	}
-	p.publishLocked()
+	p.publishEntryLocked(pat)
 	return true
 }
 

@@ -175,6 +175,26 @@ func TestUnsubscribeAllRemovesPatterns(t *testing.T) {
 	}
 }
 
+func BenchmarkPatternChurnWithPopulation(b *testing.B) {
+	e := New()
+	defer e.Stop()
+	for i := range 1000 {
+		if err := e.SubscribePattern(SubscriberID(i+10), fmt.Sprintf("metrics:p%d*", i)); err != nil {
+			b.Fatalf("SubscribePattern(%d): %v", i, err)
+		}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if err := e.SubscribePattern(5, "metrics:churn*"); err != nil {
+			b.Fatalf("SubscribePattern: %v", err)
+		}
+		if !e.UnsubscribePattern(5, "metrics:churn*") {
+			b.Fatal("UnsubscribePattern returned false")
+		}
+	}
+}
+
 func publishFrames(t *testing.T, exact, patterns []SubscriberID) []*EncodedFrame {
 	t.Helper()
 	e := New()
