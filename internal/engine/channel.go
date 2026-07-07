@@ -151,16 +151,15 @@ func (c *Channel) Subscribe(id SubscriberID) bool {
 		return false
 	}
 
-	needed := len(*current) + 1
-	newSubs := getSubscriberSlice(needed)
-	newSubs = append(newSubs, *current...)
-	newSubs = append(newSubs, id)
-
+	// Appending into spare capacity of the current backing array is safe
+	// under copy-on-write: slot len(*current) is invisible to every
+	// published reader (their headers bound iteration below it), mutations
+	// serialize under c.mu, and Unsubscribe always copies to a fresh
+	// array, so a backing's length only grows and no slot is written
+	// twice. With no spare capacity append reallocates with its usual
+	// doubling, making subscribe amortized O(1) instead of O(n) per call.
+	newSubs := append(*current, id)
 	c.subscribers.Store(&newSubs)
-	// Note: old slice is NOT returned to the pool because concurrent
-	// publishers may still be iterating it via Subscribers(). The GC
-	// will reclaim it once all readers finish.
-
 	return true
 }
 
@@ -185,16 +184,15 @@ func (c *Channel) Unsubscribe(id SubscriberID) bool {
 		return false
 	}
 
-	newLen := len(*current) - 1
-	newSubs := getSubscriberSlice(newLen)
+	// The copy to a fresh array (never an in-place shift or truncation)
+	// is what keeps Subscribe's spare-capacity append safe: readers may
+	// still be iterating the old backing, and no slot of any published
+	// backing may ever be rewritten.
+	newSubs := make([]SubscriberID, 0, len(*current)-1)
 	newSubs = append(newSubs, (*current)[:idx]...)
 	newSubs = append(newSubs, (*current)[idx+1:]...)
 
 	c.subscribers.Store(&newSubs)
-	// Note: old slice is NOT returned to the pool because concurrent
-	// publishers may still be iterating it via Subscribers(). The GC
-	// will reclaim it once all readers finish.
-
 	return true
 }
 
