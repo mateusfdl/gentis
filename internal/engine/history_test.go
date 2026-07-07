@@ -21,9 +21,45 @@ func TestHistoryReplay(t *testing.T) {
 		capacity    int
 		setup       func(h *history)
 		fromOffset  uint64
+		max         int
 		wantOffsets []uint64
 		wantOK      bool
 	}{
+		{
+			name:        "max caps the batch",
+			capacity:    8,
+			setup:       func(h *history) { appendN(h, 1, 5, 100) },
+			fromOffset:  0,
+			max:         2,
+			wantOffsets: []uint64{1, 2},
+			wantOK:      true,
+		},
+		{
+			name:        "max larger than available returns all",
+			capacity:    8,
+			setup:       func(h *history) { appendN(h, 1, 5, 100) },
+			fromOffset:  3,
+			max:         10,
+			wantOffsets: []uint64{4, 5},
+			wantOK:      true,
+		},
+		{
+			name:        "max applies across the wrap boundary",
+			capacity:    4,
+			setup:       func(h *history) { appendN(h, 1, 6, 100) },
+			fromOffset:  2,
+			max:         3,
+			wantOffsets: []uint64{3, 4, 5},
+			wantOK:      true,
+		},
+		{
+			name:        "skip into the wrapped region",
+			capacity:    4,
+			setup:       func(h *history) { appendN(h, 1, 6, 100) },
+			fromOffset:  4,
+			wantOffsets: []uint64{5, 6},
+			wantOK:      true,
+		},
 		{
 			name:        "replay all from zero",
 			capacity:    8,
@@ -131,7 +167,7 @@ func TestHistoryReplay(t *testing.T) {
 			h := newHistory(tt.capacity, time.Minute)
 			tt.setup(h)
 
-			items, ok := h.replayN(tt.fromOffset, 0)
+			items, ok := h.replayN(tt.fromOffset, tt.max)
 			if ok != tt.wantOK {
 				t.Fatalf("replay(%d) ok = %v, want %v", tt.fromOffset, ok, tt.wantOK)
 			}
@@ -148,6 +184,18 @@ func TestHistoryReplay(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkHistoryReplayNearTip(b *testing.B) {
+	h := newHistory(8192, 0)
+	appendN(h, 1, 8192, 100)
+	b.ResetTimer()
+	for range b.N {
+		items, ok := h.replayN(8190, 64)
+		if !ok || len(items) != 2 {
+			b.Fatalf("items = %d ok = %v, want 2 true", len(items), ok)
+		}
 	}
 }
 

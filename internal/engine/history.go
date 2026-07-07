@@ -76,20 +76,19 @@ func (h *history) replayN(fromOffset uint64, max int) ([]historyItem, bool) {
 		return nil, false
 	}
 
-	want := int(h.lastOffset - fromOffset)
+	// Offsets in the ring are contiguous, so the first wanted item sits
+	// at pure arithmetic distance from the tail: an almost-caught-up
+	// consumer pays for the items it gets, not for scanning the whole
+	// retained prefix on every pump.
+	skip := int(fromOffset + 1 - oldest)
+	want := h.count - skip
 	if max > 0 && max < want {
 		want = max
 	}
-	items := make([]historyItem, 0, want)
-	for i := 0; i < h.count; i++ {
-		if max > 0 && len(items) >= max {
-			break
-		}
-		item := h.entries[(tail+i)%len(h.entries)]
-		if item.offset > fromOffset {
-			items = append(items, item)
-		}
-	}
+	items := make([]historyItem, want)
+	start := (tail + skip) % len(h.entries)
+	n := copy(items, h.entries[start:min(start+want, len(h.entries))])
+	copy(items[n:], h.entries[:want-n])
 	return items, true
 }
 
