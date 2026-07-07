@@ -32,12 +32,13 @@ type Delivery struct {
 }
 
 // DeliveryFunc fans a publication out to one subscriber, returning whether the
-// delivery was accepted (false counts as dropped). The engine may invoke it
-// concurrently from multiple goroutines for one Publish once a channel crosses
-// the fanout threshold with workers enabled, but it never delivers the same id
-// from two goroutines at once. Implementations may therefore touch per-id state
-// without locking; any id-independent shared state they touch must be
-// synchronized.
+// delivery was accepted (false counts as dropped). Within one Publish the
+// engine never delivers the same id from two goroutines at once, even when
+// parallel fan-out splits the subscriber set. Across Publishes there is no
+// such exclusivity: concurrent publishers on one channel invoke the func for
+// the same id concurrently, so any per-id state an implementation touches
+// must be synchronized (the built-in senders use a channel send or a CAS
+// ring, which are).
 type DeliveryFunc func(id SubscriberID, d Delivery) bool
 
 type MetricsObserver interface {
@@ -145,6 +146,14 @@ func New(opts ...Option) *Engine {
 	return e
 }
 
+// Subscribe registers id on a channel. Calls for the same subscriber id
+// (Subscribe, Unsubscribe, UnsubscribeAll) must be serialized by the
+// caller: the channel registry and the reverse subscription index are
+// updated non-atomically, and an UnsubscribeAll racing a Subscribe for one
+// id can strand a ghost subscription that pins the channel forever.
+// Transports satisfy this by driving every per-session op from the
+// session's dispatch goroutine and cleaning up only after it exits.
+// Different ids are fully concurrent.
 func (e *Engine) Subscribe(id SubscriberID, channelName string) error {
 	return e.SubscribePriority(id, channelName, 0)
 }

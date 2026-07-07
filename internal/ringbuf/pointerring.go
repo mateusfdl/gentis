@@ -17,6 +17,11 @@ type pointerSlot[T any] struct {
 	ptr atomic.Pointer[T]
 }
 
+// PointerRing is a bounded MPSC queue: TryProduce is safe from any number
+// of goroutines, TryConsume must only ever run from one goroutine at a
+// time (the unsynchronized tail assumes a single consumer). Transports
+// satisfy this by consuming only from the sender goroutine, including the
+// post-loop drain that runs after the loop exits on the same goroutine.
 type PointerRing[T any] struct {
 	head atomic.Uint64
 	_    [cacheline.Size - 8]byte
