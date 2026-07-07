@@ -262,6 +262,23 @@ func (e *Engine) reapEmptyChannels() {
 	}
 }
 
+// dropDrainedChannel removes one channel when it has no subscribers and no
+// history, under the same conditions reapEmptyChannels applies engine-wide.
+// A publisher still holding a ref keeps the channel readable until its
+// Release, exactly as with the sweeper's reap.
+func (e *Engine) dropDrainedChannel(name string) {
+	s := e.getShard(name)
+	s.mu.Lock()
+	ch, ok := s.channels[name]
+	if ok && ch.SubscriberCount() == 0 && ch.hist == nil {
+		delete(s.channels, name)
+		e.channelCount.Add(-1)
+		s.maybeRebuild()
+		recycleChannel(ch)
+	}
+	s.mu.Unlock()
+}
+
 // createChannelLocked builds a channel from its namespace settings and
 // inserts it into the shard. The caller must hold the shard write lock.
 func (e *Engine) createChannelLocked(s *Shard, name string, settings namespace.Settings) *Channel {
@@ -510,9 +527,11 @@ func (e *Engine) Publish(channel string, data []byte, exclude SubscriberID, deli
 		ch = e.materializeChannel(channel)
 		// The last pattern unsubscribe may have reaped between the load
 		// above and the materialization; without this re-check the fresh
-		// channel would leak until the next reap cycle.
+		// channel would leak until the next reap cycle. Only the channel
+		// this publish materialized can have slipped past that reap, so
+		// drop it alone instead of sweeping every shard on the hot path.
 		if ch != nil && e.patternSubs.Load() == 0 {
-			e.reapEmptyChannels()
+			e.dropDrainedChannel(channel)
 		}
 	}
 	if ch == nil {

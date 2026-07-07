@@ -152,6 +152,11 @@ func Subscribe(s Session, req SubscribeRequest, reqID string) {
 		h.OnSubscribed(req.Channel)
 	}
 
+	// A publish landing between the engine subscribe and the recovery read
+	// arrives twice: once live, once in the replay. The window dedups it
+	// for QoS1; QoS0 recovery deliberately keeps the duplicate, because
+	// the reverse order would drop that publish instead, and clients
+	// already dedup by offset.
 	s.SendSubscribed(reqID, req.Channel, recovered, req.HasRecover)
 	for _, d := range replay {
 		s.QoS().Deliver(d)
