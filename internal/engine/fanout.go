@@ -15,6 +15,17 @@ type fanoutResult struct {
 	_         [cacheline.Size - 16]byte // pad to cache line
 }
 
+// fanoutScratch is the pooled per-publish state for parallelFanout: the
+// per-chunk results array and the WaitGroup joining the dispatched chunks.
+// The WaitGroup lives here because its address travels through the jobs
+// channel, which forces it to the heap; pooling it removes one allocation
+// per parallel publish. Reuse is safe: Wait has returned, and the counter
+// is zero, before the scratch goes back to the pool.
+type fanoutScratch struct {
+	results []fanoutResult
+	wg      sync.WaitGroup
+}
+
 // fanoutJob describes a unit of work dispatched to the persistent worker pool.
 type fanoutJob struct {
 	chunk   []SubscriberID
@@ -132,15 +143,15 @@ func (e *Engine) parallelFanout(
 	// numChunks never exceeds the worker count, so a pooled slice sized to
 	// the engine's configured workers always fits and no publish falls back
 	// to a fresh allocation.
-	ptr := e.fanoutResults.Get().(*[]fanoutResult)
-	results := (*ptr)[:numChunks]
+	scratch := e.fanoutScratch.Get().(*fanoutScratch)
+	results := scratch.results[:numChunks]
 	for i := range results {
 		results[i].delivered = 0
 		results[i].dropped = 0
 	}
-	defer e.fanoutResults.Put(ptr)
+	defer e.fanoutScratch.Put(scratch)
 
-	var wg sync.WaitGroup
+	wg := &scratch.wg
 
 	// Dispatch chunks 1..N to the worker pool (chunk 0 runs on the caller
 	// goroutine). The pool always exists here: parallelFanout and the pool
@@ -155,7 +166,7 @@ func (e *Engine) parallelFanout(
 			exclude: exclude,
 			deliver: deliver,
 			result:  &results[i],
-			wg:      &wg,
+			wg:      wg,
 		}) {
 			// Pool is shutting down; execute inline to avoid deadlock.
 			var del, drp int
