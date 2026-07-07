@@ -115,7 +115,7 @@ func New(opts ...Option) *Engine {
 		config:        cfg,
 		shards:        shards,
 		subscriptions: newSubscriptions(),
-		patterns:      newPatternRegistry(),
+		patterns:      newPatternRegistry(cfg.namespaces != nil),
 		observer:      cfg.observer,
 		hashSeed:      maphash.MakeSeed(),
 		logger:        logger,

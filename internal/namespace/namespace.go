@@ -164,6 +164,15 @@ func Split(channel string) (ns, rest string, found bool) {
 	return before, after, true
 }
 
+// Prefix returns the channel's namespace prefix, empty for unprefixed
+// channels and for channels with an empty prefix (a leading ':').
+func Prefix(channel string) string {
+	if i := strings.IndexByte(channel, ':'); i >= 0 {
+		return channel[:i]
+	}
+	return ""
+}
+
 // Resolve returns the settings governing the channel. ok is false only for
 // an unknown namespace under strict mode; lenient registries fall through
 // to the default settings. A channel with an empty namespace prefix (a

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/pattern"
 )
 
@@ -33,6 +34,14 @@ type patternRegistry struct {
 	subs map[string][]SubscriberID
 	byID map[SubscriberID][]string
 
+	// scoped confines every pattern to its own namespace: set when the
+	// engine runs with a namespace registry, where a glob crossing the
+	// ':' boundary would bypass per-namespace wildcard denial and break
+	// round-robin/priority exclusivity in namespaces the pattern's own
+	// admission check never consulted. Without a registry there are no
+	// boundaries to protect and globs stay engine-wide.
+	scoped bool
+
 	snap   atomic.Pointer[patternSnapshot]
 	seed   maphash.Seed
 	caches [patternCacheShards]*pattern.Cache[cachedMatch]
@@ -45,6 +54,7 @@ type patternSnapshot struct {
 
 type patternEntry struct {
 	pat  string
+	ns   string
 	subs []SubscriberID
 }
 
@@ -53,11 +63,12 @@ type cachedMatch struct {
 	ids []SubscriberID
 }
 
-func newPatternRegistry() *patternRegistry {
+func newPatternRegistry(scoped bool) *patternRegistry {
 	p := &patternRegistry{
-		subs: make(map[string][]SubscriberID),
-		byID: make(map[SubscriberID][]string),
-		seed: maphash.MakeSeed(),
+		subs:   make(map[string][]SubscriberID),
+		byID:   make(map[SubscriberID][]string),
+		scoped: scoped,
+		seed:   maphash.MakeSeed(),
 	}
 	for i := range p.caches {
 		p.caches[i] = pattern.NewCache[cachedMatch](patternCacheSize / patternCacheShards)
@@ -74,7 +85,7 @@ func (p *patternRegistry) publishLocked() {
 	if len(p.subs) > 0 {
 		next.entries = make([]patternEntry, 0, len(p.subs))
 		for pat, ids := range p.subs {
-			next.entries = append(next.entries, patternEntry{pat: pat, subs: slices.Clone(ids)})
+			next.entries = append(next.entries, patternEntry{pat: pat, ns: namespace.Prefix(pat), subs: slices.Clone(ids)})
 		}
 	}
 	p.snap.Store(next)
@@ -155,9 +166,16 @@ func (p *patternRegistry) subscribersFor(channel string) []SubscriberID {
 	if m, ok := c.Get(channel); ok && m.gen == snap.gen {
 		return m.ids
 	}
+	var chNS string
+	if p.scoped {
+		chNS = namespace.Prefix(channel)
+	}
 	var ids []SubscriberID
 	var set map[SubscriberID]struct{}
 	for _, e := range snap.entries {
+		if p.scoped && e.ns != chNS {
+			continue
+		}
 		if !pattern.Match(e.pat, channel) {
 			continue
 		}

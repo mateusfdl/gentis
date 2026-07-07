@@ -175,6 +175,39 @@ func TestUnsubscribeAllRemovesPatterns(t *testing.T) {
 	}
 }
 
+func TestPatternScopedToItsNamespaceUnderRegistry(t *testing.T) {
+	reg := mustRegistry(namespace.NewRegistry(namespace.Config{
+		Default: namespace.Settings{AllowPublish: true, AllowWildcard: true},
+		Namespaces: map[string]namespace.Settings{
+			"jobs": {AllowPublish: true, Fanout: namespace.RoundRobin},
+		},
+	}))
+	e := New(WithNamespaces(reg))
+	defer e.Stop()
+	rec := newDeliveryRecorder()
+
+	if err := e.SubscribePattern(1, "jobs*"); err != nil {
+		t.Fatalf("SubscribePattern: %v", err)
+	}
+	if err := e.Subscribe(2, "jobs:q"); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	if r := e.Publish("jobs:q", []byte("task"), 0, rec.deliver); r.Delivered != 1 {
+		t.Fatalf("Delivered = %d, want 1: the round-robin worker only", r.Delivered)
+	}
+	if got := rec.counts()[1]; got != 0 {
+		t.Fatalf("default-namespace wildcard received %d deliveries from the jobs namespace, want 0", got)
+	}
+
+	if r := e.Publish("jobsboard", []byte("v"), 0, rec.deliver); r.Delivered != 1 {
+		t.Fatalf("Delivered = %d on default-namespace channel, want 1", r.Delivered)
+	}
+	if got := rec.counts()[1]; got != 1 {
+		t.Fatalf("pattern subscriber received %d default-namespace deliveries, want 1", got)
+	}
+}
+
 func TestSubscribePatternDeniedByNamespace(t *testing.T) {
 	e := New(WithNamespaces(wildcardRegistry()))
 	defer e.Stop()
