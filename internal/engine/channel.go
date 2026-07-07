@@ -124,9 +124,17 @@ func (c *Channel) Acquire() { c.refs.Add(1) }
 
 // Release decrements the reader reference count. If the channel was marked
 // for recycling and this is the last reader, the channel is returned to the pool.
+//
+// The generation must be captured BEFORE the decrement: while this reader
+// holds its ref the channel cannot be pooled, so the loaded gen is provably
+// the generation the reader acquired. Loading it after the decrement races
+// a concurrent recycle→pool→reuse cycle, and a Release preempted in that
+// window would read the reused channel's fresh gen, defeat the ABA guard,
+// and wipe a live channel back into the pool.
 func (c *Channel) Release() {
+	g := c.gen.Load()
 	if c.refs.Add(-1) == 0 && c.recycled.Load() {
-		c.returnToPool(c.gen.Load())
+		c.returnToPool(g)
 	}
 }
 
