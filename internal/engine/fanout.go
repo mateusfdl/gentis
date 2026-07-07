@@ -30,11 +30,10 @@ type fanoutJob struct {
 // from a shared channel, reusing their goroutine stacks across publishes.
 type fanoutPool struct {
 	jobs chan fanoutJob
-	done chan struct{}
 
-	// mu makes submit's accept-decision atomic with stop's drain: stop
-	// takes the write lock to set stopped, so no submit can enqueue a job
-	// after the drain begins and orphan it. submit takes the read lock, so
+	// mu makes submit's accept-decision atomic with stop's close: stop
+	// takes the write lock to set stopped, so no submit can be inside the
+	// channel send when jobs is closed. submit takes the read lock, so
 	// concurrent dispatches still run in parallel on the hot path.
 	mu       sync.RWMutex
 	stopped  bool
@@ -47,7 +46,6 @@ func newFanoutPool(workers int) *fanoutPool {
 		// chunks without blocking. workers-1 is the max chunks dispatched
 		// (chunk 0 runs on the caller goroutine).
 		jobs: make(chan fanoutJob, workers*2),
-		done: make(chan struct{}),
 	}
 	p.workerWg.Add(workers)
 	for range workers {
@@ -68,53 +66,47 @@ func (p *fanoutPool) submit(job fanoutJob) bool {
 	return true
 }
 
+// worker consumes jobs with a plain channel receive: a two-case select
+// against a shutdown channel routes every job through runtime.selectgo,
+// which showed up as measurable overhead in fanout profiles. Shutdown is
+// signalled by closing jobs instead, so the hot loop stays on the direct
+// receive path and workers drain any buffered jobs before exiting.
 func (p *fanoutPool) worker() {
 	defer p.workerWg.Done()
-	for {
-		select {
-		case <-p.done:
-			return
-		case job := <-p.jobs:
-			var d, dr int
-			for _, id := range job.chunk {
-				if id == job.exclude {
-					continue
-				}
-				if job.deliver(id, job.d) {
-					d++
-				} else {
-					dr++
-				}
+	for job := range p.jobs {
+		var d, dr int
+		for _, id := range job.chunk {
+			if id == job.exclude {
+				continue
 			}
-			job.result.delivered = d
-			job.result.dropped = dr
-			job.wg.Done()
+			if job.deliver(id, job.d) {
+				d++
+			} else {
+				dr++
+			}
 		}
+		job.result.delivered = d
+		job.result.dropped = dr
+		job.wg.Done()
 	}
 }
 
-// stop signals all workers to exit, waits for them to finish, and drains
-// any orphaned jobs left in the buffer (completing their WaitGroups so
-// callers blocked on wg.Wait do not hang).
+// stop closes the jobs channel and waits for the workers to drain it and
+// exit. Buffered jobs are executed, not dropped, so callers blocked on
+// wg.Wait get accurate delivery counts. The stopped flag is set under the
+// write lock first: no submit can be inside the channel send when the
+// close happens.
 func (p *fanoutPool) stop() {
 	p.mu.Lock()
+	if p.stopped {
+		p.mu.Unlock()
+		return
+	}
 	p.stopped = true
 	p.mu.Unlock()
 
-	close(p.done)
+	close(p.jobs)
 	p.workerWg.Wait()
-
-	// Workers have exited and no further submit can enqueue (stopped is set
-	// under the same lock submit takes), so draining here completes the
-	// WaitGroups of orphaned jobs left in the buffer.
-	for {
-		select {
-		case job := <-p.jobs:
-			job.wg.Done()
-		default:
-			return
-		}
-	}
 }
 
 // parallelFanout splits the subscriber slice into chunks and delivers in parallel.
@@ -155,10 +147,7 @@ func (e *Engine) parallelFanout(
 	// share the fanoutWorkers > 1 gate.
 	for i := 1; i < numChunks; i++ {
 		start := i * chunkSize
-		end := start + chunkSize
-		if end > n {
-			end = n
-		}
+		end := min(start+chunkSize, n)
 		wg.Add(1)
 		if !e.fanoutPool.submit(fanoutJob{
 			chunk:   subscribers[start:end],
@@ -187,11 +176,7 @@ func (e *Engine) parallelFanout(
 
 	// Process chunk 0 on the caller's goroutine
 	{
-		end := chunkSize
-		if end > n {
-			end = n
-		}
-		chunk := subscribers[:end]
+		chunk := subscribers[:min(chunkSize, n)]
 		var del, drp int
 		for _, id := range chunk {
 			if id == exclude {
