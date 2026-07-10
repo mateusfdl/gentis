@@ -1,0 +1,4 @@
+auth:
+  disabled: true
+gc:
+  spike_gogc: 0

@@ -1,0 +1,5 @@
+auth:
+  disabled: true
+server:
+  tls:
+    cert: /etc/gentis/tls.crt

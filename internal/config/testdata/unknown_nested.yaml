@@ -1,0 +1,4 @@
+auth:
+  disabled: true
+engine:
+  shard: 8

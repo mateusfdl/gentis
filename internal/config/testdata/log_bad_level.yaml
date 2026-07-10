@@ -1,0 +1,4 @@
+auth:
+  disabled: true
+log:
+  level: verbose

@@ -1,0 +1,3 @@
+auth:
+  disabled: true
+bogus: 1

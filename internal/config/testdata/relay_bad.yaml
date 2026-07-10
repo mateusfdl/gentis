@@ -1,0 +1,4 @@
+auth:
+  disabled: true
+relay:
+  buffer_size: -1

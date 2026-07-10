@@ -1,0 +1,3 @@
+auth:
+  disabled: true
+  hmac_secret: topsecret
