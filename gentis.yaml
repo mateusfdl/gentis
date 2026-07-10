@@ -1,0 +1,33 @@
+log:
+  level: info
+  format: json
+
+metrics:
+  enabled: true
+
+auth:
+  disabled: true
+
+engine:
+  fanout_threshold: 100000
+  fanout_workers: 4
+
+server:
+  addr: 0.0.0.0:9000
+  metrics_addr: :8080
+  max_message_size: 65536
+  max_subscriptions: 16
+  ping_interval: 25s
+  auth_deadline: 30s
+
+websocket:
+  addr: 0.0.0.0:9080
+  read_limit: 65536
+  write_timeout: 10s
+  send_buffer: 256
+
+namespaces:
+  chat:
+    history_size: 256
+    history_ttl: 10m
+    max_subscribers: 5000

@@ -1,0 +1,119 @@
+# Gentis configuration reference.
+#
+# Every setting Gentis accepts is listed below at its built-in default. Any key
+# or whole section may be omitted to take its default. Unknown keys and
+# out-of-range or contradictory values fail loudly at startup.
+#
+# This file is a REFERENCE, not a ready-to-run config: as written it will not
+# start because auth is unconfigured and relay.upstream.addr is empty. To run
+# it, either set `auth.disabled: true` (dev) or point `auth.hmac_secret_env` at
+# an env var holding a secret; for `relay`, set `relay.upstream.addr`.
+#
+# `server` applies to `gentis serve`, `relay` applies to `gentis relay`; the
+# other sections are shared. Durations use Go syntax: 100ms, 5s, 10m, 1h.
+
+log:
+  level: info          # debug | info | warn | error
+  format: text         # text | json
+
+metrics:
+  enabled: true        # true | false — serve Prometheus metrics
+
+engine:
+  shards: 0            # 0 = auto (GOMAXPROCS*4, rounded up to a power of two)
+  fanout_threshold: 100000  # subscriber count that switches to parallel fanout
+  fanout_workers: 4    # parallel fanout goroutines (must be > 0)
+  history_size: 0      # global per-channel history ring; 0 disables recovery
+  history_ttl: 0s      # history entry TTL; requires history_size > 0 when set
+
+gc:
+  pacer: false         # enable automatic GC tuning (spike detection + idle GC)
+  mem_limit: 0         # soft memory limit in bytes; 0 = no limit
+  spike_gogc: 400      # GOGC during activity spikes (must be > 0)
+  normal_gogc: 100     # GOGC during normal operation (must be > 0)
+
+auth:
+  # Exactly one of a resolved secret or `disabled: true` must hold.
+  hmac_secret_env: GENTIS_AUTH_HMAC_SECRET  # env var holding the HS256 secret
+  hmac_secret: ""      # inline secret (prefer the env var); wins over the env
+  disabled: false      # true accepts any token without verification (dev only)
+
+websocket:
+  # Shared by serve and relay. Transport tunables (ping_interval, auth_deadline,
+  # max_message_size, max_subscriptions, tls) are inherited from the hosting
+  # server/relay section.
+  addr: ""             # listen address host:port; empty disables the WS transport
+  read_limit: 65536    # max WebSocket message size in bytes
+  write_timeout: 10s   # write deadline
+  send_buffer: 256     # per-session send buffer size
+
+server:
+  addr: 0.0.0.0:9000   # gRPC listen address (host:port)
+  metrics_addr: :8080  # metrics/health HTTP address
+  debug_addr: ""       # pprof/debug HTTP address (host:port); empty disables
+  arena: false         # mmap arena-backed session state (Linux only)
+  max_sessions: 16384  # arena session capacity (only used when arena is true)
+  ping_interval: 25s   # transport keepalive ping; 0 disables
+  auth_deadline: 30s   # close sessions unauthenticated within this window; 0 disables
+  tls:
+    cert: ""           # TLS certificate file; set both cert and key, or neither
+    key: ""            # TLS private key file
+  max_message_size: 65536  # max publish payload in bytes
+  max_subscriptions: 16    # subscriptions per session; 0 = unlimited
+
+relay:
+  addr: 127.0.0.1:9001 # relay gRPC listen address (host:port)
+  upstream:
+    addr: ""           # upstream server address (REQUIRED for relay)
+    auth_token: ""     # token presented to the upstream
+    tls: false         # dial the upstream over TLS
+    ca: ""             # CA bundle for upstream TLS; empty = system roots
+  metrics_addr: :8081  # metrics/health HTTP address
+  reconnect:
+    initial: 100ms     # backoff initial delay
+    max: 30s           # backoff maximum delay
+    multiplier: 2.0    # backoff multiplier (must be > 0)
+    max_retries: 0     # maximum reconnect retries; 0 = unlimited
+  buffer_size: 256     # per-session send buffer (must be > 0)
+  incoming_buffer: 4096  # incoming message buffer from upstream (must be > 0)
+  fanout_workers: 4    # relay-local fanout goroutines (must be > 0)
+  arena: false         # mmap arena-backed session state (Linux only)
+  max_sessions: 16384  # arena session capacity (only used when arena is true)
+  ping_interval: 25s   # transport keepalive ping; 0 disables
+  auth_deadline: 30s   # close sessions unauthenticated within this window; 0 disables
+  tls:
+    cert: ""           # TLS certificate file; set both cert and key, or neither
+    key: ""            # TLS private key file
+  max_message_size: 65536  # max publish payload in bytes
+  max_subscriptions: 16    # subscriptions per session; 0 = unlimited
+
+# Channel namespaces map a channel-name prefix ("orders:...") to per-class
+# settings. `default` governs unprefixed channels; each namespace starts from
+# zero settings and does NOT inherit from default.
+strict: false          # true rejects channels in an unknown namespace
+
+default:               # settings for unprefixed channels
+  history_size: 0      # per-channel history ring size; 0 disables
+  history_ttl: 0s      # history entry TTL; requires history_size > 0
+  allow_publish: true  # false makes the namespace subscribe-only
+  max_subscribers: 0   # cap per channel; 0 = unlimited
+  qos: at-most-once    # at-most-once | at-least-once (at-least-once needs history_size > 0)
+  fanout_mode: broadcast  # broadcast | round_robin | priority
+  allow_wildcard: false   # admit "prefix:*" pattern subscriptions; requires broadcast fanout
+  redelivery_timeout: 0s  # requires qos at-least-once (defaults to 30s under at-least-once)
+  max_redeliveries: 0     # requires qos at-least-once (defaults to 3 under at-least-once)
+  idle_reap: 0s           # discard a channel with no subscribers after this idle time; 0 disables
+
+namespaces:
+  # An at-least-once work queue example showing every per-namespace key.
+  jobs:
+    history_size: 64        # required for at-least-once qos
+    history_ttl: 5m
+    allow_publish: true
+    max_subscribers: 0
+    qos: at-least-once
+    fanout_mode: round_robin  # broadcast | round_robin | priority
+    allow_wildcard: false
+    redelivery_timeout: 2s
+    max_redeliveries: 3
+    idle_reap: 10m

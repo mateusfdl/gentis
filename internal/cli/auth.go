@@ -1,44 +1,18 @@
 package cli
 
 import (
-	"errors"
 	"log/slog"
-	"os"
 
 	"github.com/mateusfdl/gentis/internal/auth"
-	"github.com/spf13/cobra"
+	"github.com/mateusfdl/gentis/internal/config"
 )
 
-var (
-	errAuthNotConfigured = errors.New("authentication not configured: set --auth-hmac-secret or explicitly disable with --auth-disabled")
-	errAuthConflict      = errors.New("--auth-hmac-secret and --auth-disabled are mutually exclusive")
-	errTLSIncomplete     = errors.New("--tls-cert and --tls-key must be set together")
-)
-
-func addAuthFlags(cmd *cobra.Command) {
-	cmd.Flags().String("auth-hmac-secret", "", "HS256 secret for verifying client JWTs (or GENTIS_AUTH_HMAC_SECRET)")
-	cmd.Flags().Bool("auth-disabled", false, "accept any token without verification (dev only)")
-}
-
-func buildVerifier(cmd *cobra.Command, logger *slog.Logger) (auth.Verifier, error) {
-	secret, _ := cmd.Flags().GetString("auth-hmac-secret")
-	disabled, _ := cmd.Flags().GetBool("auth-disabled")
-
-	// The env var keeps the signing secret out of the process argument
-	// list; an explicit flag still wins.
-	if secret == "" {
-		secret = os.Getenv("GENTIS_AUTH_HMAC_SECRET")
-	}
-
-	switch {
-	case disabled && secret != "":
-		return nil, errAuthConflict
-	case disabled:
+// buildVerifier constructs the token verifier from the already-validated auth
+// config: the config loader guarantees exactly one of secret or disabled is set.
+func buildVerifier(a config.Auth, logger *slog.Logger) auth.Verifier {
+	if a.Disabled {
 		logger.Warn("authentication disabled, all tokens accepted")
-		return auth.InsecureVerifier{}, nil
-	case secret == "":
-		return nil, errAuthNotConfigured
-	default:
-		return auth.NewHMACVerifier([]byte(secret)), nil
+		return auth.InsecureVerifier{}
 	}
+	return auth.NewHMACVerifier([]byte(a.Secret))
 }

@@ -165,7 +165,7 @@ func TestLoadNamespaceOnlyFileFailsAuth(t *testing.T) {
 }
 
 func TestLoadNamespaceFileBackwardCompatible(t *testing.T) {
-	t.Setenv("GENTIS_AUTH_HMAC_SECRET", "x")
+	t.Setenv("GENTIS_AUTH_HMAC_SECRET", "")
 	got, err := Load("../../test/k6/gentis-qos.yaml")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -186,6 +186,30 @@ func TestLoadMissingFile(t *testing.T) {
 	cfg, err := Load("testdata/nope.yaml")
 	if err == nil {
 		t.Fatal("Load on missing file must fail")
+	}
+	if cfg != nil {
+		t.Fatalf("must return nil config on error, got %+v", cfg)
+	}
+}
+
+func TestDefaultResolvesAuthFromEnv(t *testing.T) {
+	t.Setenv("GENTIS_AUTH_HMAC_SECRET", "env-secret")
+	got, err := Default()
+	if err != nil {
+		t.Fatalf("Default: %v", err)
+	}
+	want := Defaults()
+	want.Auth.Secret = "env-secret"
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("Default mismatch\n got: %+v\nwant: %+v", *got, want)
+	}
+}
+
+func TestDefaultFailsWithoutAuth(t *testing.T) {
+	t.Setenv("GENTIS_AUTH_HMAC_SECRET", "")
+	cfg, err := Default()
+	if !errors.Is(err, ErrAuthNotConfigured) {
+		t.Fatalf("Default err = %v, want ErrAuthNotConfigured", err)
 	}
 	if cfg != nil {
 		t.Fatalf("must return nil config on error, got %+v", cfg)

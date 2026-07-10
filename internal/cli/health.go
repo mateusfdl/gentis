@@ -8,21 +8,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var healthCmd = &cobra.Command{
-	Use:   "health",
-	Short: "Check if a Gentis server is healthy",
-	RunE:  runHealth,
+func newHealthCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "health",
+		Short: "Check if a Gentis server is healthy",
+		RunE:  runHealth,
+	}
+	cmd.Flags().String("addr", "http://localhost:8080", "health endpoint base URL")
+	cmd.Flags().Duration("timeout", 5*time.Second, "HTTP request timeout")
+	return cmd
 }
 
-func init() {
-	healthCmd.Flags().String("addr", "http://localhost:8080", "health endpoint base URL")
-	healthCmd.Flags().Duration("timeout", 5*time.Second, "HTTP request timeout")
-	rootCmd.AddCommand(healthCmd)
-}
-
-func runHealth(cmd *cobra.Command, args []string) error {
-	addr, _ := cmd.Flags().GetString("addr")
-	timeout, _ := cmd.Flags().GetDuration("timeout")
+func runHealth(cmd *cobra.Command, _ []string) error {
+	addr, err := cmd.Flags().GetString("addr")
+	if err != nil {
+		return err
+	}
+	timeout, err := cmd.Flags().GetDuration("timeout")
+	if err != nil {
+		return err
+	}
 
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Get(addr + "/health")

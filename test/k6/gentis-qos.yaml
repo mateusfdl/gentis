@@ -1,3 +1,12 @@
+log:
+  format: json
+auth:
+  disabled: true
+server:
+  addr: 0.0.0.0:9000
+  metrics_addr: :8080
+websocket:
+  addr: 0.0.0.0:9080
 strict: false
 default:
   allow_publish: true

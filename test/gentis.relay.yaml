@@ -1,0 +1,12 @@
+log:
+  format: json
+
+auth:
+  disabled: true
+
+relay:
+  addr: 0.0.0.0:9001
+  metrics_addr: :8081
+  upstream:
+    addr: server:9000
+    auth_token: relay

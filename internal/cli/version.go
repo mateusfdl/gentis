@@ -6,14 +6,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version and build information",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("gentis %s (commit: %s)\n", buildVersion, buildCommit)
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(versionCmd)
+func newVersionCmd(version, commit string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version and build information",
+		Run: func(_ *cobra.Command, _ []string) {
+			fmt.Printf("gentis %s (commit: %s)\n", version, commit)
+		},
+	}
 }

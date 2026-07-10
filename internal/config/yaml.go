@@ -112,12 +112,14 @@ func (f fileYAML) apply(c *Config) error {
 	if err := applyLog(f.Log, &c.Log); err != nil {
 		return err
 	}
+
 	applyMetrics(f.Metrics, &c.Metrics)
 	applyEngine(f.Engine, &c.Engine)
 	applyGC(f.GC, &c.GC)
 	applyWebSocket(f.WebSocket, &c.WebSocket)
 	applyServer(f.Server, &c.Server)
 	applyRelay(f.Relay, &c.Relay)
+
 	return applyAuth(f.Auth, &c.Auth)
 }
 
@@ -125,20 +127,25 @@ func applyLog(y *logYAML, l *Log) error {
 	if y == nil {
 		return nil
 	}
+
 	if y.Level != nil {
 		level, err := logs.ParseLevel(*y.Level)
 		if err != nil {
 			return fmt.Errorf("%w: log.level: %v", ErrInvalid, err)
 		}
+
 		l.Level = level
 	}
+
 	if y.Format != nil {
 		format, err := logs.ParseFormat(*y.Format)
 		if err != nil {
 			return fmt.Errorf("%w: log.format: %v", ErrInvalid, err)
 		}
+
 		l.Format = format
 	}
+
 	return nil
 }
 
@@ -146,6 +153,7 @@ func applyMetrics(y *metricsYAML, m *Metrics) {
 	if y == nil {
 		return
 	}
+
 	setBool(y.Enabled, &m.Enabled)
 }
 
@@ -153,6 +161,7 @@ func applyEngine(y *engineYAML, e *Engine) {
 	if y == nil {
 		return
 	}
+
 	setInt(y.Shards, &e.Shards)
 	setInt(y.FanoutThreshold, &e.FanoutThreshold)
 	setInt(y.FanoutWorkers, &e.FanoutWorkers)
@@ -164,6 +173,7 @@ func applyGC(y *gcYAML, g *GC) {
 	if y == nil {
 		return
 	}
+
 	setBool(y.Pacer, &g.Pacer)
 	setInt64(y.MemLimit, &g.MemLimit)
 	setInt(y.SpikeGOGC, &g.SpikeGOGC)
@@ -177,9 +187,11 @@ func applyAuth(y *authYAML, a *Auth) error {
 		setString(y.HMACSecretEnv, &secretEnv)
 		setString(y.HMACSecret, &a.Secret)
 	}
+
 	if a.Secret == "" && secretEnv != "" {
 		a.Secret = os.Getenv(secretEnv)
 	}
+
 	return nil
 }
 
@@ -187,6 +199,7 @@ func applyWebSocket(y *wsYAML, w *WebSocket) {
 	if y == nil {
 		return
 	}
+
 	setString(y.Addr, &w.Addr)
 	setInt64(y.ReadLimit, &w.ReadLimit)
 	setDuration(y.WriteTimeout, &w.WriteTimeout)
@@ -197,6 +210,7 @@ func applyServer(y *serverYAML, s *Server) {
 	if y == nil {
 		return
 	}
+
 	setString(y.Addr, &s.Addr)
 	setString(y.MetricsAddr, &s.MetricsAddr)
 	setString(y.DebugAddr, &s.DebugAddr)
@@ -213,6 +227,7 @@ func applyRelay(y *relayYAML, r *Relay) {
 	if y == nil {
 		return
 	}
+
 	setString(y.Addr, &r.Addr)
 	setString(y.MetricsAddr, &r.MetricsAddr)
 	setInt(y.BufferSize, &r.BufferSize)
@@ -233,6 +248,7 @@ func applyUpstream(y *upstreamYAML, u *Upstream) {
 	if y == nil {
 		return
 	}
+
 	setString(y.Addr, &u.Addr)
 	setString(y.AuthToken, &u.AuthToken)
 	setBool(y.TLS, &u.TLS)
@@ -243,6 +259,7 @@ func applyReconnect(y *reconnectYAML, rc *Reconnect) {
 	if y == nil {
 		return
 	}
+
 	setDuration(y.Initial, &rc.Initial)
 	setDuration(y.Max, &rc.Max)
 	setFloat64(y.Multiplier, &rc.Multiplier)
@@ -253,6 +270,7 @@ func applyTLS(y *tlsYAML, t *TLS) {
 	if y == nil {
 		return
 	}
+
 	setString(y.Cert, &t.Cert)
 	setString(y.Key, &t.Key)
 }
@@ -261,6 +279,7 @@ func namespaceSectionPresent(c namespace.ConfigYAML) bool {
 	if c.Strict || len(c.Namespaces) > 0 {
 		return true
 	}
+
 	return defaultSettingsSet(c.Default)
 }
 
@@ -271,11 +290,13 @@ func defaultSettingsSet(d namespace.SettingsYAML) bool {
 		d.AllowWildcard != nil, d.RedeliveryTimeout != nil,
 		d.MaxRedeliveries != nil, d.IdleReap != nil,
 	}
+
 	for _, set := range present {
 		if set {
 			return true
 		}
 	}
+
 	return false
 }
 

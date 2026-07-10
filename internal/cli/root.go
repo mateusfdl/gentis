@@ -7,165 +7,138 @@ import (
 	"time"
 
 	"github.com/mateusfdl/gentis/internal/auth"
+	"github.com/mateusfdl/gentis/internal/config"
 	"github.com/mateusfdl/gentis/internal/engine"
 	gentislog "github.com/mateusfdl/gentis/internal/logs"
 	"github.com/mateusfdl/gentis/internal/metrics"
-	"github.com/mateusfdl/gentis/internal/namespace"
 	"github.com/mateusfdl/gentis/internal/transport"
 	wsserver "github.com/mateusfdl/gentis/internal/ws"
 	"github.com/spf13/cobra"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "gentis",
-	Short: "A lightweight real-time pub/sub server",
-	Long: `Gentis is a high-performance real-time pub/sub server with gRPC and
-WebSocket transports, relay support for horizontal scaling, and
-Prometheus metrics.`,
-	SilenceUsage:  true,
-	SilenceErrors: true,
-}
-
-var (
-	buildVersion string
-	buildCommit  string
-)
-
 func Execute(version, commit string) {
-	buildVersion = version
-	buildCommit = commit
-	rootCmd.Version = version
-
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd(version, commit)
+	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func init() {
-	pf := rootCmd.PersistentFlags()
-
-	pf.String("log-level", "info", "log level (debug, info, warn, error)")
-	pf.String("log-format", "text", "log format (text, json)")
-	pf.Bool("metrics", true, "enable Prometheus metrics")
-	pf.Bool("gc-pacer", false, "enable automatic GC tuning (spike detection + idle GC)")
-	pf.Int64("gc-mem-limit", 0, "soft memory limit in bytes for GC pacer (0 = no limit)")
-	pf.Int("gc-spike-gogc", 400, "GOGC value during detected activity spikes")
-	pf.Int("gc-normal-gogc", 100, "GOGC value during normal operation")
-	pf.Int("shards", 0, "engine shard count (0 = auto, rounded to power-of-2)")
-	pf.Int("fanout-threshold", 100_000, "subscriber count to trigger parallel fanout")
-	pf.Int("fanout-workers", 4, "parallel fanout goroutine count")
-	pf.Int("history-size", 0, "per-channel history ring size for recovery, 0 to disable")
-	pf.Duration("history-ttl", 0, "history entry TTL, 0 keeps entries until evicted by size")
-	pf.String("config", "", "namespace config file (gentis.yaml)")
-
-	rootCmd.SetVersionTemplate("gentis {{.Version}}\n")
+func newRootCmd(version, commit string) *cobra.Command {
+	root := &cobra.Command{
+		Use:   "gentis",
+		Short: "A lightweight real-time pub/sub server",
+		Long: `Gentis is a high-performance real-time pub/sub server with gRPC and
+WebSocket transports, relay support for horizontal scaling, and
+Prometheus metrics.`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Version:       version,
+	}
+	root.PersistentFlags().String("config", "", "path to the gentis.yaml config file (built-in defaults when omitted)")
+	root.SetVersionTemplate("gentis {{.Version}}\n")
+	root.AddCommand(
+		newServeCmd(),
+		newRelayCmd(),
+		newHealthCmd(),
+		newVersionCmd(version, commit),
+	)
+	return root
 }
 
-func buildLogger(cmd *cobra.Command) (*slog.Logger, error) {
-	levelStr, _ := cmd.Flags().GetString("log-level")
-	formatStr, _ := cmd.Flags().GetString("log-format")
-
-	level, err := gentislog.ParseLevel(levelStr)
+// loadConfig reads the unified config document named by --config, or the
+// built-in defaults when the flag is empty.
+func loadConfig(cmd *cobra.Command) (*config.Config, error) {
+	path, err := cmd.Flags().GetString("config")
 	if err != nil {
-		return nil, fmt.Errorf("invalid log level: %w", err)
+		return nil, err
 	}
-
-	format, err := gentislog.ParseFormat(formatStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid log format: %w", err)
+	if path == "" {
+		return config.Default()
 	}
+	return config.Load(path)
+}
 
+func buildLogger(cfg config.Log) *slog.Logger {
 	return gentislog.New(gentislog.Config{
-		Level:  level,
-		Format: format,
+		Level:  cfg.Level,
+		Format: cfg.Format,
 		Output: os.Stderr,
-	}), nil
+	})
 }
 
-func buildEngineOpts(cmd *cobra.Command, logger *slog.Logger, obs *metrics.Observer) ([]engine.Option, error) {
-	var opts []engine.Option
+func buildEngineOpts(cfg *config.Config, logger *slog.Logger, obs *metrics.Observer) []engine.Option {
+	opts := []engine.Option{engine.WithLogger(logger)}
 
-	if configPath, _ := cmd.Flags().GetString("config"); configPath != "" {
-		registry, err := namespace.LoadFile(configPath)
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, engine.WithNamespaces(registry))
+	if cfg.Namespaces != nil {
+		opts = append(opts, engine.WithNamespaces(cfg.Namespaces))
 	}
-
-	opts = append(opts, engine.WithLogger(logger))
-
-	shards, _ := cmd.Flags().GetInt("shards")
-	if shards > 0 {
-		opts = append(opts, engine.WithShards(shards))
+	if cfg.Engine.Shards > 0 {
+		opts = append(opts, engine.WithShards(cfg.Engine.Shards))
 	}
-
-	fanoutThreshold, _ := cmd.Flags().GetInt("fanout-threshold")
-	opts = append(opts, engine.WithFanoutThreshold(fanoutThreshold))
-
-	fanoutWorkers, _ := cmd.Flags().GetInt("fanout-workers")
-	opts = append(opts, engine.WithFanoutWorkers(fanoutWorkers))
-
-	historySize, _ := cmd.Flags().GetInt("history-size")
-	if historySize > 0 {
-		historyTTL, _ := cmd.Flags().GetDuration("history-ttl")
-		opts = append(opts, engine.WithHistory(historySize, historyTTL))
+	opts = append(opts,
+		engine.WithFanoutThreshold(cfg.Engine.FanoutThreshold),
+		engine.WithFanoutWorkers(cfg.Engine.FanoutWorkers),
+	)
+	if cfg.Engine.HistorySize > 0 {
+		opts = append(opts, engine.WithHistory(cfg.Engine.HistorySize, cfg.Engine.HistoryTTL))
 	}
-
 	if obs != nil {
 		opts = append(opts, engine.WithObserver(obs))
 	}
-
-	gcPacer, _ := cmd.Flags().GetBool("gc-pacer")
-	if gcPacer {
-		gcMemLimit, _ := cmd.Flags().GetInt64("gc-mem-limit")
-		opts = append(opts, engine.WithGCPacer(gcMemLimit))
-
-		spikeGOGC, _ := cmd.Flags().GetInt("gc-spike-gogc")
-		opts = append(opts, engine.WithGCPacerSpikeGOGC(spikeGOGC))
-
-		normalGOGC, _ := cmd.Flags().GetInt("gc-normal-gogc")
-		opts = append(opts, engine.WithGCPacerNormalGOGC(normalGOGC))
+	if cfg.GC.Pacer {
+		opts = append(opts,
+			engine.WithGCPacer(cfg.GC.MemLimit),
+			engine.WithGCPacerSpikeGOGC(cfg.GC.SpikeGOGC),
+			engine.WithGCPacerNormalGOGC(cfg.GC.NormalGOGC),
+		)
 	}
 
-	return opts, nil
+	return opts
 }
 
-func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, store *transport.SessionStore, obs *metrics.Observer, verifier auth.Verifier) *wsserver.Server {
-	wsAddr, _ := cmd.Flags().GetString("ws-addr")
-	if wsAddr == "" {
+// newSessionStore picks the session store implementation. When arena is on,
+// ids land densely in [1, maxSessions] so a flat-array store gives O(1) lookup
+// with a single pointer-array gc scan; otherwise the sync.Map store is fine.
+func newSessionStore(arena bool, maxSessions int) *transport.SessionStore {
+	if arena {
+		return transport.NewFlatSessionStore(engine.SubscriberID(1), maxSessions)
+	}
+	return transport.NewSessionStore()
+}
+
+// wsTransport carries the transport tunables the WebSocket server shares with
+// whichever command hosts it: server for serve, relay for relay.
+type wsTransport struct {
+	pingInterval     time.Duration
+	authDeadline     time.Duration
+	maxMessageSize   int
+	maxSubscriptions int
+	tls              config.TLS
+}
+
+func buildWSServer(ws config.WebSocket, tr wsTransport, logger *slog.Logger, eng *engine.Engine, store *transport.SessionStore, obs *metrics.Observer, verifier auth.Verifier) *wsserver.Server {
+	if ws.Addr == "" {
 		return nil
 	}
-
-	readLimit, _ := cmd.Flags().GetInt64("ws-read-limit")
-	writeTimeout, _ := cmd.Flags().GetDuration("ws-write-timeout")
-	sendBuffer, _ := cmd.Flags().GetInt("ws-send-buffer")
-
-	pingInterval, _ := cmd.Flags().GetDuration("ping-interval")
-	authDeadline, _ := cmd.Flags().GetDuration("auth-deadline")
-	maxMessageSize, _ := cmd.Flags().GetInt("max-message-size")
-	maxSubscriptions, _ := cmd.Flags().GetInt("max-subscriptions")
-	tlsCert, _ := cmd.Flags().GetString("tls-cert")
-	tlsKey, _ := cmd.Flags().GetString("tls-key")
 
 	opts := []wsserver.Option{
 		wsserver.WithEngine(eng),
 		wsserver.WithSessionStore(store),
 		wsserver.WithLogger(logger),
 		wsserver.WithVerifier(verifier),
-		wsserver.WithPingInterval(pingInterval),
-		wsserver.WithAuthDeadline(authDeadline),
-		wsserver.WithReadLimit(readLimit),
-		wsserver.WithWriteTimeout(writeTimeout),
-		wsserver.WithSendBufferSize(sendBuffer),
+		wsserver.WithPingInterval(tr.pingInterval),
+		wsserver.WithAuthDeadline(tr.authDeadline),
+		wsserver.WithReadLimit(ws.ReadLimit),
+		wsserver.WithWriteTimeout(ws.WriteTimeout),
+		wsserver.WithSendBufferSize(ws.SendBuffer),
 	}
-	if maxMessageSize > 0 {
-		opts = append(opts, wsserver.WithMaxMessageSize(maxMessageSize))
+	if tr.maxMessageSize > 0 {
+		opts = append(opts, wsserver.WithMaxMessageSize(tr.maxMessageSize))
 	}
-	opts = append(opts, wsserver.WithMaxSubscriptions(maxSubscriptions))
-	if tlsCert != "" && tlsKey != "" {
-		opts = append(opts, wsserver.WithTLS(tlsCert, tlsKey))
+	opts = append(opts, wsserver.WithMaxSubscriptions(tr.maxSubscriptions))
+	if tr.tls.Cert != "" && tr.tls.Key != "" {
+		opts = append(opts, wsserver.WithTLS(tr.tls.Cert, tr.tls.Key))
 	}
 	if obs != nil {
 		opts = append(opts, wsserver.WithDeliveryLatencyObserver(func(d time.Duration) {
@@ -173,12 +146,5 @@ func buildWSServer(cmd *cobra.Command, logger *slog.Logger, eng *engine.Engine, 
 		}))
 	}
 
-	return wsserver.New(wsAddr, opts...)
-}
-
-func addWSFlags(cmd *cobra.Command) {
-	cmd.Flags().String("ws-addr", "", "WebSocket listen address (host:port), empty to disable")
-	cmd.Flags().Int64("ws-read-limit", 65536, "WebSocket max message size in bytes")
-	cmd.Flags().Duration("ws-write-timeout", 10*time.Second, "WebSocket write deadline")
-	cmd.Flags().Int("ws-send-buffer", 256, "WebSocket per-session send buffer size")
+	return wsserver.New(ws.Addr, opts...)
 }
