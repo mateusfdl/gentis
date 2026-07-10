@@ -195,7 +195,11 @@ func (r *Registry) Resolve(channel string) (Settings, bool) {
 	return r.def, true
 }
 
-type settingsYAML struct {
+// SettingsYAML is the YAML mirror of Settings. Pointer fields distinguish an
+// unset key from an explicit zero so defaulting can key off presence. It is
+// exported so a larger config document can embed a namespace section and reuse
+// the same parsing, defaulting, and validation via Build.
+type SettingsYAML struct {
 	HistorySize       *int           `yaml:"history_size"`
 	HistoryTTL        *time.Duration `yaml:"history_ttl"`
 	AllowPublish      *bool          `yaml:"allow_publish"`
@@ -208,28 +212,20 @@ type settingsYAML struct {
 	IdleReap          *time.Duration `yaml:"idle_reap"`
 }
 
-type configYAML struct {
+// ConfigYAML is the YAML mirror of the namespace section: strict, default, and
+// namespaces. A larger config document embeds it inline so a plain namespace
+// file remains a valid subset of the unified schema.
+type ConfigYAML struct {
 	Strict     bool                    `yaml:"strict"`
-	Default    settingsYAML            `yaml:"default"`
-	Namespaces map[string]settingsYAML `yaml:"namespaces"`
+	Default    SettingsYAML            `yaml:"default"`
+	Namespaces map[string]SettingsYAML `yaml:"namespaces"`
 }
 
-// LoadFile parses a YAML namespace config. Unknown keys and invalid values
-// fail loudly; a misspelled setting must never silently become a default.
-func LoadFile(path string) (*Registry, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("namespace: read config: %w", err)
-	}
-
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
-
-	var cfg configYAML
-	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("namespace: parse config %s: %w", path, err)
-	}
-
+// Build validates a decoded namespace section and constructs a Registry. It
+// enforces the name rules and per-namespace defaulting regardless of whether
+// the YAML came from a namespace-only file or an embedded section of a larger
+// config document.
+func Build(cfg ConfigYAML) (*Registry, error) {
 	def, err := toSettings("default", cfg.Default)
 	if err != nil {
 		return nil, err
@@ -257,7 +253,26 @@ func LoadFile(path string) (*Registry, error) {
 	})
 }
 
-func toSettings(name string, raw settingsYAML) (Settings, error) {
+// LoadFile parses a YAML namespace config. Unknown keys and invalid values
+// fail loudly; a misspelled setting must never silently become a default.
+func LoadFile(path string) (*Registry, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("namespace: read config: %w", err)
+	}
+
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+
+	var cfg ConfigYAML
+	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("namespace: parse config %s: %w", path, err)
+	}
+
+	return Build(cfg)
+}
+
+func toSettings(name string, raw SettingsYAML) (Settings, error) {
 	s := Settings{AllowPublish: true}
 	if raw.HistorySize != nil {
 		s.HistorySize = *raw.HistorySize
